@@ -19,3 +19,8 @@ cargo test --workspace --all-features
 ```
 
 Generated schemas must be reproducible and clean after `cargo xtask schema` once the schema generator is introduced.
+
+## Licensing contributions
+
+By submitting a contribution, you agree that it may be distributed under the
+repository's [MIT License](LICENSE).

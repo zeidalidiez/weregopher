@@ -7,7 +7,7 @@
 **Project name:** **Weregopher**  
 **Design thesis:** Preserve the application. Transform the runtime.  
 **Transformation theme:** Convert installed Electron applications from their vendor Electron form into leaner, controllable Weregopher forms without substituting public web clients.  
-**License:** Dual-licensed MIT OR Apache-2.0  
+**License:** MIT  
 **Research baseline:** 2026-07-19  
 **Document intent:** This is the build specification and research record. It is not a product pitch, tutorial, phased “starter project,” or proposal to replace desktop clients with websites.
 
@@ -167,7 +167,7 @@ A statement marked **Research hypothesis** requires measurement or a compatibili
 | Project model | Adapter-driven transformation runtime for installed Electron desktop application packages |
 | Public websites | Never used as a substitute for installed desktop clients |
 | Primary platform | Windows-first |
-| Core license | MIT OR Apache-2.0 |
+| Core license | MIT |
 | Core implementation | Rust |
 | Windows shell | Raw Win32/COM with DirectComposition where composition hosting requires it |
 | Primary renderer | Direct WebView2 |
@@ -8058,8 +8058,7 @@ Core adapter stability does not imply every third-party extension is compatible.
 ├── Cargo.toml
 ├── Cargo.lock
 ├── rust-toolchain.toml
-├── LICENSE-MIT
-├── LICENSE-APACHE
+├── LICENSE
 ├── NOTICE
 ├── README.md
 ├── AGENTS.md
@@ -9161,7 +9160,7 @@ id = "openai.chatgpt.windows"
 display_name = "OpenAI ChatGPT Desktop"
 family = "openai.chatgpt"
 adapter_version = "0.1.0"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 publisher = "local-development"
 status = "development"
 

@@ -1,41 +1,132 @@
+<div align="center">
+
 # Weregopher
 
-Weregopher is an adapter-driven runtime for transforming installed Electron desktop applications into leaner, observable, and controllable execution forms while preserving the installed application's packaged behavior.
+**An experimental compatibility runtime for installed Electron applications.**
 
-> **Status:** architecture validation and foundational implementation. No application adapter is currently certified for production use.
+[![CI](https://img.shields.io/github/actions/workflow/status/zeidalidiez/weregopher/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/zeidalidiez/weregopher/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-2f81f7?style=flat-square)](LICENSE) [![Rust 1.97.1](https://img.shields.io/badge/rust-1.97.1-dea584?style=flat-square)](https://www.rust-lang.org/)
 
-## Project boundaries
+Weregopher discovers installed desktop packages, records exactly what it found, and prepares them for execution through explicit compatibility adapters. It is designed to preserve application behavior while making the runtime smaller, more observable, and easier to control.
 
-Weregopher:
+</div>
 
-- consumes installed application packages or immutable snapshots;
-- preserves vendor package logic where practical;
-- substitutes Electron, Node, renderer, and native boundaries through explicit adapters;
-- does not replace desktop applications with public websites;
-- does not patch vendor installations in place;
-- does not claim universal Electron compatibility.
+> [!IMPORTANT]
+> Weregopher is pre-release research software. The foundations are under active
+> development, and no application adapter is certified for production use yet.
 
-## Current milestone
+## Why Weregopher?
 
-The committed foundation contains the Rust workspace, canonical platform-neutral domain and protocol contracts, deterministic checked-in JSON Schemas, pure package-tree manifest construction from pre-observed records, a bounded Windows primitive that hashes one leased direct file, and read-only candidate profiles plus provenance-bound installation evidence contracts for Codex, Hermes Agent, Discord, and Visual Studio Code. Bounded Windows discovery checks maintained per-user locations, read-only HKCU/HKLM uninstall-registry views, and exact current-user package families through Windows `PackageManager`. Package-catalog evidence currently recognizes the installed identities `OpenAI.Codex_2p2nqsd0c76g0` and `Microsoft.VisualStudioCode_8wekyb3d8bbwe`, retaining complete package identity, architecture, version, application IDs, and installation-root provenance. Bounded aggregate discovery groups records only when their candidate target and conservative lexical Windows root match; distinct source observations and their original provenance remain intact. Candidate-specific fixed-path checks now produce bounded verification inputs for complete Discord Squirrel package versions and Visual Studio Code's unpacked main-process layout without asserting Electron detection, compatibility, or coherent package identity. Discovery neither recurses nor modifies candidate installations. Additional Hermes Agent sources, package-catalog event monitoring, package-root traversal, coherent package scanning, and executable runtime components remain separate follow-up increments.
+Electron applications often bundle a full browser runtime even when much of that
+runtime is not needed for a particular workflow. Weregopher explores a different
+approach: keep the installed application's package and logic, then replace selected
+runtime boundaries through a reviewed adapter.
 
-## Build
+This is deliberately narrower than "run any Electron app." Every supported build
+must be discovered, fingerprinted, transformed, and tested without modifying the
+vendor installation.
 
-Prerequisites: Windows x64, Rust 1.97.1 with `rustfmt` and `clippy`.
+## How it fits together
+
+```mermaid
+flowchart LR
+    A[Installed application] --> B[Read-only discovery]
+    B --> C[Package evidence]
+    C --> D[Fingerprint or snapshot]
+    D --> E[Signed adapter]
+    E --> F[Weregopher runtime]
+    F --> G[Compatibility and parity tests]
+```
+
+Discovery evidence, package identity, compatibility, security posture, and
+certification remain separate claims. Finding a familiar directory or executable
+never makes an application compatible by itself.
+
+## What exists today
+
+| Area | Current state |
+| --- | --- |
+| Domain and protocol contracts | Implemented in Rust with deterministic JSON Schemas |
+| Package manifest construction | Deterministic construction from pre-observed file records |
+| Windows file observation | Bounded direct-file hashing with retained handle identity checks |
+| Installed-app discovery | Known locations, uninstall registry, and Windows package catalog |
+| Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
+| Candidate verification | Fixed-layout inputs for Discord and Visual Studio Code |
+| Transformation runtime | Specified, not yet available end to end |
+| Certified adapters | None yet |
+
+The initial discovery work targets Codex, Hermes Agent, Discord, and Visual Studio
+Code. A discovery target is not the same as a supported or certified application.
+
+## Design rules
+
+- Read installed packages or immutable snapshots; never patch vendor installations.
+- Keep application-specific behavior in adapters instead of the core runtime.
+- Bind every derived value to its evidence source and confidence.
+- Treat native helpers and alternate runtimes as unrestricted same-user processes
+  unless an independently tested OS sandbox proves otherwise.
+- Fail closed when package identity, authority, or compatibility is unknown.
+- Keep functional compatibility, security posture, and efficiency as separate results.
+
+Weregopher is not a public-web wrapper and does not substitute websites for installed
+desktop applications.
+
+## Repository layout
+
+```text
+crates/
+  weregopher-domain/       Canonical contracts and protocol types
+  weregopher-discovery/    Read-only installed-application discovery
+  weregopher-fingerprint/  Package records, classification, and manifests
+  weregopher-windows/      Narrow Windows platform primitives
+docs/
+  adr/                     Accepted architecture decisions
+  spec/                    Full transformation-runtime specification
+schemas/                   Generated JSON Schemas
+xtask/                     Repository automation
+```
+
+## Building from source
+
+Development is Windows-first. Platform-neutral crates are also checked on Ubuntu in
+CI.
+
+### Prerequisites
+
+- Windows 10 or 11 on x64
+- Rust 1.97.1
+- `rustfmt` and `clippy`
 
 ```bash
+git clone https://github.com/zeidalidiez/weregopher.git
+cd weregopher
+
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 ```
 
+The complete local gate also checks generated schemas, dependency policy, doctests,
+Rustdoc warnings, and locked release builds.
+
 ## Documentation
 
-- Architecture specification: [`docs/spec/weregopher-electron-transformation-runtime-spec.md`](docs/spec/weregopher-electron-transformation-runtime-spec.md)
-- Architecture decisions: [`docs/adr/`](docs/adr/)
-- Security policy: [`SECURITY.md`](SECURITY.md)
-- Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- [Architecture and implementation specification](docs/spec/weregopher-electron-transformation-runtime-spec.md)
+- [Architecture decision records](docs/adr/)
+- [Security policy](SECURITY.md)
+- [Contributing guide](CONTRIBUTING.md)
+
+The specification is intentionally much broader than the current implementation.
+Use the table above and the Git history to distinguish working code from planned work.
+
+## Contributing
+
+Issues and focused pull requests are welcome while the runtime takes shape. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) and the relevant ADRs before changing a public
+contract. Please report security issues through GitHub's private security-advisory
+channel rather than a public issue.
 
 ## License
 
-Dual-licensed under either [MIT](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE), at your option. Application assets, vendor helpers, adapter inputs, and third-party components retain their own licenses and are not relicensed by Weregopher.
+Weregopher is licensed under the [MIT License](LICENSE). Vendor applications,
+application assets, adapter inputs, and third-party dependencies retain their own
+licenses and are not relicensed by this project.

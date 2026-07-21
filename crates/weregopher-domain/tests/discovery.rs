@@ -26,6 +26,7 @@ fn candidate_installation_evidence_keeps_each_value_bound_to_provenance()
             DiscoveryConfidence::DirectObservation,
             DiscoverySource::FilesystemLayout,
         )),
+        package_identity: None,
         architecture: Some(DerivedValue::new(
             Architecture::X86_64,
             DiscoveryConfidence::Corroborated,
@@ -58,6 +59,7 @@ fn candidate_installation_evidence_keeps_each_value_bound_to_provenance()
                 "confidence": "direct_observation",
                 "source": "filesystem_layout"
             },
+            "package_identity": null,
             "architecture": {
                 "value": "x86_64",
                 "confidence": "corroborated",
@@ -90,6 +92,7 @@ fn discovery_evidence_does_not_encode_electron_or_compatibility_claims()
             DiscoverySource::KnownInstallLocation,
         ),
         primary_executable_path: None,
+        package_identity: None,
         architecture: None,
         channel: None,
         observed_version: None,

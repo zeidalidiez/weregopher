@@ -101,6 +101,30 @@
           "description": "Local evidence source supporting this value."
         },
         "value": {
+          "$ref": "#/$defs/PackageIdentity",
+          "description": "Value obtained or inferred during discovery."
+        }
+      },
+      "required": [
+        "value",
+        "confidence",
+        "source"
+      ],
+      "type": "object"
+    },
+    "DerivedValue4": {
+      "additionalProperties": false,
+      "description": "A discovered value together with its acquisition strength and provenance.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DiscoveryConfidence",
+          "description": "Acquisition strength of this value."
+        },
+        "source": {
+          "$ref": "#/$defs/DiscoverySource",
+          "description": "Local evidence source supporting this value."
+        },
+        "value": {
           "$ref": "#/$defs/Architecture",
           "description": "Value obtained or inferred during discovery."
         }
@@ -221,6 +245,42 @@
           "type": "string"
         }
       ]
+    },
+    "PackageIdentity": {
+      "description": "Windows package identity fields that affect activation and compatibility.",
+      "properties": {
+        "application_ids": {
+          "description": "Declared application IDs relevant to launch and activation.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "package_family_name": {
+          "description": "Package family name.",
+          "type": "string"
+        },
+        "package_full_name": {
+          "description": "Versioned package full name.",
+          "type": "string"
+        },
+        "package_name": {
+          "description": "Package manifest identity name.",
+          "type": "string"
+        },
+        "publisher_id": {
+          "description": "Publisher identifier from the package identity.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package_name",
+        "package_family_name",
+        "package_full_name",
+        "publisher_id",
+        "application_ids"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -230,7 +290,7 @@
     "architecture": {
       "anyOf": [
         {
-          "$ref": "#/$defs/DerivedValue3"
+          "$ref": "#/$defs/DerivedValue4"
         },
         {
           "type": "null"
@@ -263,6 +323,17 @@
         }
       ],
       "description": "Package or product version text, when observed."
+    },
+    "package_identity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DerivedValue3"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Windows package identity, when supplied by a package catalog."
     },
     "primary_executable_path": {
       "anyOf": [

@@ -5,7 +5,10 @@
 
 #![forbid(unsafe_code)]
 
+mod package_catalog;
 mod uninstall;
+#[cfg(windows)]
+mod windows_package_catalog;
 #[cfg(windows)]
 mod windows_registry;
 
@@ -20,7 +23,10 @@ use weregopher_domain::{
     DiscoverySource, InstallationKind,
 };
 
+pub use package_catalog::{PackageCatalogEntry, evidence_from_package_catalog_entry};
 pub use uninstall::{UninstallRegistryEntry, evidence_from_uninstall_entry};
+#[cfg(windows)]
+pub use windows_package_catalog::discover_windows_package_catalog;
 #[cfg(windows)]
 pub use windows_registry::discover_windows_uninstall_registry;
 
@@ -32,6 +38,18 @@ pub use windows_registry::discover_windows_uninstall_registry;
 /// Always returns [`DiscoveryError::UnsupportedPlatform`].
 #[cfg(not(windows))]
 pub fn discover_windows_uninstall_registry()
+-> Result<Vec<CandidateInstallationEvidence>, DiscoveryError> {
+    Err(DiscoveryError::UnsupportedPlatform)
+}
+
+/// Reports that Windows package-catalog discovery is unavailable on this
+/// platform.
+///
+/// # Errors
+///
+/// Always returns [`DiscoveryError::UnsupportedPlatform`].
+#[cfg(not(windows))]
+pub fn discover_windows_package_catalog()
 -> Result<Vec<CandidateInstallationEvidence>, DiscoveryError> {
     Err(DiscoveryError::UnsupportedPlatform)
 }
@@ -93,6 +111,24 @@ pub enum DiscoveryError {
     #[error("uninstall-registry discovery exceeded its {limit}-candidate result limit")]
     RegistryResultLimit {
         /// Maximum accepted candidate records.
+        limit: usize,
+    },
+    /// A Windows package-catalog operation failed.
+    #[cfg(windows)]
+    #[error("failed package-catalog operation {operation}: {source}")]
+    PackageCatalogRead {
+        /// Package-catalog operation being performed.
+        operation: String,
+        /// Windows Runtime error returned by the operating system.
+        #[source]
+        source: windows::core::Error,
+    },
+    /// A package-catalog string or collection exceeded its accepted bound.
+    #[error("package-catalog field {field} exceeded its {limit}-item limit")]
+    PackageCatalogLimit {
+        /// Package field or collection whose bound was exceeded.
+        field: &'static str,
+        /// Maximum accepted items or Unicode scalar values.
         limit: usize,
     },
 }
@@ -271,6 +307,7 @@ fn evidence_for_rule(
             DiscoverySource::KnownInstallLocation,
         ),
         primary_executable_path,
+        package_identity: None,
         architecture: None,
         channel: Some(DerivedValue::new(
             rule.channel.to_owned(),

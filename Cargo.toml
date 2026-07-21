@@ -29,6 +29,14 @@ sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
+windows = { version = "0.62", features = [
+  "ApplicationModel",
+  "ApplicationModel_Core",
+  "Management_Deployment",
+  "Storage",
+  "Storage_Search",
+  "System",
+] }
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 winreg = "0.56"
 

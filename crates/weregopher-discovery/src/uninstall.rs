@@ -161,6 +161,7 @@ pub fn evidence_from_uninstall_entry(
             DiscoverySource::UninstallRegistry,
         ),
         primary_executable_path,
+        package_identity: None,
         architecture: None,
         channel: Some(DerivedValue::new(
             rule.channel.to_owned(),

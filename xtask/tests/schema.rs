@@ -184,6 +184,8 @@ fn candidate_installation_evidence_schema_preserves_provenance_without_compatibi
             "authenticode_signature"
         ]
     );
+    assert!(document["properties"]["package_identity"].is_object());
+    assert!(document["$defs"]["PackageIdentity"].is_object());
     assert!(document["properties"].get("electron").is_none());
     assert!(document["properties"].get("compatible").is_none());
     assert!(document["properties"].get("package_tree").is_none());

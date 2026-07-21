@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Architecture, CandidateTarget, InstallationKind};
+use crate::{Architecture, CandidateTarget, InstallationKind, PackageIdentity};
 
 /// Confidence attached to one discovered value.
 ///
@@ -85,6 +85,8 @@ pub struct CandidateInstallationEvidence {
     pub root_path: DerivedValue<String>,
     /// Platform-native primary executable path, when identified.
     pub primary_executable_path: Option<DerivedValue<String>>,
+    /// Windows package identity, when supplied by a package catalog.
+    pub package_identity: Option<DerivedValue<PackageIdentity>>,
     /// Executable/package architecture, when observed or inferred.
     pub architecture: Option<DerivedValue<Architecture>>,
     /// Vendor channel text, when observed or inferred.

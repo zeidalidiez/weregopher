@@ -18,6 +18,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
     let expected = [
         "build-fingerprint.schema.json",
         "call-context.schema.json",
+        "candidate-installation-evidence.schema.json",
         "candidate-profile.schema.json",
         "certification-class.schema.json",
         "effective-security-posture.schema.json",
@@ -150,6 +151,42 @@ fn package_manifest_schema_is_generated_with_a_fixed_format_version()
     assert_eq!(normalized_path["minLength"], 1);
     assert_eq!(normalized_path["maxLength"], 32_767);
     assert!(normalized_path["pattern"].is_string());
+    Ok(())
+}
+
+#[test]
+fn candidate_installation_evidence_schema_preserves_provenance_without_compatibility_claims()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let path = output
+        .path()
+        .join("candidate-installation-evidence.schema.json");
+    assert!(path.is_file());
+
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["DiscoveryConfidence"])?,
+        ["advisory", "corroborated", "direct_observation"]
+    );
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["DiscoverySource"])?,
+        [
+            "package_catalog",
+            "uninstall_registry",
+            "known_install_location",
+            "shortcut",
+            "filesystem_layout",
+            "running_process",
+            "user_selected_path",
+            "package_manifest",
+            "executable_version_resource",
+            "authenticode_signature"
+        ]
+    );
+    assert!(document["properties"].get("electron").is_none());
+    assert!(document["properties"].get("compatible").is_none());
+    assert!(document["properties"].get("package_tree").is_none());
     Ok(())
 }
 

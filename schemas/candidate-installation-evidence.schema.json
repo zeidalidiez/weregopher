@@ -1,0 +1,294 @@
+{
+  "$defs": {
+    "Architecture": {
+      "description": "A normalized target-machine architecture.",
+      "oneOf": [
+        {
+          "const": "x86_64",
+          "description": "AMD64/x86-64.",
+          "type": "string"
+        },
+        {
+          "const": "aarch64",
+          "description": "ARM64/AArch64.",
+          "type": "string"
+        }
+      ]
+    },
+    "CandidateTarget": {
+      "description": "A product family selected for installed-application discovery.",
+      "oneOf": [
+        {
+          "const": "codex",
+          "description": "`OpenAI` Codex desktop workflows.",
+          "type": "string"
+        },
+        {
+          "const": "hermes_agent",
+          "description": "Nous Research Hermes Agent desktop application.",
+          "type": "string"
+        },
+        {
+          "const": "discord",
+          "description": "Discord desktop application.",
+          "type": "string"
+        },
+        {
+          "const": "visual_studio_code",
+          "description": "Microsoft Visual Studio Code desktop application.",
+          "type": "string"
+        }
+      ]
+    },
+    "DerivedValue": {
+      "additionalProperties": false,
+      "description": "A discovered value together with its acquisition strength and provenance.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DiscoveryConfidence",
+          "description": "Acquisition strength of this value."
+        },
+        "source": {
+          "$ref": "#/$defs/DiscoverySource",
+          "description": "Local evidence source supporting this value."
+        },
+        "value": {
+          "$ref": "#/$defs/InstallationKind",
+          "description": "Value obtained or inferred during discovery."
+        }
+      },
+      "required": [
+        "value",
+        "confidence",
+        "source"
+      ],
+      "type": "object"
+    },
+    "DerivedValue2": {
+      "additionalProperties": false,
+      "description": "A discovered value together with its acquisition strength and provenance.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DiscoveryConfidence",
+          "description": "Acquisition strength of this value."
+        },
+        "source": {
+          "$ref": "#/$defs/DiscoverySource",
+          "description": "Local evidence source supporting this value."
+        },
+        "value": {
+          "description": "Value obtained or inferred during discovery.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "confidence",
+        "source"
+      ],
+      "type": "object"
+    },
+    "DerivedValue3": {
+      "additionalProperties": false,
+      "description": "A discovered value together with its acquisition strength and provenance.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DiscoveryConfidence",
+          "description": "Acquisition strength of this value."
+        },
+        "source": {
+          "$ref": "#/$defs/DiscoverySource",
+          "description": "Local evidence source supporting this value."
+        },
+        "value": {
+          "$ref": "#/$defs/Architecture",
+          "description": "Value obtained or inferred during discovery."
+        }
+      },
+      "required": [
+        "value",
+        "confidence",
+        "source"
+      ],
+      "type": "object"
+    },
+    "DiscoveryConfidence": {
+      "description": "Confidence attached to one discovered value.\n\nConfidence describes acquisition strength only. It is not a compatibility,\nauthenticity, or security certification.",
+      "oneOf": [
+        {
+          "const": "advisory",
+          "description": "Maintained search input that has not yet been observed on the host.",
+          "type": "string"
+        },
+        {
+          "const": "corroborated",
+          "description": "A value inferred from mutually supporting observations.",
+          "type": "string"
+        },
+        {
+          "const": "direct_observation",
+          "description": "A value read directly from the named local evidence source.",
+          "type": "string"
+        }
+      ]
+    },
+    "DiscoverySource": {
+      "description": "Local source from which a candidate value was obtained.",
+      "oneOf": [
+        {
+          "const": "package_catalog",
+          "description": "Windows package catalog or package-management API.",
+          "type": "string"
+        },
+        {
+          "const": "uninstall_registry",
+          "description": "Windows uninstall registry metadata.",
+          "type": "string"
+        },
+        {
+          "const": "known_install_location",
+          "description": "Maintained product-specific installation-location hint.",
+          "type": "string"
+        },
+        {
+          "const": "shortcut",
+          "description": "Start Menu or other local shortcut metadata.",
+          "type": "string"
+        },
+        {
+          "const": "filesystem_layout",
+          "description": "Read-only inspection of an installation's local filesystem layout.",
+          "type": "string"
+        },
+        {
+          "const": "running_process",
+          "description": "Metadata from an already-running local process.",
+          "type": "string"
+        },
+        {
+          "const": "user_selected_path",
+          "description": "Portable root explicitly selected by the user.",
+          "type": "string"
+        },
+        {
+          "const": "package_manifest",
+          "description": "Installed package manifest metadata.",
+          "type": "string"
+        },
+        {
+          "const": "executable_version_resource",
+          "description": "Executable version-resource metadata.",
+          "type": "string"
+        },
+        {
+          "const": "authenticode_signature",
+          "description": "Authenticode signature metadata.",
+          "type": "string"
+        }
+      ]
+    },
+    "InstallationKind": {
+      "description": "The installation technology that owns a discovered package.",
+      "oneOf": [
+        {
+          "const": "msix",
+          "description": "Windows MSIX or `AppX` package.",
+          "type": "string"
+        },
+        {
+          "const": "squirrel",
+          "description": "Squirrel-managed versioned desktop installation.",
+          "type": "string"
+        },
+        {
+          "const": "msi",
+          "description": "Windows Installer package.",
+          "type": "string"
+        },
+        {
+          "const": "exe",
+          "description": "Generic executable-installed application.",
+          "type": "string"
+        },
+        {
+          "const": "portable",
+          "description": "User-managed portable directory.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "Installation technology was not identified.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Read-only evidence describing one possible installed application.\n\nThis record is a discovery result, not an immutable build fingerprint. It\ndoes not assert Electron use, package compatibility, signer trust, or a\ncoherent package-tree observation.",
+  "properties": {
+    "architecture": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DerivedValue3"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Executable/package architecture, when observed or inferred."
+    },
+    "channel": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DerivedValue2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Vendor channel text, when observed or inferred."
+    },
+    "installation_kind": {
+      "$ref": "#/$defs/DerivedValue",
+      "description": "Observed or inferred installation technology."
+    },
+    "observed_version": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DerivedValue2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Package or product version text, when observed."
+    },
+    "primary_executable_path": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DerivedValue2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Platform-native primary executable path, when identified."
+    },
+    "root_path": {
+      "$ref": "#/$defs/DerivedValue2",
+      "description": "Platform-native installation root text."
+    },
+    "target": {
+      "$ref": "#/$defs/CandidateTarget",
+      "description": "Candidate catalog target whose rules produced this record."
+    }
+  },
+  "required": [
+    "target",
+    "installation_kind",
+    "root_path"
+  ],
+  "title": "CandidateInstallationEvidence",
+  "type": "object"
+}

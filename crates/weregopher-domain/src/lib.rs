@@ -8,6 +8,7 @@ mod build;
 mod candidate;
 mod certification;
 mod digest;
+mod discovery;
 mod ids;
 mod protocol;
 mod security;
@@ -18,6 +19,9 @@ pub use candidate::{
 };
 pub use certification::{CertificationClass, PublicationStatus, TrustMode};
 pub use digest::{Sha256Digest, Sha256DigestError};
+pub use discovery::{
+    CandidateInstallationEvidence, DerivedValue, DiscoveryConfidence, DiscoverySource,
+};
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, IdentifierError,
     ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId, ScenarioId, TraceId,

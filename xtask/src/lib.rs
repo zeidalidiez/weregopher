@@ -6,15 +6,17 @@ use anyhow::{Context, Result, bail};
 use schemars::{JsonSchema, schema_for};
 use serde_json::Value;
 use weregopher_domain::{
-    BuildFingerprint, CallContext, CandidateProfile, CertificationClass, EffectiveSecurityPosture,
-    FrameHeader, ProtocolLimits, PublicationStatus, TrustMode, WireValue,
+    BuildFingerprint, CallContext, CandidateInstallationEvidence, CandidateProfile,
+    CertificationClass, EffectiveSecurityPosture, FrameHeader, ProtocolLimits, PublicationStatus,
+    TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 11] = [
+pub const SCHEMA_FILENAMES: [&str; 12] = [
     "build-fingerprint.schema.json",
     "call-context.schema.json",
+    "candidate-installation-evidence.schema.json",
     "candidate-profile.schema.json",
     "certification-class.schema.json",
     "effective-security-posture.schema.json",
@@ -98,15 +100,16 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
     Ok(vec![
         schema_document::<BuildFingerprint>(SCHEMA_FILENAMES[0])?,
         schema_document::<CallContext>(SCHEMA_FILENAMES[1])?,
-        schema_document::<CandidateProfile>(SCHEMA_FILENAMES[2])?,
-        schema_document::<CertificationClass>(SCHEMA_FILENAMES[3])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[4])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[5])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[6])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[7])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[8])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[9])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[10])?,
+        schema_document::<CandidateInstallationEvidence>(SCHEMA_FILENAMES[2])?,
+        schema_document::<CandidateProfile>(SCHEMA_FILENAMES[3])?,
+        schema_document::<CertificationClass>(SCHEMA_FILENAMES[4])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[5])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[6])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[7])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[8])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[9])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[10])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[11])?,
     ])
 }
 

@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod correlation;
 mod package_catalog;
 mod uninstall;
 #[cfg(windows)]
@@ -23,6 +24,9 @@ use weregopher_domain::{
     DiscoverySource, InstallationKind,
 };
 
+pub use correlation::{
+    CandidateEvidenceGroup, correlate_candidate_evidence, discover_current_user_candidate_evidence,
+};
 pub use package_catalog::{PackageCatalogEntry, evidence_from_package_catalog_entry};
 pub use uninstall::{UninstallRegistryEntry, evidence_from_uninstall_entry};
 #[cfg(windows)]
@@ -129,6 +133,12 @@ pub enum DiscoveryError {
         /// Package field or collection whose bound was exceeded.
         field: &'static str,
         /// Maximum accepted items or Unicode scalar values.
+        limit: usize,
+    },
+    /// More evidence records were supplied than bounded correlation accepts.
+    #[error("candidate-evidence correlation exceeded its {limit}-record input limit")]
+    CorrelationInputLimit {
+        /// Maximum accepted evidence records.
         limit: usize,
     },
 }

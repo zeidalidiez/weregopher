@@ -2,7 +2,8 @@
 
 use weregopher_domain::Sha256Digest;
 use weregopher_fingerprint::{
-    PackageFileKind, PackageFileRecord, PackageTreeManifest, build_package_manifest,
+    PackageEntryType, PackageFileKind, PackageFileRecord, PackageTreeManifest,
+    build_package_manifest, classify_package_file,
 };
 
 #[test]
@@ -119,6 +120,30 @@ fn manifest_json_rejects_noncanonical_or_tampered_content() -> Result<(), Box<dy
         .reverse();
     assert!(serde_json::from_value::<PackageTreeManifest>(unsorted).is_err());
     Ok(())
+}
+
+#[test]
+fn package_file_classification_is_case_insensitive_and_link_aware() {
+    for (path, expected) in [
+        ("resources/app.ASAR", PackageFileKind::Asar),
+        ("native/addon.NoDe", PackageFileKind::NativeModule),
+        ("bin/helper.EXE", PackageFileKind::Executable),
+        ("bin/library.DlL", PackageFileKind::Executable),
+        ("bin/legacy.com", PackageFileKind::Executable),
+        ("bin/saver.scr", PackageFileKind::Executable),
+        ("bin/control.cpl", PackageFileKind::Executable),
+        ("resources/main.js", PackageFileKind::Regular),
+    ] {
+        assert_eq!(
+            classify_package_file(path, PackageEntryType::RegularFile),
+            expected
+        );
+    }
+
+    assert_eq!(
+        classify_package_file("resources/app.asar", PackageEntryType::SymbolicLink),
+        PackageFileKind::SymbolicLink
+    );
 }
 
 fn record(path: &str, digest_byte: u8, kind: PackageFileKind) -> PackageFileRecord {

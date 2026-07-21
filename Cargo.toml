@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/weregopher-domain",
   "crates/weregopher-fingerprint",
+  "crates/weregopher-windows",
   "xtask",
 ]
 default-members = [
@@ -27,6 +28,7 @@ sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

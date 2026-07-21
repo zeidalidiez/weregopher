@@ -88,7 +88,7 @@ fn reject_case_collision(
     Ok(())
 }
 
-fn validate_normalized_path(path: &str) -> Result<(), ManifestError> {
+pub(crate) fn validate_normalized_path(path: &str) -> Result<(), ManifestError> {
     let invalid_length = path.chars().count() > MAX_NORMALIZED_PACKAGE_PATH_CHARS;
     let invalid_character = path
         .chars()

@@ -494,8 +494,19 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror",
  "weregopher-domain",
+ "weregopher-windows",
+ "windows-sys",
+]
+
+[[package]]
+name = "weregopher-windows"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "windows-sys",
 ]
 
 [[package]]

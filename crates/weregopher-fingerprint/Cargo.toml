@@ -15,8 +15,13 @@ sha2.workspace = true
 thiserror.workspace = true
 weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
 
+[target.'cfg(windows)'.dependencies]
+weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }
+windows-sys.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

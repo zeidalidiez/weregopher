@@ -18,6 +18,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
     let expected = [
         "build-fingerprint.schema.json",
         "call-context.schema.json",
+        "candidate-profile.schema.json",
         "certification-class.schema.json",
         "effective-security-posture.schema.json",
         "frame-header.schema.json",
@@ -150,6 +151,41 @@ fn package_manifest_schema_is_generated_with_a_fixed_format_version()
     assert_eq!(normalized_path["maxLength"], 32_767);
     assert!(normalized_path["pattern"].is_string());
     Ok(())
+}
+
+#[test]
+fn candidate_profile_schema_fixes_the_initial_target_and_channel_vocabularies()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let path = output.path().join("candidate-profile.schema.json");
+    assert!(path.is_file());
+
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    let targets = schema_string_constants(&document["$defs"]["CandidateTarget"])?;
+    assert_eq!(
+        targets,
+        ["codex", "hermes_agent", "discord", "visual_studio_code"]
+    );
+    let channels = schema_string_constants(&document["$defs"]["CandidateChannelHint"])?;
+    assert_eq!(channels, ["stable", "ptb", "canary", "insiders"]);
+    assert!(document["properties"].get("electron").is_none());
+    assert!(document["properties"].get("compatibility").is_none());
+    assert!(document["properties"].get("package_path").is_none());
+    Ok(())
+}
+
+fn schema_string_constants(schema: &serde_json::Value) -> Result<Vec<&str>, &'static str> {
+    schema["oneOf"]
+        .as_array()
+        .ok_or("enum schema must use oneOf")?
+        .iter()
+        .map(|variant| {
+            variant["const"]
+                .as_str()
+                .ok_or("enum variant must have a string const")
+        })
+        .collect()
 }
 
 fn assert_integer_formats_are_bounded(value: &serde_json::Value, path: &str) {

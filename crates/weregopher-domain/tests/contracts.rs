@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use serde_json::json;
 use weregopher_domain::{
-    ApplicationFamilyId, Architecture, BuildFingerprint, CertificationClass,
-    EffectiveSecurityPosture, InstallationKind, Sha256Digest,
+    ApplicationFamilyId, Architecture, BuildFingerprint, CandidateProfile, CertificationClass,
+    EffectiveSecurityPosture, InstallationKind, Sha256Digest, initial_candidate_profiles,
 };
 
 #[test]
@@ -77,4 +77,49 @@ fn security_certification_and_publication_concepts_do_not_collapse()
         CertificationClass::ContractVerified
     );
     Ok(())
+}
+
+#[test]
+fn initial_candidate_profiles_cover_the_planned_products_without_compatibility_claims()
+-> Result<(), Box<dyn std::error::Error>> {
+    let profiles = initial_candidate_profiles();
+    assert_eq!(
+        serde_json::to_value(&profiles)?,
+        json!([
+            {"target": "codex", "channel_hints": []},
+            {"target": "hermes_agent", "channel_hints": []},
+            {
+                "target": "discord",
+                "channel_hints": ["stable", "ptb", "canary"]
+            },
+            {
+                "target": "visual_studio_code",
+                "channel_hints": ["stable", "insiders"]
+            }
+        ])
+    );
+
+    let profile = serde_json::to_value(&profiles[0])?;
+    let fields = profile
+        .as_object()
+        .ok_or("candidate profile must serialize as an object")?;
+    assert_eq!(fields.len(), 2);
+    assert!(!fields.contains_key("electron"));
+    assert!(!fields.contains_key("compatibility"));
+    assert!(!fields.contains_key("package_path"));
+    Ok(())
+}
+
+#[test]
+fn candidate_profiles_reject_unknown_targets_and_channel_hints() {
+    assert!(
+        serde_json::from_value::<CandidateProfile>(json!({"target": "slack", "channel_hints": []}))
+            .is_err()
+    );
+    assert!(
+        serde_json::from_value::<CandidateProfile>(
+            json!({"target": "discord", "channel_hints": ["nightly"]})
+        )
+        .is_err()
+    );
 }

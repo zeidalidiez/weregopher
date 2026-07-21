@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "CandidateChannelHint": {
+      "description": "A maintained vendor channel label that may seed discovery.",
+      "oneOf": [
+        {
+          "const": "stable",
+          "description": "Default production channel.",
+          "type": "string"
+        },
+        {
+          "const": "ptb",
+          "description": "Discord public test build channel.",
+          "type": "string"
+        },
+        {
+          "const": "canary",
+          "description": "Discord canary channel.",
+          "type": "string"
+        },
+        {
+          "const": "insiders",
+          "description": "Visual Studio Code Insiders channel.",
+          "type": "string"
+        }
+      ]
+    },
+    "CandidateTarget": {
+      "description": "A product family selected for installed-application discovery.",
+      "oneOf": [
+        {
+          "const": "codex",
+          "description": "`OpenAI` Codex desktop workflows.",
+          "type": "string"
+        },
+        {
+          "const": "hermes_agent",
+          "description": "Nous Research Hermes Agent desktop application.",
+          "type": "string"
+        },
+        {
+          "const": "discord",
+          "description": "Discord desktop application.",
+          "type": "string"
+        },
+        {
+          "const": "visual_studio_code",
+          "description": "Microsoft Visual Studio Code desktop application.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Read-only discovery hints for one initial target.\n\nChannel hints are advisory search inputs. Observed installation metadata is\nauthoritative, and this profile carries no Electron or compatibility claim.",
+  "properties": {
+    "channel_hints": {
+      "description": "Known channel labels worth searching independently.",
+      "items": {
+        "$ref": "#/$defs/CandidateChannelHint"
+      },
+      "type": "array"
+    },
+    "target": {
+      "$ref": "#/$defs/CandidateTarget",
+      "description": "Product selected for discovery."
+    }
+  },
+  "required": [
+    "target",
+    "channel_hints"
+  ],
+  "title": "CandidateProfile",
+  "type": "object"
+}

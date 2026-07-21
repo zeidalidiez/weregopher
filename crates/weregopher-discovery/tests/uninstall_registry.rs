@@ -1,8 +1,10 @@
 //! Uninstall-registry matching tests over isolated filesystem fixtures.
 
+mod support;
+
 use std::{fs, path::Path};
 
-use tempfile::tempdir;
+use support::physical_tempdir as tempdir;
 use weregopher_discovery::{UninstallRegistryEntry, evidence_from_uninstall_entry};
 use weregopher_domain::{CandidateTarget, DiscoveryConfidence, DiscoverySource, InstallationKind};
 
@@ -90,7 +92,7 @@ fn uninstall_entries_emit_provenance_bound_candidate_evidence()
     assert!(discord_evidence.primary_executable_path.is_none());
 
     let hermes_evidence = evidence_from_uninstall_entry(&registry_entry(
-        "Hermes 0.17.0",
+        "Hermes",
         "Nous Research",
         &hermes,
         Some("0.17.0"),
@@ -117,17 +119,15 @@ fn uninstall_entries_emit_provenance_bound_candidate_evidence()
             .map(|value| value.value.as_str()),
         Some(hermes.join("Hermes.exe").to_string_lossy().as_ref())
     );
-    for supported_name in ["Hermes", "Hermes 0.18.0-beta.1+windows.2"] {
-        assert!(
-            evidence_from_uninstall_entry(&registry_entry(
-                supported_name,
-                "Nous Research",
-                &hermes,
-                Some("0.18.0-beta.1"),
-            ))?
-            .is_some()
-        );
-    }
+    assert!(
+        evidence_from_uninstall_entry(&registry_entry(
+            "Hermes 0.18.0",
+            "Nous Research",
+            &hermes,
+            Some("0.18.0"),
+        ))?
+        .is_none()
+    );
     Ok(())
 }
 

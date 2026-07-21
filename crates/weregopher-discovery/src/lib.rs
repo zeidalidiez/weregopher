@@ -240,11 +240,14 @@ pub fn discover_known_user_locations(
 ) -> Result<Vec<CandidateInstallationEvidence>, DiscoveryError> {
     let mut discovered = Vec::new();
 
+    if !has_direct_directory_ancestors(local_app_data)? {
+        return Ok(discovered);
+    }
+
     for rule in KNOWN_USER_LOCATION_RULES {
-        let root = join_components(local_app_data, rule.relative_root);
-        if !is_direct_kind(&root, ExpectedKind::Directory)? {
+        let Some(root) = direct_descendant_directory(local_app_data, rule.relative_root)? else {
             continue;
-        }
+        };
 
         let marker = root.join(rule.marker);
         if !is_direct_kind(&marker, ExpectedKind::File)? {
@@ -285,12 +288,18 @@ pub fn discover_current_user_known_locations()
     Err(DiscoveryError::UnsupportedPlatform)
 }
 
-fn join_components(root: &Path, components: &[&str]) -> PathBuf {
+fn direct_descendant_directory(
+    root: &Path,
+    components: &[&str],
+) -> Result<Option<PathBuf>, DiscoveryError> {
     let mut path = root.to_path_buf();
     for component in components {
         path.push(component);
+        if !is_direct_kind(&path, ExpectedKind::Directory)? {
+            return Ok(None);
+        }
     }
-    path
+    Ok(Some(path))
 }
 
 #[derive(Clone, Copy)]
@@ -301,16 +310,48 @@ enum ExpectedKind {
 
 fn is_direct_kind(path: &Path, expected: ExpectedKind) -> Result<bool, DiscoveryError> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) => Ok(match expected {
-            ExpectedKind::Directory => metadata.file_type().is_dir(),
-            ExpectedKind::File => metadata.file_type().is_file(),
-        }),
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+                return Ok(false);
+            }
+            Ok(match expected {
+                ExpectedKind::Directory => metadata.file_type().is_dir(),
+                ExpectedKind::File => metadata.file_type().is_file(),
+            })
+        }
         Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(source) => Err(DiscoveryError::Inspect {
             path: path.to_path_buf(),
             source,
         }),
     }
+}
+
+pub(crate) fn has_direct_directory_ancestors(path: &Path) -> Result<bool, DiscoveryError> {
+    if !path.is_absolute() {
+        return Ok(false);
+    }
+    // Inspect from the filesystem root downward so an unsafe ancestor is
+    // rejected before any lookup can traverse through it to a descendant.
+    for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        if !is_direct_kind(ancestor, ExpectedKind::Directory)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(windows)]
+pub(crate) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+pub(crate) const fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
+    false
 }
 
 fn evidence_for_rule(

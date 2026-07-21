@@ -7,7 +7,7 @@ use weregopher_domain::{
     DiscoveryConfidence, DiscoverySource, InstallationKind, PackageIdentity,
 };
 
-use crate::{DiscoveryError, ExpectedKind, is_direct_kind, path_text};
+use crate::{DiscoveryError, has_direct_directory_ancestors, path_text};
 
 /// Identity and location values read from one current-user Windows package.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -84,16 +84,13 @@ pub fn evidence_from_package_catalog_entry(
         return Ok(None);
     };
 
-    let expected_full_name_suffix = format!("__{}", rule.publisher_id);
-    if !entry
-        .package_full_name
-        .starts_with(&format!("{}_", rule.package_name))
-        || !entry
-            .package_full_name
-            .ends_with(&expected_full_name_suffix)
-        || entry.version.trim().is_empty()
-        || !entry.install_location.is_absolute()
-        || !is_direct_kind(&entry.install_location, ExpectedKind::Directory)?
+    if !package_full_name_matches(
+        &entry.package_name,
+        &entry.version,
+        entry.architecture,
+        &entry.publisher_id,
+        &entry.package_full_name,
+    ) || !has_direct_directory_ancestors(&entry.install_location)?
     {
         return Ok(None);
     }
@@ -148,6 +145,40 @@ pub fn evidence_from_package_catalog_entry(
             DiscoverySource::PackageCatalog,
         )),
     }))
+}
+
+pub(crate) fn package_full_name_matches(
+    package_name: &str,
+    version: &str,
+    architecture: Option<Architecture>,
+    publisher_id: &str,
+    package_full_name: &str,
+) -> bool {
+    if !is_windows_package_version(version) {
+        return false;
+    }
+    let architecture = match architecture {
+        Some(Architecture::X86_64) => "x64",
+        Some(Architecture::Aarch64) => "arm64",
+        None => "neutral",
+    };
+    package_full_name == format!("{package_name}_{version}_{architecture}__{publisher_id}")
+}
+
+fn is_windows_package_version(version: &str) -> bool {
+    let mut components = version.split('.');
+    for _ in 0..4 {
+        let Some(component) = components.next() else {
+            return false;
+        };
+        if component.is_empty()
+            || !component.bytes().all(|byte| byte.is_ascii_digit())
+            || component.parse::<u16>().is_err()
+        {
+            return false;
+        }
+    }
+    components.next().is_none()
 }
 
 #[cfg(windows)]

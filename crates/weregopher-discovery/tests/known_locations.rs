@@ -1,8 +1,12 @@
 //! Known per-user Windows installation-location discovery tests.
 
+mod support;
+
+#[cfg(windows)]
+use std::process::Command;
 use std::{fs, path::Path};
 
-use tempfile::tempdir;
+use support::physical_tempdir as tempdir;
 use weregopher_discovery::discover_known_user_locations;
 use weregopher_domain::{CandidateTarget, DiscoveryConfidence, DiscoverySource, InstallationKind};
 
@@ -116,5 +120,37 @@ fn known_user_locations_ignore_incomplete_and_unrelated_directories()
     create_marker(fixture.path(), "Unrelated", "Update.exe")?;
 
     assert!(discover_known_user_locations(fixture.path())?.is_empty());
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn known_user_locations_reject_a_junction_in_a_maintained_ancestor()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let local_app_data = fixture.path().join("LocalAppData");
+    fs::create_dir_all(&local_app_data)?;
+    let outside_programs = fixture.path().join("outside-programs");
+    create_marker(&outside_programs, "Hermes", "Hermes.exe")?;
+    create_junction(&local_app_data.join("Programs"), &outside_programs)?;
+
+    assert!(
+        discover_known_user_locations(&local_app_data)?
+            .into_iter()
+            .all(|evidence| evidence.target != CandidateTarget::HermesAgent)
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_junction(link: &Path, target: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let status = Command::new("cmd")
+        .args(["/D", "/C", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .status()?;
+    if !status.success() {
+        return Err("mklink /J failed".into());
+    }
     Ok(())
 }

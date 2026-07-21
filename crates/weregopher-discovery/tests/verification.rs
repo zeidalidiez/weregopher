@@ -1,19 +1,21 @@
 //! Candidate-specific package-layout verification-input tests.
 
+mod support;
+
 #[cfg(windows)]
 use std::process::Command;
 use std::{fs, path::Path};
 
-use tempfile::tempdir;
+use support::physical_tempdir as tempdir;
 use weregopher_discovery::{
-    CandidateLayoutMarkerKind, CandidatePathKind, DiscoveryError, PackageCatalogEntry,
-    correlate_candidate_evidence, discover_known_user_locations,
-    evidence_from_package_catalog_entry, verification_inputs_for_candidate,
+    CandidateEvidenceGroup, CandidateLayoutMarkerKind, CandidatePathKind, DiscoveryError,
+    PackageCatalogEntry, UninstallRegistryEntry, correlate_candidate_evidence,
+    discover_known_user_locations, evidence_from_package_catalog_entry,
+    evidence_from_uninstall_entry, verification_inputs_for_candidate,
 };
-use weregopher_domain::{Architecture, CandidateTarget, DiscoverySource};
+use weregopher_domain::DerivedValue;
+use weregopher_domain::{Architecture, CandidateTarget, DiscoveryConfidence, DiscoverySource};
 use weregopher_domain::{CandidateInstallationEvidence, InstallationKind};
-#[cfg(windows)]
-use weregopher_domain::{DerivedValue, DiscoveryConfidence};
 
 #[test]
 fn discord_verification_inputs_select_complete_versioned_package_roots()
@@ -268,12 +270,10 @@ fn codex_verification_rejects_conflicting_package_identity()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempdir()?;
     let root = fixture.path().join("OpenAI.Codex");
-    fs::create_dir_all(root.join("app").join("resources"))?;
-    fs::write(root.join("AppxManifest.xml"), b"manifest")?;
-    fs::write(root.join("app").join("ChatGPT.exe"), b"executable")?;
-    fs::write(root.join("app").join("resources").join("app.asar"), b"asar")?;
-    let mut evidence = evidence_from_package_catalog_entry(&codex_package_entry(&root))?
+    create_codex_layout(&root)?;
+    let valid = evidence_from_package_catalog_entry(&codex_package_entry(&root))?
         .ok_or("Codex package evidence should exist")?;
+    let mut evidence = valid.clone();
     evidence
         .package_identity
         .as_mut()
@@ -286,6 +286,70 @@ fn codex_verification_rejects_conflicting_package_identity()
         .ok_or("Codex evidence group should exist")?;
 
     assert!(verification_inputs_for_candidate(&group)?.is_empty());
+
+    let mut alternate_entry = codex_package_entry(&root);
+    alternate_entry.version = "27.1.2.3".to_owned();
+    alternate_entry.package_full_name = "OpenAI.Codex_27.1.2.3_x64__2p2nqsd0c76g0".to_owned();
+    let alternate = evidence_from_package_catalog_entry(&alternate_entry)?
+        .ok_or("alternate Codex package evidence should exist")?;
+    let conflicting_versions = single_group_from([valid, alternate])?;
+    assert!(verification_inputs_for_candidate(&conflicting_versions)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn codex_verification_requires_direct_package_catalog_selection_provenance()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let root = fixture.path().join("OpenAI.Codex");
+    create_codex_layout(&root)?;
+    let base = evidence_from_package_catalog_entry(&codex_package_entry(&root))?
+        .ok_or("Codex package evidence should exist")?;
+
+    let mut untrusted_root = base.clone();
+    untrusted_root.root_path.source = DiscoverySource::UserSelectedPath;
+    assert!(verification_inputs_for_candidate(&single_group(untrusted_root)?)?.is_empty());
+
+    let mut advisory_root = base.clone();
+    advisory_root.root_path.confidence = DiscoveryConfidence::Advisory;
+    assert!(verification_inputs_for_candidate(&single_group(advisory_root)?)?.is_empty());
+
+    let mut untrusted_kind = base.clone();
+    untrusted_kind.installation_kind.source = DiscoverySource::UserSelectedPath;
+    assert!(verification_inputs_for_candidate(&single_group(untrusted_kind)?)?.is_empty());
+
+    let mut advisory_kind = base;
+    advisory_kind.installation_kind.confidence = DiscoveryConfidence::Advisory;
+    assert!(verification_inputs_for_candidate(&single_group(advisory_kind)?)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn codex_verification_requires_a_coherent_unpinned_package_full_name()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let root = fixture.path().join("OpenAI.Codex");
+    create_codex_layout(&root)?;
+
+    let mut alternate_entry = codex_package_entry(&root);
+    alternate_entry.version = "27.1.2.3".to_owned();
+    alternate_entry.package_full_name = "OpenAI.Codex_27.1.2.3_x64__2p2nqsd0c76g0".to_owned();
+    let alternate = evidence_from_package_catalog_entry(&alternate_entry)?
+        .ok_or("alternate Codex package version should remain supported")?;
+    assert_eq!(
+        verification_inputs_for_candidate(&single_group(alternate)?)?.len(),
+        1
+    );
+
+    let mut malformed = evidence_from_package_catalog_entry(&codex_package_entry(&root))?
+        .ok_or("Codex package evidence should exist")?;
+    malformed
+        .package_identity
+        .as_mut()
+        .ok_or("Codex package identity should exist")?
+        .value
+        .package_full_name = "OpenAI.Codex_not-a-version_x64__2p2nqsd0c76g0".to_owned();
+    assert!(verification_inputs_for_candidate(&single_group(malformed)?)?.is_empty());
     Ok(())
 }
 
@@ -334,25 +398,53 @@ fn hermes_verification_inputs_require_the_observed_packaged_main_layout()
     }));
 
     let base_evidence = input.discovery_observations()[0].clone();
-    for installation_kind in [InstallationKind::Msi, InstallationKind::Unknown] {
-        let mut evidence = base_evidence.clone();
-        evidence.installation_kind.value = installation_kind;
-        let alternate_group = correlate_candidate_evidence([evidence])?
-            .into_iter()
-            .next()
-            .ok_or("Hermes evidence group should exist")?;
-        assert_eq!(
-            verification_inputs_for_candidate(&alternate_group)?.len(),
-            1
-        );
+    let uninstall_evidence = evidence_from_uninstall_entry(&UninstallRegistryEntry {
+        display_name: "Hermes".to_owned(),
+        publisher: Some("Nous Research".to_owned()),
+        install_location: root.clone(),
+        display_version: Some("0.17.0".to_owned()),
+    })?
+    .ok_or("source-backed Hermes uninstall evidence should exist")?;
+    assert_eq!(
+        uninstall_evidence.installation_kind.value,
+        InstallationKind::Unknown
+    );
+    assert_eq!(
+        verification_inputs_for_candidate(&single_group(uninstall_evidence.clone())?)?.len(),
+        1
+    );
+    for normalized_away_version in ["", "   "] {
+        let mut malformed = uninstall_evidence.clone();
+        malformed.observed_version = Some(DerivedValue {
+            value: normalized_away_version.to_owned(),
+            confidence: DiscoveryConfidence::DirectObservation,
+            source: DiscoverySource::UninstallRegistry,
+        });
+        assert!(verification_inputs_for_candidate(&single_group(malformed)?)?.is_empty());
     }
+    assert_eq!(
+        verification_inputs_for_candidate(&single_group_from([
+            base_evidence.clone(),
+            uninstall_evidence,
+        ])?)?
+        .len(),
+        1
+    );
+
+    let mut impossible_msi = base_evidence.clone();
+    impossible_msi.installation_kind.value = InstallationKind::Msi;
+    assert!(verification_inputs_for_candidate(&single_group(impossible_msi.clone())?)?.is_empty());
+    assert!(
+        verification_inputs_for_candidate(&single_group_from([
+            base_evidence.clone(),
+            impossible_msi,
+        ])?)?
+        .is_empty()
+    );
+
     let mut unsupported = base_evidence;
     unsupported.installation_kind.value = InstallationKind::Squirrel;
-    let unsupported_group = correlate_candidate_evidence([unsupported])?
-        .into_iter()
-        .next()
-        .ok_or("Hermes evidence group should exist")?;
-    assert!(verification_inputs_for_candidate(&unsupported_group)?.is_empty());
+    assert!(verification_inputs_for_candidate(&single_group(unsupported)?)?.is_empty());
     Ok(())
 }
 
@@ -414,6 +506,28 @@ fn verification_inputs_ignore_incomplete_or_unsupported_candidate_layouts()
         .ok_or("Hermes evidence group should exist")?;
     assert!(verification_inputs_for_candidate(&hermes_group)?.is_empty());
     Ok(())
+}
+
+fn single_group(
+    evidence: CandidateInstallationEvidence,
+) -> Result<CandidateEvidenceGroup, Box<dyn std::error::Error>> {
+    single_group_from([evidence])
+}
+
+fn single_group_from(
+    evidence: impl IntoIterator<Item = CandidateInstallationEvidence>,
+) -> Result<CandidateEvidenceGroup, Box<dyn std::error::Error>> {
+    correlate_candidate_evidence(evidence)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "candidate evidence group should exist".into())
+}
+
+fn create_codex_layout(root: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(root.join("app").join("resources"))?;
+    fs::write(root.join("AppxManifest.xml"), b"manifest")?;
+    fs::write(root.join("app").join("ChatGPT.exe"), b"executable")?;
+    fs::write(root.join("app").join("resources").join("app.asar"), b"asar")
 }
 
 fn codex_package_entry(root: &Path) -> PackageCatalogEntry {
@@ -503,6 +617,44 @@ fn verification_inputs_reject_a_junction_intermediate_directory()
         .next()
         .ok_or("Visual Studio Code evidence group should exist")?;
 
+    assert!(verification_inputs_for_candidate(&group)?.is_empty());
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn verification_inputs_reject_a_junction_ancestor_of_the_candidate_root()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let local_app_data = fixture.path().join("LocalAppData");
+    fs::create_dir_all(&local_app_data)?;
+    let outside_programs = fixture.path().join("outside-programs");
+    let outside_root = outside_programs.join("Microsoft VS Code");
+    create_vscode_layout(&outside_root)?;
+    create_junction(&local_app_data.join("Programs"), &outside_programs)?;
+    let root = local_app_data.join("Programs").join("Microsoft VS Code");
+
+    let group = single_group(vscode_evidence(&root))?;
+    assert!(verification_inputs_for_candidate(&group)?.is_empty());
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn verification_inputs_reject_an_unsafe_optional_fixed_marker()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let local_app_data = fixture.path().join("LocalAppData");
+    create_discord_candidate(&local_app_data, &["app-1.0.0"])?;
+    let package_root = local_app_data.join("Discord").join("app-1.0.0");
+    let outside_unpacked = fixture.path().join("outside-unpacked");
+    fs::create_dir_all(&outside_unpacked)?;
+    create_junction(
+        &package_root.join("resources").join("app.asar.unpacked"),
+        &outside_unpacked,
+    )?;
+
+    let group = single_group(discord_evidence(&local_app_data)?)?;
     assert!(verification_inputs_for_candidate(&group)?.is_empty());
     Ok(())
 }

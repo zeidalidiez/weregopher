@@ -7,7 +7,9 @@ use weregopher_domain::{
     DiscoverySource, InstallationKind,
 };
 
-use crate::{DiscoveryError, ExpectedKind, is_direct_kind, path_text};
+use crate::{
+    DiscoveryError, ExpectedKind, has_direct_directory_ancestors, is_direct_kind, path_text,
+};
 
 /// Values read from one Windows uninstall-registry subkey.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -25,68 +27,14 @@ pub struct UninstallRegistryEntry {
 #[derive(Clone, Copy)]
 enum UninstallDisplayName {
     Exact(&'static str),
-    ProductOrVersioned(&'static str),
 }
 
 impl UninstallDisplayName {
     fn matches(self, value: &str) -> bool {
         match self {
             Self::Exact(expected) => value.eq_ignore_ascii_case(expected),
-            Self::ProductOrVersioned(product) => {
-                if value.eq_ignore_ascii_case(product) {
-                    return true;
-                }
-                let Some((prefix, suffix)) = value.split_at_checked(product.len()) else {
-                    return false;
-                };
-                prefix.eq_ignore_ascii_case(product)
-                    && suffix.strip_prefix(' ').is_some_and(is_version_like_suffix)
-            }
         }
     }
-}
-
-fn is_version_like_suffix(value: &str) -> bool {
-    if value.is_empty() || value.len() > 64 {
-        return false;
-    }
-    let (version, build) = value
-        .split_once('+')
-        .map_or((value, None), |(version, build)| (version, Some(build)));
-    if build.is_some_and(|build| build.contains('+') || !valid_version_identifiers(build)) {
-        return false;
-    }
-    let (core, prerelease) = version
-        .split_once('-')
-        .map_or((version, None), |(core, prerelease)| {
-            (core, Some(prerelease))
-        });
-    if prerelease.is_some_and(|value| !valid_version_identifiers(value)) {
-        return false;
-    }
-    let mut components = core.split('.');
-    let Some(major) = components.next() else {
-        return false;
-    };
-    let Some(minor) = components.next() else {
-        return false;
-    };
-    let Some(patch) = components.next() else {
-        return false;
-    };
-    components.next().is_none()
-        && [major, minor, patch].into_iter().all(|component| {
-            !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
-        })
-}
-
-fn valid_version_identifiers(value: &str) -> bool {
-    value.split('.').all(|identifier| {
-        !identifier.is_empty()
-            && identifier
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-    })
 }
 
 #[derive(Clone, Copy)]
@@ -147,7 +95,7 @@ const UNINSTALL_MATCH_RULES: &[UninstallMatchRule] = &[
         channel: Some("insiders"),
     },
     UninstallMatchRule {
-        display_name: UninstallDisplayName::ProductOrVersioned("Hermes"),
+        display_name: UninstallDisplayName::Exact("Hermes"),
         publisher: "Nous Research",
         target: CandidateTarget::HermesAgent,
         marker: "Hermes.exe",
@@ -189,9 +137,7 @@ pub fn evidence_from_uninstall_entry(
         return Ok(None);
     };
 
-    if !entry.install_location.is_absolute()
-        || !is_direct_kind(&entry.install_location, ExpectedKind::Directory)?
-    {
+    if !has_direct_directory_ancestors(&entry.install_location)? {
         return Ok(None);
     }
     let marker = entry.install_location.join(rule.marker);

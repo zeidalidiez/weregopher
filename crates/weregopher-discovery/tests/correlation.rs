@@ -1,8 +1,10 @@
 //! Multi-source candidate-evidence correlation tests.
 
+mod support;
+
 use std::fs;
 
-use tempfile::tempdir;
+use support::physical_tempdir as tempdir;
 use weregopher_discovery::{
     DiscoveryError, UninstallRegistryEntry, correlate_candidate_evidence,
     discover_known_user_locations, evidence_from_uninstall_entry,

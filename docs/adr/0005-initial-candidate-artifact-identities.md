@@ -41,23 +41,25 @@ A local unpacked build from that source established the fixed packaged layout `H
 
 Weregopher supports Codex verification inputs only when correlated evidence contains the exact maintained package name, family, publisher identifier, application identifier, MSIX installation kind, and package-catalog provenance above. Verification then performs bounded checks of the fixed observed package layout. The current version string is preserved as evidence but is not hard-coded as the family identity.
 
-Weregopher recognizes the default current-user NSIS location `%LOCALAPPDATA%/Programs/Hermes` only when `Hermes.exe` is a direct file. It also recognizes uninstall records whose display name is exactly `Hermes` or `Hermes <version>`, whose publisher is exactly `Nous Research`, whose installation root is absolute, and whose root contains a direct `Hermes.exe` marker. The uninstall record alone cannot distinguish NSIS from MSI, so its installation kind remains `Unknown`; no installer technology is invented.
+Weregopher recognizes the default current-user NSIS location `%LOCALAPPDATA%/Programs/Hermes` only when every maintained path component and `Hermes.exe` are direct, non-reparse entries. It also recognizes uninstall records whose display name is exactly `Hermes`, whose publisher is exactly `Nous Research`, whose `InstallLocation` is an absolute direct path, and whose root contains a direct `Hermes.exe` marker. The uninstall record alone cannot distinguish NSIS from another installer technology, so its installation kind remains `Unknown`; no installer technology is invented.
 
-Hermes verification accepts source-backed NSIS, MSI, or unknown-installer evidence and requires the complete fixed packaged layout listed above. It does not inspect a source checkout as an installed candidate, recursively search arbitrary roots, or infer identity from the word `Hermes` alone.
+Hermes verification accepts only the exact evidence shapes currently emitted by the maintained default-location rule (`Exe`) and matching uninstall metadata (`Unknown`). MSI-specific evidence is not accepted because the inspected MSI configuration does not establish an uninstall `InstallLocation`. Verification requires the complete fixed packaged layout listed above. It does not inspect a source checkout as an installed candidate, recursively search arbitrary roots, or infer identity from the word `Hermes` alone.
+
+For Codex and Hermes, conflicting package identity or provenance and unsupported installer evidence fail closed. This ADR does not broaden the previously established Discord and Visual Studio Code rules into universal provenance-shape validation.
 
 For every candidate:
 
 1. discovery and layout inspection remain read-only and bounded;
 2. original source observations and confidence values are retained;
 3. absolute roots and direct fixed marker paths are required;
-4. conflicting package identity, channel, or unsupported installer evidence fails closed;
-5. symbolic-link and tested Windows junction traversal remain rejected by the maintained path probe;
-6. layout presence is not signer trust, package coherence, Electron compatibility, transformability, or certification.
+4. symbolic-link and Windows reparse traversal remain rejected at candidate roots, maintained ancestors, required markers, and present optional markers;
+5. layout presence is not signer trust, package coherence, Electron compatibility, transformability, or certification.
 
 ## Consequences
 
 - Codex rules are durable across version updates that preserve the maintained package family and application identity.
-- Hermes custom NSIS roots and MSI roots can be found through uninstall metadata without guessing arbitrary filesystem locations.
+- Hermes roots can be found through matching uninstall metadata only when that record supplies an explicit `InstallLocation`; the inspected MSI configuration does not establish that value and is therefore not claimed as discoverable.
 - Hermes uninstall evidence truthfully records an unknown installer kind unless another source identifies it.
+- A future MSI discovery rule requires direct evidence for a reliable installation-root source before it can be accepted.
 - A future Codex package family, Hermes publisher/configuration change, or materially different layout requires new direct evidence and a superseding rule or ADR.
 - Exact artifact hashes and coherent package leases remain later fingerprinting responsibilities; this decision only establishes bounded verification inputs.

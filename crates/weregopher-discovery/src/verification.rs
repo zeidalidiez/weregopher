@@ -4,14 +4,21 @@
 //! identity, compatibility, or authorization claims. Later fingerprinting must
 //! re-observe selected files under a coherent package lease.
 
-use std::{collections::BTreeSet, fs, io, path::Path};
-
-use weregopher_domain::{
-    CandidateInstallationEvidence, CandidateTarget, DerivedValue, DiscoveryConfidence,
-    DiscoverySource, InstallationKind,
+use std::{
+    collections::BTreeSet,
+    fs, io,
+    path::{Path, PathBuf},
 };
 
-use crate::{CandidateEvidenceGroup, DiscoveryError};
+use weregopher_domain::{
+    Architecture, CandidateInstallationEvidence, CandidateTarget, DerivedValue,
+    DiscoveryConfidence, DiscoverySource, InstallationKind,
+};
+
+use crate::{
+    CandidateEvidenceGroup, DiscoveryError, has_direct_directory_ancestors, is_reparse_point,
+    package_catalog::package_full_name_matches,
+};
 
 const MAX_DIRECT_PACKAGE_ROOT_ENTRIES: usize = 128;
 const MAX_VERSIONED_PACKAGE_ROOTS: usize = 16;
@@ -154,7 +161,10 @@ fn discord_verification_inputs(
     let Some(executable_name) = discord_executable_name(single_channel(group).as_deref()) else {
         return Ok(Vec::new());
     };
-    if probe_path(root, &[], CandidatePathKind::Directory)?.is_none() {
+    if !matches!(
+        probe_path(root, &[], CandidatePathKind::Directory)?,
+        ProbeOutcome::Present(_)
+    ) {
         return Ok(Vec::new());
     }
 
@@ -182,7 +192,10 @@ fn discord_verification_inputs(
             continue;
         }
         let path = entry.path();
-        if probe_path(&path, &[], CandidatePathKind::Directory)?.is_some() {
+        if matches!(
+            probe_path(&path, &[], CandidatePathKind::Directory)?,
+            ProbeOutcome::Present(_)
+        ) {
             package_roots.push(path);
         }
     }
@@ -228,13 +241,15 @@ fn discord_package_input(
 
     let primary_executable_path = primary.path.value.clone();
     let mut markers = vec![primary, archive];
-    push_optional_marker(
+    if !push_optional_marker(
         &mut markers,
         package_root,
         &["resources", "app.asar.unpacked"],
         CandidateLayoutMarkerKind::UnpackedApplicationDirectory,
         CandidatePathKind::Directory,
-    )?;
+    )? {
+        return Ok(None);
+    }
     for resource in [
         "resources.pak",
         "chrome_100_percent.pak",
@@ -243,13 +258,15 @@ fn discord_package_input(
         "v8_context_snapshot.bin",
         "snapshot_blob.bin",
     ] {
-        push_optional_marker(
+        if !push_optional_marker(
             &mut markers,
             package_root,
             &[resource],
             CandidateLayoutMarkerKind::ElectronResource,
             CandidatePathKind::File,
-        )?;
+        )? {
+            return Ok(None);
+        }
     }
 
     Ok(Some(CandidateVerificationInput {
@@ -279,7 +296,10 @@ fn vscode_verification_inputs(
     let Some(executable_name) = vscode_executable_name(single_channel(group).as_deref()) else {
         return Ok(Vec::new());
     };
-    if probe_path(root, &[], CandidatePathKind::Directory)?.is_none() {
+    if !matches!(
+        probe_path(root, &[], CandidatePathKind::Directory)?,
+        ProbeOutcome::Present(_)
+    ) {
         return Ok(Vec::new());
     }
 
@@ -321,13 +341,15 @@ fn vscode_verification_inputs(
         "v8_context_snapshot.bin",
         "snapshot_blob.bin",
     ] {
-        push_optional_marker(
+        if !push_optional_marker(
             &mut markers,
             root,
             &[resource],
             CandidateLayoutMarkerKind::ElectronResource,
             CandidatePathKind::File,
-        )?;
+        )? {
+            return Ok(Vec::new());
+        }
     }
 
     Ok(vec![CandidateVerificationInput {
@@ -342,16 +364,18 @@ fn vscode_verification_inputs(
 fn codex_verification_inputs(
     group: &CandidateEvidenceGroup,
 ) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
-    if consistent_installation_kind(group) != Some(InstallationKind::Msix)
-        || !group_has_no_channels(group)
-        || !has_exact_codex_package_identity(group)
-    {
+    if !has_exact_codex_package_evidence(group) {
         return Ok(Vec::new());
     }
     let Some(root) = representative_root(group) else {
         return Ok(Vec::new());
     };
-    if !root.is_absolute() || probe_path(root, &[], CandidatePathKind::Directory)?.is_none() {
+    if !root.is_absolute()
+        || !matches!(
+            probe_path(root, &[], CandidatePathKind::Directory)?,
+            ProbeOutcome::Present(_)
+        )
+    {
         return Ok(Vec::new());
     }
 
@@ -385,21 +409,25 @@ fn codex_verification_inputs(
 
     let primary_executable_path = primary.path.value.clone();
     let mut markers = vec![primary, manifest, archive];
-    push_optional_marker(
+    if !push_optional_marker(
         &mut markers,
         root,
         &["app", "resources", "app.asar.unpacked"],
         CandidateLayoutMarkerKind::UnpackedApplicationDirectory,
         CandidatePathKind::Directory,
-    )?;
+    )? {
+        return Ok(Vec::new());
+    }
     for helper in ["codex.exe", "codex-code-mode-host.exe"] {
-        push_optional_marker(
+        if !push_optional_marker(
             &mut markers,
             root,
             &["app", "resources", helper],
             CandidateLayoutMarkerKind::BundledHelper,
             CandidatePathKind::File,
-        )?;
+        )? {
+            return Ok(Vec::new());
+        }
     }
     for resource in [
         "resources.pak",
@@ -409,13 +437,15 @@ fn codex_verification_inputs(
         "v8_context_snapshot.bin",
         "snapshot_blob.bin",
     ] {
-        push_optional_marker(
+        if !push_optional_marker(
             &mut markers,
             root,
             &["app", resource],
             CandidateLayoutMarkerKind::ElectronResource,
             CandidatePathKind::File,
-        )?;
+        )? {
+            return Ok(Vec::new());
+        }
     }
 
     Ok(vec![CandidateVerificationInput {
@@ -430,20 +460,18 @@ fn codex_verification_inputs(
 fn hermes_verification_inputs(
     group: &CandidateEvidenceGroup,
 ) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
-    let supported_installer_kinds = !group.observations().is_empty()
-        && group.observations().iter().all(|evidence| {
-            matches!(
-                evidence.installation_kind.value,
-                InstallationKind::Exe | InstallationKind::Msi | InstallationKind::Unknown
-            )
-        });
-    if !supported_installer_kinds || !group_has_no_channels(group) {
+    if !has_supported_hermes_evidence(group) {
         return Ok(Vec::new());
     }
     let Some(root) = representative_root(group) else {
         return Ok(Vec::new());
     };
-    if !root.is_absolute() || probe_path(root, &[], CandidatePathKind::Directory)?.is_none() {
+    if !root.is_absolute()
+        || !matches!(
+            probe_path(root, &[], CandidatePathKind::Directory)?,
+            ProbeOutcome::Present(_)
+        )
+    {
         return Ok(Vec::new());
     }
 
@@ -508,13 +536,15 @@ fn hermes_verification_inputs(
         "v8_context_snapshot.bin",
         "snapshot_blob.bin",
     ] {
-        push_optional_marker(
+        if !push_optional_marker(
             &mut markers,
             root,
             &[resource],
             CandidateLayoutMarkerKind::ElectronResource,
             CandidatePathKind::File,
-        )?;
+        )? {
+            return Ok(Vec::new());
+        }
     }
 
     Ok(vec![CandidateVerificationInput {
@@ -542,33 +572,130 @@ fn consistent_installation_kind(group: &CandidateEvidenceGroup) -> Option<Instal
     kinds.all(|kind| kind == first).then_some(first)
 }
 
-fn group_has_no_channels(group: &CandidateEvidenceGroup) -> bool {
-    group
-        .observations()
-        .iter()
-        .all(|evidence| evidence.channel.is_none())
-}
+fn has_exact_codex_package_evidence(group: &CandidateEvidenceGroup) -> bool {
+    let Some(first) = group.observations().first() else {
+        return false;
+    };
+    let Some(first_identity) = first
+        .package_identity
+        .as_ref()
+        .map(|identity| &identity.value)
+    else {
+        return false;
+    };
+    let Some(first_architecture) = first
+        .architecture
+        .as_ref()
+        .map(|architecture| architecture.value)
+    else {
+        return false;
+    };
+    let Some(first_version) = first
+        .observed_version
+        .as_ref()
+        .map(|version| &version.value)
+    else {
+        return false;
+    };
 
-fn has_exact_codex_package_identity(group: &CandidateEvidenceGroup) -> bool {
-    let mut saw_identity = false;
-    for evidence in group.observations() {
-        let Some(identity) = evidence.package_identity.as_ref() else {
-            continue;
-        };
-        saw_identity = true;
-        let value = &identity.value;
-        if identity.source != DiscoverySource::PackageCatalog
-            || value.package_name != "OpenAI.Codex"
-            || value.package_family_name != "OpenAI.Codex_2p2nqsd0c76g0"
-            || value.publisher_id != "2p2nqsd0c76g0"
-            || !value.package_full_name.starts_with("OpenAI.Codex_")
-            || !value.package_full_name.ends_with("__2p2nqsd0c76g0")
-            || !value.application_ids.iter().any(|value| value == "App")
+    group.observations().iter().all(|evidence| {
+        if evidence.installation_kind.value != InstallationKind::Msix
+            || evidence.installation_kind.confidence != DiscoveryConfidence::DirectObservation
+            || evidence.installation_kind.source != DiscoverySource::PackageCatalog
+            || evidence.root_path.confidence != DiscoveryConfidence::DirectObservation
+            || evidence.root_path.source != DiscoverySource::PackageCatalog
+            || evidence.primary_executable_path.is_some()
+            || evidence.channel.is_some()
         {
             return false;
         }
+        let Some(identity) = evidence.package_identity.as_ref() else {
+            return false;
+        };
+        let Some(architecture) = evidence.architecture.as_ref() else {
+            return false;
+        };
+        let Some(version) = evidence.observed_version.as_ref() else {
+            return false;
+        };
+        if identity.confidence != DiscoveryConfidence::DirectObservation
+            || identity.source != DiscoverySource::PackageCatalog
+            || architecture.value != Architecture::X86_64
+            || architecture.confidence != DiscoveryConfidence::DirectObservation
+            || architecture.source != DiscoverySource::PackageCatalog
+            || version.confidence != DiscoveryConfidence::DirectObservation
+            || version.source != DiscoverySource::PackageCatalog
+            || &identity.value != first_identity
+            || architecture.value != first_architecture
+            || &version.value != first_version
+        {
+            return false;
+        }
+        let value = &identity.value;
+        value.package_name == "OpenAI.Codex"
+            && value.package_family_name == "OpenAI.Codex_2p2nqsd0c76g0"
+            && value.publisher_id == "2p2nqsd0c76g0"
+            && value.application_ids.iter().any(|value| value == "App")
+            && package_full_name_matches(
+                &value.package_name,
+                &version.value,
+                Some(architecture.value),
+                &value.publisher_id,
+                &value.package_full_name,
+            )
+    })
+}
+
+fn has_supported_hermes_evidence(group: &CandidateEvidenceGroup) -> bool {
+    !group.observations().is_empty()
+        && group
+            .observations()
+            .iter()
+            .all(is_supported_hermes_observation)
+}
+
+fn is_supported_hermes_observation(evidence: &CandidateInstallationEvidence) -> bool {
+    if evidence.channel.is_some()
+        || evidence.package_identity.is_some()
+        || evidence.architecture.is_some()
+    {
+        return false;
     }
-    saw_identity
+    let Some(primary) = evidence.primary_executable_path.as_ref() else {
+        return false;
+    };
+    if primary.confidence != DiscoveryConfidence::DirectObservation
+        || primary.source != DiscoverySource::FilesystemLayout
+        || Path::new(&primary.value) != Path::new(&evidence.root_path.value).join("Hermes.exe")
+    {
+        return false;
+    }
+
+    match evidence.installation_kind.value {
+        InstallationKind::Exe => {
+            evidence.installation_kind.confidence == DiscoveryConfidence::Corroborated
+                && evidence.installation_kind.source == DiscoverySource::FilesystemLayout
+                && evidence.root_path.confidence == DiscoveryConfidence::DirectObservation
+                && evidence.root_path.source == DiscoverySource::KnownInstallLocation
+                && evidence.observed_version.is_none()
+        }
+        InstallationKind::Unknown => {
+            evidence.installation_kind.confidence == DiscoveryConfidence::Advisory
+                && evidence.installation_kind.source == DiscoverySource::UninstallRegistry
+                && evidence.root_path.confidence == DiscoveryConfidence::DirectObservation
+                && evidence.root_path.source == DiscoverySource::UninstallRegistry
+                && evidence.observed_version.as_ref().is_none_or(|version| {
+                    version.confidence == DiscoveryConfidence::DirectObservation
+                        && version.source == DiscoverySource::UninstallRegistry
+                        && !version.value.trim().is_empty()
+                        && version.value == version.value.trim()
+                })
+        }
+        InstallationKind::Msix
+        | InstallationKind::Msi
+        | InstallationKind::Squirrel
+        | InstallationKind::Portable => false,
+    }
 }
 
 fn single_channel(group: &CandidateEvidenceGroup) -> Option<String> {
@@ -616,11 +743,15 @@ fn push_optional_marker(
     components: &[&str],
     kind: CandidateLayoutMarkerKind,
     path_kind: CandidatePathKind,
-) -> Result<(), DiscoveryError> {
-    if let Some(value) = marker(root, components, kind, path_kind)? {
-        markers.push(value);
+) -> Result<bool, DiscoveryError> {
+    match probe_path(root, components, path_kind)? {
+        ProbeOutcome::Absent => Ok(true),
+        ProbeOutcome::Rejected => Ok(false),
+        ProbeOutcome::Present(path) => {
+            markers.push(marker_from_path(&path, kind, path_kind)?);
+            Ok(true)
+        }
     }
-    Ok(())
 }
 
 fn marker(
@@ -629,28 +760,45 @@ fn marker(
     kind: CandidateLayoutMarkerKind,
     path_kind: CandidatePathKind,
 ) -> Result<Option<CandidateLayoutMarker>, DiscoveryError> {
-    let Some(path) = probe_path(root, components, path_kind)? else {
+    let ProbeOutcome::Present(path) = probe_path(root, components, path_kind)? else {
         return Ok(None);
     };
-    Ok(Some(CandidateLayoutMarker {
+    marker_from_path(&path, kind, path_kind).map(Some)
+}
+
+fn marker_from_path(
+    path: &Path,
+    kind: CandidateLayoutMarkerKind,
+    path_kind: CandidatePathKind,
+) -> Result<CandidateLayoutMarker, DiscoveryError> {
+    Ok(CandidateLayoutMarker {
         kind,
         path_kind,
         path: DerivedValue::new(
-            path_to_string(&path)?,
+            path_to_string(path)?,
             DiscoveryConfidence::DirectObservation,
             DiscoverySource::FilesystemLayout,
         ),
-    }))
+    })
+}
+
+enum ProbeOutcome {
+    Absent,
+    Rejected,
+    Present(PathBuf),
 }
 
 fn probe_path(
     root: &Path,
     components: &[&str],
     expected: CandidatePathKind,
-) -> Result<Option<std::path::PathBuf>, DiscoveryError> {
+) -> Result<ProbeOutcome, DiscoveryError> {
     let mut path = root.to_path_buf();
+    if !has_direct_directory_ancestors(root)? {
+        return Ok(ProbeOutcome::Rejected);
+    }
     if components.is_empty() {
-        return metadata_matches(&path, expected).map(|matches| matches.then_some(path));
+        return Ok(ProbeOutcome::Present(path));
     }
 
     for (index, component) in components.iter().enumerate() {
@@ -660,17 +808,30 @@ fn probe_path(
         } else {
             CandidatePathKind::Directory
         };
-        if !metadata_matches(&path, path_kind)? {
-            return Ok(None);
+        match metadata_outcome(&path, path_kind)? {
+            MetadataOutcome::Absent => return Ok(ProbeOutcome::Absent),
+            MetadataOutcome::Rejected => return Ok(ProbeOutcome::Rejected),
+            MetadataOutcome::Matches => {}
         }
     }
-    Ok(Some(path))
+    Ok(ProbeOutcome::Present(path))
 }
 
-fn metadata_matches(path: &Path, expected: CandidatePathKind) -> Result<bool, DiscoveryError> {
+enum MetadataOutcome {
+    Absent,
+    Rejected,
+    Matches,
+}
+
+fn metadata_outcome(
+    path: &Path,
+    expected: CandidatePathKind,
+) -> Result<MetadataOutcome, DiscoveryError> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            return Ok(MetadataOutcome::Absent);
+        }
         Err(source) => {
             return Err(DiscoveryError::Inspect {
                 path: path.to_path_buf(),
@@ -678,12 +839,17 @@ fn metadata_matches(path: &Path, expected: CandidatePathKind) -> Result<bool, Di
             });
         }
     };
-    if metadata.file_type().is_symlink() {
-        return Ok(false);
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+        return Ok(MetadataOutcome::Rejected);
     }
-    Ok(match expected {
+    let matches = match expected {
         CandidatePathKind::File => metadata.is_file(),
         CandidatePathKind::Directory => metadata.is_dir(),
+    };
+    Ok(if matches {
+        MetadataOutcome::Matches
+    } else {
+        MetadataOutcome::Rejected
     })
 }
 

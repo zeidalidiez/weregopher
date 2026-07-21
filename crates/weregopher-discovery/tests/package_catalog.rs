@@ -1,8 +1,10 @@
 //! Windows package-catalog matching tests over isolated roots.
 
+mod support;
+
 use std::fs;
 
-use tempfile::tempdir;
+use support::physical_tempdir as tempdir;
 use weregopher_discovery::{PackageCatalogEntry, evidence_from_package_catalog_entry};
 use weregopher_domain::{
     Architecture, CandidateTarget, DiscoveryConfidence, DiscoverySource, InstallationKind,
@@ -105,5 +107,44 @@ fn package_catalog_entries_require_exact_family_publisher_and_absolute_root()
     entry.publisher_id = "2p2nqsd0c76g0".to_owned();
     entry.install_location = "relative-root".into();
     assert!(evidence_from_package_catalog_entry(&entry)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn package_catalog_entries_require_a_coherent_windows_package_full_name()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let root = fixture.path().join("Codex");
+    fs::create_dir_all(&root)?;
+    let valid = PackageCatalogEntry {
+        package_name: "OpenAI.Codex".to_owned(),
+        package_family_name: "OpenAI.Codex_2p2nqsd0c76g0".to_owned(),
+        package_full_name: "OpenAI.Codex_27.1.2.3_x64__2p2nqsd0c76g0".to_owned(),
+        publisher_id: "2p2nqsd0c76g0".to_owned(),
+        application_ids: vec!["App".to_owned()],
+        install_location: root,
+        architecture: Some(Architecture::X86_64),
+        version: "27.1.2.3".to_owned(),
+    };
+    assert!(evidence_from_package_catalog_entry(&valid)?.is_some());
+
+    let mut mismatched_version = valid.clone();
+    mismatched_version.version = "27.1.2.4".to_owned();
+    assert!(evidence_from_package_catalog_entry(&mismatched_version)?.is_none());
+
+    let mut malformed_version = valid.clone();
+    malformed_version.version = "27.1..3".to_owned();
+    malformed_version.package_full_name = "OpenAI.Codex_27.1..3_x64__2p2nqsd0c76g0".to_owned();
+    assert!(evidence_from_package_catalog_entry(&malformed_version)?.is_none());
+
+    let mut signed_version = valid.clone();
+    signed_version.version = "+27.1.2.3".to_owned();
+    signed_version.package_full_name = "OpenAI.Codex_+27.1.2.3_x64__2p2nqsd0c76g0".to_owned();
+    assert!(evidence_from_package_catalog_entry(&signed_version)?.is_none());
+
+    let mut wrong_architecture = valid;
+    wrong_architecture.package_full_name =
+        "OpenAI.Codex_27.1.2.3_neutral__2p2nqsd0c76g0".to_owned();
+    assert!(evidence_from_package_catalog_entry(&wrong_architecture)?.is_none());
     Ok(())
 }

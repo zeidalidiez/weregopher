@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The enforcement mechanism that actually constrains an executable component.",
+  "oneOf": [
+    {
+      "const": "broker_mediated",
+      "description": "Relevant host effects cross an enforcing Weregopher broker.",
+      "type": "string"
+    },
+    {
+      "const": "os_contained",
+      "description": "Independently tested operating-system controls constrain direct host access.",
+      "type": "string"
+    },
+    {
+      "const": "vendor_equivalent_full_trust",
+      "description": "The component can exercise the current Windows user's ordinary authority.",
+      "type": "string"
+    }
+  ],
+  "title": "EffectiveSecurityPosture"
+}

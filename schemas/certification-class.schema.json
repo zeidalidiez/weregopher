@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Strength of compatibility evidence for one environment-bound build contract.",
+  "oneOf": [
+    {
+      "const": "blocked",
+      "description": "Launch is forbidden by policy or known incompatibility.",
+      "type": "string"
+    },
+    {
+      "const": "provisional",
+      "description": "Exploratory evidence only.",
+      "type": "string"
+    },
+    {
+      "const": "structural_verified",
+      "description": "Structural invariants passed without behavioral smoke coverage.",
+      "type": "string"
+    },
+    {
+      "const": "smoke_verified",
+      "description": "A fixed disposable-state smoke profile passed.",
+      "type": "string"
+    },
+    {
+      "const": "contract_verified",
+      "description": "The declared family contract profile passed without authority expansion.",
+      "type": "string"
+    },
+    {
+      "const": "exact_certified",
+      "description": "The exact build and complete configured feature profile passed certification.",
+      "type": "string"
+    }
+  ],
+  "title": "CertificationClass"
+}

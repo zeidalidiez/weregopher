@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Where certification or adapter metadata has been published.",
+  "oneOf": [
+    {
+      "const": "local_only",
+      "description": "Evidence exists only on the local machine.",
+      "type": "string"
+    },
+    {
+      "const": "draft",
+      "description": "An unpublished artifact is under review.",
+      "type": "string"
+    },
+    {
+      "const": "published",
+      "description": "The artifact is present in an authenticated registry.",
+      "type": "string"
+    },
+    {
+      "const": "withdrawn",
+      "description": "A previously published artifact was withdrawn without a security revocation.",
+      "type": "string"
+    }
+  ],
+  "title": "PublicationStatus"
+}

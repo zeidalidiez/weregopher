@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "How the current installation chose to trust an adapter artifact.",
+  "oneOf": [
+    {
+      "const": "registry_trusted",
+      "description": "Accepted through the configured registry trust roots.",
+      "type": "string"
+    },
+    {
+      "const": "locally_trusted",
+      "description": "Explicitly trusted by the local user or administrator.",
+      "type": "string"
+    },
+    {
+      "const": "developer",
+      "description": "Unsigned development artifact under disposable-state restrictions.",
+      "type": "string"
+    },
+    {
+      "const": "forensic_override",
+      "description": "Explicit isolated forensic execution of an otherwise blocked artifact.",
+      "type": "string"
+    }
+  ],
+  "title": "TrustMode"
+}

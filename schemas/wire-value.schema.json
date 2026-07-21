@@ -1,0 +1,853 @@
+{
+  "$defs": {
+    "AppInstanceId": {
+      "description": "A unique application launch identity.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "BufferStorage": {
+      "description": "Storage backing for bytes or a typed array.",
+      "oneOf": [
+        {
+          "description": "Bounded bytes carried in the containing message.",
+          "properties": {
+            "kind": {
+              "const": "inline",
+              "type": "string"
+            },
+            "value": {
+              "description": "Inline byte content.",
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Authenticated broker-created shared mapping.",
+          "properties": {
+            "handle": {
+              "$ref": "#/$defs/OpaqueHandle",
+              "description": "Abstract shared-buffer handle."
+            },
+            "kind": {
+              "const": "shared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "handle"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Credit-controlled stream.",
+          "properties": {
+            "handle": {
+              "$ref": "#/$defs/OpaqueHandle",
+              "description": "Stream handle."
+            },
+            "kind": {
+              "const": "stream",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "handle"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Content-addressed file/blob transport.",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/ContentBlobId",
+              "description": "Immutable blob identity."
+            },
+            "kind": {
+              "const": "blob",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ContentBlobId": {
+      "description": "Content-addressed immutable blob reference.",
+      "properties": {
+        "byte_len": {
+          "description": "Exact byte length.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Blob content digest."
+        }
+      },
+      "required": [
+        "sha256",
+        "byte_len"
+      ],
+      "type": "object"
+    },
+    "ObjectHandle": {
+      "description": "Generation-protected, application-scoped remote object reference.",
+      "properties": {
+        "app": {
+          "$ref": "#/$defs/AppInstanceId",
+          "description": "Owning application launch."
+        },
+        "generation": {
+          "description": "Reuse generation.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "Application-scoped object number.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/ObjectKind",
+          "description": "Object type."
+        }
+      },
+      "required": [
+        "app",
+        "id",
+        "generation",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ObjectKind": {
+      "description": "Type discriminator for a remote Electron-compatible object.",
+      "oneOf": [
+        {
+          "const": "app",
+          "description": "Application singleton.",
+          "type": "string"
+        },
+        {
+          "const": "browser_window",
+          "description": "Browser-window compatible object.",
+          "type": "string"
+        },
+        {
+          "const": "web_contents",
+          "description": "Renderer/web-contents compatible object.",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "Browser-session compatible object.",
+          "type": "string"
+        },
+        {
+          "const": "web_request",
+          "description": "Web-request compatible object.",
+          "type": "string"
+        },
+        {
+          "const": "menu",
+          "description": "Native menu.",
+          "type": "string"
+        },
+        {
+          "const": "menu_item",
+          "description": "Native menu item.",
+          "type": "string"
+        },
+        {
+          "const": "tray",
+          "description": "Notification-area icon.",
+          "type": "string"
+        },
+        {
+          "const": "native_image",
+          "description": "Native image.",
+          "type": "string"
+        },
+        {
+          "const": "notification",
+          "description": "Native notification.",
+          "type": "string"
+        },
+        {
+          "const": "download_item",
+          "description": "Download operation.",
+          "type": "string"
+        },
+        {
+          "const": "message_port",
+          "description": "Message port.",
+          "type": "string"
+        },
+        {
+          "const": "utility_process",
+          "description": "Utility process.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Adapter-defined object type in a signed namespace.",
+          "properties": {
+            "adapter_defined": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "adapter_defined"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OpaqueHandle": {
+      "description": "Generation-protected opaque protocol handle.",
+      "properties": {
+        "app": {
+          "$ref": "#/$defs/AppInstanceId",
+          "description": "Owning application launch."
+        },
+        "generation": {
+          "description": "Reuse generation.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "Application-scoped handle number.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "app",
+        "id",
+        "generation"
+      ],
+      "type": "object"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "TypedArrayKind": {
+      "description": "JavaScript typed-array element interpretation.",
+      "oneOf": [
+        {
+          "const": "int8",
+          "description": "Signed 8-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "uint8",
+          "description": "Unsigned 8-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "uint8_clamped",
+          "description": "Clamped unsigned 8-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "int16",
+          "description": "Signed 16-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "uint16",
+          "description": "Unsigned 16-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "int32",
+          "description": "Signed 32-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "uint32",
+          "description": "Unsigned 32-bit integers.",
+          "type": "string"
+        },
+        {
+          "const": "float32",
+          "description": "32-bit IEEE floating point.",
+          "type": "string"
+        },
+        {
+          "const": "float64",
+          "description": "64-bit IEEE floating point.",
+          "type": "string"
+        },
+        {
+          "const": "big_int64",
+          "description": "Signed 64-bit big integers.",
+          "type": "string"
+        },
+        {
+          "const": "big_uint64",
+          "description": "Unsigned 64-bit big integers.",
+          "type": "string"
+        }
+      ]
+    },
+    "WireError": {
+      "description": "JavaScript-visible error shape plus an internal classification.",
+      "properties": {
+        "cause": {
+          "anyOf": [
+            {
+              "$ref": "#"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional causal error/value."
+        },
+        "code": {
+          "description": "Application-visible error code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data": {
+          "additionalProperties": {
+            "$ref": "#"
+          },
+          "description": "Additional structured data.",
+          "type": "object"
+        },
+        "kind": {
+          "description": "Weregopher internal error category.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "description": "Human-visible message.",
+          "type": "string"
+        },
+        "name": {
+          "description": "JavaScript error constructor/name.",
+          "type": "string"
+        },
+        "stack": {
+          "description": "Redacted or full stack according to trace policy.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "message",
+        "data"
+      ],
+      "type": "object"
+    },
+    "WireObjectEntry": {
+      "description": "One ordered JavaScript object property in a serialized graph.",
+      "properties": {
+        "key": {
+          "description": "Property key.",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#",
+          "description": "Property value."
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Backend-neutral semantic value model for worker, host, helper, and renderer bridges.",
+  "oneOf": [
+    {
+      "description": "JavaScript `undefined`.",
+      "properties": {
+        "kind": {
+          "const": "undefined",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "JavaScript `null`.",
+      "properties": {
+        "kind": {
+          "const": "null",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Boolean primitive.",
+      "properties": {
+        "kind": {
+          "const": "bool",
+          "type": "string"
+        },
+        "value": {
+          "description": "Primitive value.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Integer representable as signed 64 bits.",
+      "properties": {
+        "kind": {
+          "const": "integer",
+          "type": "string"
+        },
+        "value": {
+          "description": "Primitive value.",
+          "format": "int64",
+          "maximum": 9223372036854775807,
+          "minimum": -9223372036854775808,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Finite non-integer IEEE-754 value.",
+      "properties": {
+        "kind": {
+          "const": "float",
+          "type": "string"
+        },
+        "value": {
+          "description": "Primitive value.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "IEEE-754 negative zero.",
+      "properties": {
+        "kind": {
+          "const": "negative_zero",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "IEEE-754 not-a-number.",
+      "properties": {
+        "kind": {
+          "const": "nan",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Positive infinity.",
+      "properties": {
+        "kind": {
+          "const": "positive_infinity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Negative infinity.",
+      "properties": {
+        "kind": {
+          "const": "negative_infinity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Arbitrary-precision integer.",
+      "properties": {
+        "kind": {
+          "const": "big_int",
+          "type": "string"
+        },
+        "magnitude_be": {
+          "description": "Unsigned magnitude encoded most-significant byte first.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "negative": {
+          "description": "Whether the mathematical integer is negative.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "negative",
+        "magnitude_be"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "UTF-8 string.",
+      "properties": {
+        "kind": {
+          "const": "string",
+          "type": "string"
+        },
+        "value": {
+          "description": "String value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Bounded inline byte sequence.",
+      "properties": {
+        "kind": {
+          "const": "bytes",
+          "type": "string"
+        },
+        "value": {
+          "description": "Byte content.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Ordered array values.",
+      "properties": {
+        "kind": {
+          "const": "array",
+          "type": "string"
+        },
+        "values": {
+          "description": "Element values.",
+          "items": {
+            "$ref": "#"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "values"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Ordered own string-keyed properties.",
+      "properties": {
+        "entries": {
+          "description": "Ordered entries.",
+          "items": {
+            "$ref": "#/$defs/WireObjectEntry"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "const": "object",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Message-local reference used for cycles and repeated identity.",
+      "properties": {
+        "id": {
+          "description": "Message-local graph-node number.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "JavaScript date milliseconds since the Unix epoch.",
+      "properties": {
+        "kind": {
+          "const": "date_millis",
+          "type": "string"
+        },
+        "value": {
+          "description": "Signed epoch milliseconds.",
+          "format": "int64",
+          "maximum": 9223372036854775807,
+          "minimum": -9223372036854775808,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "JavaScript regular expression.",
+      "properties": {
+        "flags": {
+          "description": "Canonically ordered JavaScript flags.",
+          "type": "string"
+        },
+        "kind": {
+          "const": "reg_exp",
+          "type": "string"
+        },
+        "source": {
+          "description": "Pattern source.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source",
+        "flags"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "JavaScript-compatible error.",
+      "properties": {
+        "kind": {
+          "const": "error",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/WireError",
+          "description": "Error value."
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remote Electron-compatible object.",
+      "properties": {
+        "kind": {
+          "const": "handle",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/ObjectHandle",
+          "description": "Object handle."
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remote callable function.",
+      "properties": {
+        "kind": {
+          "const": "function",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/OpaqueHandle",
+          "description": "Function handle."
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remote promise.",
+      "properties": {
+        "kind": {
+          "const": "promise",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/OpaqueHandle",
+          "description": "Promise handle."
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remote message port.",
+      "properties": {
+        "kind": {
+          "const": "message_port",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/OpaqueHandle",
+          "description": "Port handle."
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Typed-array view over bounded storage.",
+      "properties": {
+        "array_kind": {
+          "$ref": "#/$defs/TypedArrayKind",
+          "description": "Element interpretation."
+        },
+        "byte_offset": {
+          "description": "Byte offset within storage.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "element_count": {
+          "description": "Number of elements, not bytes.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "typed_array",
+          "type": "string"
+        },
+        "storage": {
+          "$ref": "#/$defs/BufferStorage",
+          "description": "Backing storage."
+        }
+      },
+      "required": [
+        "kind",
+        "array_kind",
+        "byte_offset",
+        "element_count",
+        "storage"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "WireValue"
+}

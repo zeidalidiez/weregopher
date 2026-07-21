@@ -1,0 +1,287 @@
+{
+  "$defs": {
+    "ApplicationFamilyId": {
+      "description": "A durable application-family identifier, such as `openai.chatgpt`.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "Architecture": {
+      "description": "A normalized target-machine architecture.",
+      "oneOf": [
+        {
+          "const": "x86_64",
+          "description": "AMD64/x86-64.",
+          "type": "string"
+        },
+        {
+          "const": "aarch64",
+          "description": "ARM64/AArch64.",
+          "type": "string"
+        }
+      ]
+    },
+    "InstallationKind": {
+      "description": "The installation technology that owns a discovered package.",
+      "oneOf": [
+        {
+          "const": "msix",
+          "description": "Windows MSIX or `AppX` package.",
+          "type": "string"
+        },
+        {
+          "const": "squirrel",
+          "description": "Squirrel-managed versioned desktop installation.",
+          "type": "string"
+        },
+        {
+          "const": "msi",
+          "description": "Windows Installer package.",
+          "type": "string"
+        },
+        {
+          "const": "exe",
+          "description": "Generic executable-installed application.",
+          "type": "string"
+        },
+        {
+          "const": "portable",
+          "description": "User-managed portable directory.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "Installation technology was not identified.",
+          "type": "string"
+        }
+      ]
+    },
+    "PackageIdentity": {
+      "description": "Windows package identity fields that affect activation and compatibility.",
+      "properties": {
+        "application_ids": {
+          "description": "Declared application IDs relevant to launch and activation.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "package_family_name": {
+          "description": "Package family name.",
+          "type": "string"
+        },
+        "package_full_name": {
+          "description": "Versioned package full name.",
+          "type": "string"
+        },
+        "package_name": {
+          "description": "Package manifest identity name.",
+          "type": "string"
+        },
+        "publisher_id": {
+          "description": "Publisher identifier from the package identity.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package_name",
+        "package_family_name",
+        "package_full_name",
+        "publisher_id",
+        "application_ids"
+      ],
+      "type": "object"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Compound immutable identity for one discovered application build.",
+  "properties": {
+    "app_asar_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Digest of `app.asar`, when present."
+    },
+    "app_asar_unpacked_merkle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Merkle root of entries physically backed by `app.asar.unpacked`."
+    },
+    "architecture": {
+      "$ref": "#/$defs/Architecture",
+      "description": "Machine architecture."
+    },
+    "channel": {
+      "description": "Vendor update channel, when known.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "chromium_version": {
+      "description": "Detected Chromium version.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "electron_version": {
+      "description": "Detected Electron version.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "family": {
+      "$ref": "#/$defs/ApplicationFamilyId",
+      "description": "Durable application-family identity."
+    },
+    "helper_binary_merkle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Merkle root of vendor helper binaries."
+    },
+    "installation_kind": {
+      "$ref": "#/$defs/InstallationKind",
+      "description": "Owning installation technology."
+    },
+    "internal_version": {
+      "description": "Application-specific internal version text.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "main_entry_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Digest of the resolved main entry."
+    },
+    "native_module_merkle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Merkle root of native modules."
+    },
+    "node_version": {
+      "description": "Detected Node version.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "package_identity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PackageIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Windows execution identity, when present."
+    },
+    "package_tree_merkle": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical Merkle root of the complete package tree."
+    },
+    "package_version": {
+      "description": "Installation/package version text.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "preload_merkle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Merkle root of resolved preload entries."
+    },
+    "product_version": {
+      "description": "Product version resource text.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "renderer_merkle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Merkle root of packaged renderer assets."
+    },
+    "signer_thumbprint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "SHA-256 thumbprint of the package or primary executable signer."
+    },
+    "v8_version": {
+      "description": "Detected V8 version.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "family",
+    "installation_kind",
+    "architecture",
+    "package_tree_merkle"
+  ],
+  "title": "BuildFingerprint",
+  "type": "object"
+}

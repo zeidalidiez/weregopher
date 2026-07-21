@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Negotiated allocation and concurrency limits for one authenticated connection.",
+  "properties": {
+    "max_frame_bytes": {
+      "description": "Maximum encoded payload bytes in one frame.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_graph_nodes": {
+      "description": "Maximum nodes in one serialized object graph.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_inline_buffer_bytes": {
+      "description": "Maximum bytes carried inline rather than streamed or shared.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_listener_count": {
+      "description": "Maximum connection-owned event listeners.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_object_depth": {
+      "description": "Maximum nested object/array depth.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_open_streams": {
+      "description": "Maximum concurrently open streams.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_pending_requests": {
+      "description": "Maximum unresolved request/response operations.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_remote_handles": {
+      "description": "Maximum live remote handles.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_string_bytes": {
+      "description": "Maximum UTF-8 bytes in one string.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "max_frame_bytes",
+    "max_graph_nodes",
+    "max_object_depth",
+    "max_string_bytes",
+    "max_inline_buffer_bytes",
+    "max_pending_requests",
+    "max_remote_handles",
+    "max_open_streams",
+    "max_listener_count"
+  ],
+  "title": "ProtocolLimits",
+  "type": "object"
+}

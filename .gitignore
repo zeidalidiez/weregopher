@@ -1,0 +1,14 @@
+/target/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+*.pdb
+*.dmp
+*.profraw
+*.trace
+.env
+.env.*
+!.env.example
+/.hermes/
+/generated-local/

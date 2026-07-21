@@ -1,0 +1,220 @@
+{
+  "$defs": {
+    "MessageKind": {
+      "description": "Stable numeric message tags carried by [`FrameHeader`].",
+      "oneOf": [
+        {
+          "const": "hello",
+          "description": "Runtime connection initiation.",
+          "type": "string"
+        },
+        {
+          "const": "welcome",
+          "description": "Successful connection negotiation.",
+          "type": "string"
+        },
+        {
+          "const": "reject",
+          "description": "Rejected connection negotiation.",
+          "type": "string"
+        },
+        {
+          "const": "load_application",
+          "description": "Request to load one application lease.",
+          "type": "string"
+        },
+        {
+          "const": "application_ready",
+          "description": "Notification that application bootstrap completed.",
+          "type": "string"
+        },
+        {
+          "const": "application_exit",
+          "description": "Notification that an application runtime exited.",
+          "type": "string"
+        },
+        {
+          "const": "call",
+          "description": "Remote service or object call.",
+          "type": "string"
+        },
+        {
+          "const": "call_result",
+          "description": "Successful call response.",
+          "type": "string"
+        },
+        {
+          "const": "call_error",
+          "description": "Failed call response.",
+          "type": "string"
+        },
+        {
+          "const": "cancel",
+          "description": "Idempotent cancellation request.",
+          "type": "string"
+        },
+        {
+          "const": "event",
+          "description": "Remote object or service event.",
+          "type": "string"
+        },
+        {
+          "const": "subscribe",
+          "description": "Event subscription request.",
+          "type": "string"
+        },
+        {
+          "const": "unsubscribe",
+          "description": "Event subscription removal.",
+          "type": "string"
+        },
+        {
+          "const": "ipc_send",
+          "description": "Fire-and-forget application IPC message.",
+          "type": "string"
+        },
+        {
+          "const": "ipc_invoke",
+          "description": "Request/response application IPC invocation.",
+          "type": "string"
+        },
+        {
+          "const": "ipc_reply",
+          "description": "Successful IPC invocation response.",
+          "type": "string"
+        },
+        {
+          "const": "ipc_error",
+          "description": "Failed IPC invocation response.",
+          "type": "string"
+        },
+        {
+          "const": "stream_open",
+          "description": "Credit-controlled stream creation.",
+          "type": "string"
+        },
+        {
+          "const": "stream_window",
+          "description": "Additional stream credit.",
+          "type": "string"
+        },
+        {
+          "const": "stream_data",
+          "description": "Stream payload.",
+          "type": "string"
+        },
+        {
+          "const": "stream_end",
+          "description": "Successful stream termination.",
+          "type": "string"
+        },
+        {
+          "const": "stream_error",
+          "description": "Failed stream termination.",
+          "type": "string"
+        },
+        {
+          "const": "retain_handle",
+          "description": "Remote-handle retention.",
+          "type": "string"
+        },
+        {
+          "const": "release_handle",
+          "description": "Remote-handle release.",
+          "type": "string"
+        },
+        {
+          "const": "shared_buffer_offer",
+          "description": "Shared-buffer transfer offer.",
+          "type": "string"
+        },
+        {
+          "const": "shared_buffer_accept",
+          "description": "Shared-buffer transfer acceptance.",
+          "type": "string"
+        },
+        {
+          "const": "shared_buffer_release",
+          "description": "Shared-buffer reference release.",
+          "type": "string"
+        },
+        {
+          "const": "heartbeat",
+          "description": "Connection liveness signal.",
+          "type": "string"
+        },
+        {
+          "const": "diagnostics",
+          "description": "Bounded diagnostic snapshot.",
+          "type": "string"
+        },
+        {
+          "const": "shutdown",
+          "description": "Graceful shutdown request.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Logical protocol frame header with an explicit, padding-free wire codec.",
+  "properties": {
+    "flags": {
+      "description": "Versioned frame flags.",
+      "format": "uint8",
+      "maximum": 0,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "frame_length": {
+      "description": "Payload length in bytes, excluding this header.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "message_kind": {
+      "$ref": "#/$defs/MessageKind",
+      "description": "Payload message category."
+    },
+    "protocol_major": {
+      "description": "Incompatible protocol generation.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "protocol_minor": {
+      "description": "Additive negotiated protocol generation.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "request_id": {
+      "description": "Request/response correlation ID; zero means uncorrelated.",
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sequence": {
+      "description": "Monotonically increasing sequence number for one direction.",
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "frame_length",
+    "protocol_major",
+    "protocol_minor",
+    "message_kind",
+    "flags",
+    "request_id",
+    "sequence"
+  ],
+  "title": "FrameHeader",
+  "type": "object"
+}

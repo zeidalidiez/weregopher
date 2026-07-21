@@ -1,0 +1,265 @@
+{
+  "$defs": {
+    "AppInstanceId": {
+      "description": "A unique application launch identity.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "CallAuthority": {
+      "description": "Host-issued authority references attached to a call.",
+      "properties": {
+        "capability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityGrantId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Capability grant selected and validated by the receiving host."
+        },
+        "user_activation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserActivationId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Short-lived, one-shot user-activation record selected by the host."
+        }
+      },
+      "type": "object"
+    },
+    "CapabilityGrantId": {
+      "description": "A host-issued capability-grant reference.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "FrameIdentity": {
+      "description": "Renderer frame identity, including navigation generation.",
+      "properties": {
+        "frame_id": {
+          "description": "Backend frame identifier.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "description": "Generation incremented when the backend reuses a frame identifier.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "is_main_frame": {
+          "description": "Whether this is the renderer's main frame.",
+          "type": "boolean"
+        },
+        "origin": {
+          "$ref": "#/$defs/OriginIdentity",
+          "description": "Backend-authoritative origin."
+        },
+        "parent_frame_id": {
+          "description": "Parent frame identifier in the same renderer generation.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "renderer": {
+          "$ref": "#/$defs/RendererId",
+          "description": "Owning renderer."
+        }
+      },
+      "required": [
+        "renderer",
+        "frame_id",
+        "generation",
+        "origin",
+        "is_main_frame"
+      ],
+      "type": "object"
+    },
+    "OriginIdentity": {
+      "description": "Origin identity observed by the renderer backend rather than supplied by page code.",
+      "properties": {
+        "opaque": {
+          "description": "Whether the origin is opaque under browser origin rules.",
+          "type": "boolean"
+        },
+        "serialized": {
+          "description": "Canonical serialized origin, or an implementation-assigned opaque identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "serialized",
+        "opaque"
+      ],
+      "type": "object"
+    },
+    "RendererId": {
+      "description": "An application-scoped renderer identifier.",
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ScriptWorldKind": {
+      "description": "Script world category within a renderer frame.",
+      "oneOf": [
+        {
+          "const": "main",
+          "description": "Page main world.",
+          "type": "string"
+        },
+        {
+          "const": "preload_isolated",
+          "description": "Vendor preload isolated world.",
+          "type": "string"
+        },
+        {
+          "const": "adapter_isolated",
+          "description": "Weregopher adapter isolated world.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Renderer-backend-specific world category.",
+          "properties": {
+            "backend_specific": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "backend_specific"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TraceId": {
+      "description": "A distributed trace identity.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "UserActivationId": {
+      "description": "A host-issued, short-lived user-activation reference.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "WorldIdentity": {
+      "description": "Identity of a script world and its destruction/recreation generation.",
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/FrameIdentity",
+          "description": "Owning frame identity."
+        },
+        "generation": {
+          "description": "Generation incremented when the backend reuses a world identifier.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/ScriptWorldKind",
+          "description": "Semantic world category."
+        },
+        "world_id": {
+          "description": "Backend world identifier.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "frame",
+        "world_id",
+        "generation",
+        "kind"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Authoritative context attached to a worker-to-host operation.",
+  "properties": {
+    "app": {
+      "$ref": "#/$defs/AppInstanceId",
+      "description": "Owning application launch."
+    },
+    "authority": {
+      "$ref": "#/$defs/CallAuthority",
+      "description": "Host-issued authority references rather than caller assertions."
+    },
+    "deadline_ms": {
+      "description": "Relative call deadline in milliseconds.",
+      "format": "uint32",
+      "maximum": 4294967295,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "frame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FrameIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Authoritative renderer frame, when applicable."
+    },
+    "renderer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RendererId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Originating renderer, when applicable."
+    },
+    "trace_parent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TraceId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional causal trace identity."
+    },
+    "world": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorldIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Authoritative script world, when applicable."
+    }
+  },
+  "required": [
+    "app",
+    "authority"
+  ],
+  "title": "CallContext",
+  "type": "object"
+}

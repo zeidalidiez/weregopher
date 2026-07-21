@@ -150,6 +150,11 @@ stable_string_id!(
     "build",
     "A catalog identifier for an immutable build."
 );
+stable_string_id!(
+    FeatureId,
+    "feature",
+    "A durable application-workflow or compatibility-feature identifier."
+);
 stable_string_id!(ProfileId, "profile", "An application profile identifier.");
 stable_string_id!(
     ScenarioId,

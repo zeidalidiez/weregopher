@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "CompatibilityAnalysisFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "CompatibilityArchitecture": {
+      "description": "Architecture accepted by compatibility-analysis format version 1.",
+      "oneOf": [
+        {
+          "const": "x86_64",
+          "description": "AMD64/x86-64 under the initial release profile.",
+          "type": "string"
+        }
+      ]
+    },
+    "CompatibilityDimensions": {
+      "additionalProperties": false,
+      "description": "Required compatibility dimensions for one exact build and target environment.",
+      "properties": {
+        "electron_api": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Used Electron API surface contract."
+        },
+        "helpers": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Vendor-helper strategy contract."
+        },
+        "main_runtime": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Selected main-process runtime contract."
+        },
+        "native_modules": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Native-module strategy contract."
+        },
+        "node_api": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Used Node API surface contract."
+        },
+        "package": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Package identity and layout contract."
+        },
+        "preload": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Preload and context-isolation contract."
+        },
+        "renderer": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Renderer backend contract."
+        },
+        "security": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "Declared security-contract probes."
+        },
+        "state": {
+          "$ref": "#/$defs/DimensionAssessment",
+          "description": "State safety and migration contract."
+        }
+      },
+      "required": [
+        "package",
+        "main_runtime",
+        "renderer",
+        "preload",
+        "electron_api",
+        "node_api",
+        "native_modules",
+        "helpers",
+        "state",
+        "security"
+      ],
+      "type": "object"
+    },
+    "CompatibilityEvidenceKind": {
+      "description": "Kind of immutable evidence supporting one compatibility assessment.",
+      "oneOf": [
+        {
+          "const": "package_manifest",
+          "description": "Canonical package-tree or package-layout evidence.",
+          "type": "string"
+        },
+        {
+          "const": "static_analysis",
+          "description": "Deterministic static-analysis evidence.",
+          "type": "string"
+        },
+        {
+          "const": "runtime_probe",
+          "description": "Main-runtime probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "renderer_probe",
+          "description": "Renderer or preload probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "state_probe",
+          "description": "State-safety probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "security_probe",
+          "description": "Security-contract probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "workflow_probe",
+          "description": "Application-workflow probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "adapter_contract",
+          "description": "Signed or locally trusted adapter-contract evidence.",
+          "type": "string"
+        }
+      ]
+    },
+    "CompatibilityEvidenceRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed evidence supporting one compatibility assessment.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Digest of the immutable evidence artifact."
+        },
+        "kind": {
+          "$ref": "#/$defs/CompatibilityEvidenceKind",
+          "description": "Class of analysis or probe that produced the evidence."
+        }
+      },
+      "required": [
+        "kind",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "CompatibilityPlatform": {
+      "description": "Platform accepted by compatibility-analysis format version 1.",
+      "oneOf": [
+        {
+          "const": "windows",
+          "description": "Microsoft Windows under the initial release profile.",
+          "type": "string"
+        }
+      ]
+    },
+    "CompatibilityTarget": {
+      "additionalProperties": false,
+      "description": "Immutable identity of the exact compatibility target that was analyzed.",
+      "properties": {
+        "adapter_contract_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Digest of the resolved static adapter contract."
+        },
+        "architecture": {
+          "$ref": "#/$defs/CompatibilityArchitecture"
+        },
+        "execution_environment_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Digest of the canonical execution-environment descriptor."
+        },
+        "main_runtime_contract_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Digest of the selected main-runtime contract and artifact descriptor."
+        },
+        "platform": {
+          "$ref": "#/$defs/CompatibilityPlatform"
+        },
+        "renderer_backend_contract_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Digest of the selected renderer-backend contract and artifact descriptor."
+        }
+      },
+      "required": [
+        "platform",
+        "architecture",
+        "adapter_contract_digest",
+        "main_runtime_contract_digest",
+        "renderer_backend_contract_digest",
+        "execution_environment_digest"
+      ],
+      "type": "object"
+    },
+    "DimensionAssessment": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "satisfied",
+                  "unsatisfied",
+                  "not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
+      "description": "One dimension's status and immutable supporting evidence.",
+      "properties": {
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/CompatibilityEvidenceRef"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "$ref": "#/$defs/DimensionStatus"
+        }
+      },
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "DimensionStatus": {
+      "description": "Result of evaluating one compatibility dimension against a declared contract.",
+      "oneOf": [
+        {
+          "const": "unknown",
+          "description": "The dimension has not been resolved by sufficient evidence.",
+          "type": "string"
+        },
+        {
+          "const": "satisfied",
+          "description": "The declared compatibility requirement is satisfied.",
+          "type": "string"
+        },
+        {
+          "const": "unsatisfied",
+          "description": "The declared compatibility requirement is not satisfied.",
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "The declared contract proves that this dimension does not apply.",
+          "type": "string"
+        }
+      ]
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Compatibility analysis for one immutable build and exact target environment.",
+  "properties": {
+    "dimensions": {
+      "$ref": "#/$defs/CompatibilityDimensions"
+    },
+    "format_version": {
+      "$ref": "#/$defs/CompatibilityAnalysisFormatVersion"
+    },
+    "source_build_fingerprint_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "target": {
+      "$ref": "#/$defs/CompatibilityTarget"
+    },
+    "workflows": {
+      "additionalProperties": false,
+      "maxProperties": 128,
+      "patternProperties": {
+        "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$": {
+          "$ref": "#/$defs/DimensionAssessment"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "format_version",
+    "source_build_fingerprint_digest",
+    "target",
+    "dimensions",
+    "workflows"
+  ],
+  "title": "CompatibilityAnalysis",
+  "type": "object"
+}

@@ -21,6 +21,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "candidate-installation-evidence.schema.json",
         "candidate-profile.schema.json",
         "certification-class.schema.json",
+        "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
         "frame-header.schema.json",
         "package-tree-manifest.schema.json",
@@ -211,6 +212,122 @@ fn candidate_profile_schema_fixes_the_initial_target_and_channel_vocabularies()
     assert!(document["properties"].get("electron").is_none());
     assert!(document["properties"].get("compatibility").is_none());
     assert!(document["properties"].get("package_path").is_none());
+    Ok(())
+}
+
+#[test]
+fn compatibility_analysis_schema_is_versioned_bounded_and_fail_closed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let path = output.path().join("compatibility-analysis.schema.json");
+    assert!(path.is_file());
+
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    assert_eq!(
+        document["$defs"]["CompatibilityAnalysisFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(
+        document["properties"]["format_version"]["$ref"],
+        "#/$defs/CompatibilityAnalysisFormatVersion"
+    );
+    assert_eq!(document["properties"]["workflows"]["maxProperties"], 128);
+    assert_eq!(
+        document["properties"]["source_build_fingerprint_digest"]["$ref"],
+        "#/$defs/Sha256Digest"
+    );
+    assert_eq!(
+        document["properties"]["target"]["$ref"],
+        "#/$defs/CompatibilityTarget"
+    );
+    assert_eq!(document["additionalProperties"], false);
+    assert_compatibility_target_schema(&document)?;
+
+    let assessment = &document["$defs"]["DimensionAssessment"];
+    assert_eq!(assessment["properties"]["evidence"]["maxItems"], 64);
+    assert_eq!(assessment["properties"]["evidence"]["uniqueItems"], true);
+    assert_eq!(
+        assessment["allOf"][0]["then"]["properties"]["evidence"]["minItems"],
+        1
+    );
+    assert_eq!(
+        assessment["allOf"][0]["if"]["properties"]["status"]["enum"],
+        serde_json::json!(["satisfied", "unsatisfied", "not_applicable"])
+    );
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["DimensionStatus"])?,
+        ["unknown", "satisfied", "unsatisfied", "not_applicable"]
+    );
+    assert!(document["properties"].get("certification_class").is_none());
+    assert!(
+        document["properties"]
+            .get("effective_security_posture")
+            .is_none()
+    );
+    assert!(document["properties"].get("efficiency_status").is_none());
+    assert!(
+        document["properties"]
+            .get("transformation_authorized")
+            .is_none()
+    );
+    assert!(document["properties"].get("execution_authorized").is_none());
+    assert!(document["properties"].get("certified").is_none());
+    Ok(())
+}
+
+fn assert_compatibility_target_schema(document: &serde_json::Value) -> Result<(), &'static str> {
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["CompatibilityPlatform"])?,
+        ["windows"]
+    );
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["CompatibilityArchitecture"])?,
+        ["x86_64"]
+    );
+    let root_required = document["required"]
+        .as_array()
+        .ok_or("analysis schema must declare required properties")?;
+    for property in [
+        "format_version",
+        "source_build_fingerprint_digest",
+        "target",
+        "dimensions",
+        "workflows",
+    ] {
+        assert!(root_required.iter().any(|value| value == property));
+    }
+    let target = &document["$defs"]["CompatibilityTarget"];
+    assert_eq!(
+        target["additionalProperties"], false,
+        "target must reject undeclared environment attributes"
+    );
+    let target_required = target["required"]
+        .as_array()
+        .ok_or("target schema must declare required identities")?;
+    for property in [
+        "platform",
+        "architecture",
+        "adapter_contract_digest",
+        "main_runtime_contract_digest",
+        "renderer_backend_contract_digest",
+        "execution_environment_digest",
+    ] {
+        assert!(target_required.iter().any(|value| value == property));
+    }
+    for property in [
+        "adapter_contract_digest",
+        "main_runtime_contract_digest",
+        "renderer_backend_contract_digest",
+        "execution_environment_digest",
+    ] {
+        assert_eq!(
+            target["properties"][property]["$ref"],
+            "#/$defs/Sha256Digest"
+        );
+    }
+    assert!(document["$defs"].get("BuildFingerprint").is_none());
+    assert!(document["$defs"].get("PackageIdentity").is_none());
     Ok(())
 }
 

@@ -51,6 +51,7 @@ never makes an application compatible by itself.
 | Installed-app discovery | Known locations, uninstall registry, and Windows package catalog |
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
 | Candidate verification | Fixed-layout inputs for Codex, Hermes Agent, Discord, and Visual Studio Code |
+| Compatibility contracts | Bounded, exact-target, evidence-backed assessment model; analyzers and certification are not yet implemented |
 | Transformation runtime | Specified, not yet available end to end |
 | Certified adapters | None yet |
 

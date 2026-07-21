@@ -4,21 +4,22 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use schemars::{JsonSchema, schema_for};
-use serde_json::Value;
+use serde_json::{Value, json};
 use weregopher_domain::{
     BuildFingerprint, CallContext, CandidateInstallationEvidence, CandidateProfile,
-    CertificationClass, EffectiveSecurityPosture, FrameHeader, ProtocolLimits, PublicationStatus,
-    TrustMode, WireValue,
+    CertificationClass, CompatibilityAnalysis, EffectiveSecurityPosture, FrameHeader,
+    ProtocolLimits, PublicationStatus, TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 12] = [
+pub const SCHEMA_FILENAMES: [&str; 13] = [
     "build-fingerprint.schema.json",
     "call-context.schema.json",
     "candidate-installation-evidence.schema.json",
     "candidate-profile.schema.json",
     "certification-class.schema.json",
+    "compatibility-analysis.schema.json",
     "effective-security-posture.schema.json",
     "frame-header.schema.json",
     "package-tree-manifest.schema.json",
@@ -103,25 +104,26 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
         schema_document::<CandidateInstallationEvidence>(SCHEMA_FILENAMES[2])?,
         schema_document::<CandidateProfile>(SCHEMA_FILENAMES[3])?,
         schema_document::<CertificationClass>(SCHEMA_FILENAMES[4])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[5])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[6])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[7])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[8])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[9])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[10])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[11])?,
+        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[5])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[6])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[7])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[8])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[9])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[10])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[11])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[12])?,
     ])
 }
 
 fn schema_document<T: JsonSchema>(filename: &'static str) -> Result<(&'static str, Vec<u8>)> {
     let mut document = serde_json::to_value(schema_for!(T))?;
-    normalize_schema_meta(&mut document);
+    normalize_schema_meta(&mut document, filename)?;
     let mut bytes = serde_json::to_vec_pretty(&document)?;
     bytes.push(b'\n');
     Ok((filename, bytes))
 }
 
-fn normalize_schema_meta(document: &mut Value) {
+fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
     if let Value::Object(object) = document {
         object.insert(
             "$schema".to_owned(),
@@ -129,6 +131,38 @@ fn normalize_schema_meta(document: &mut Value) {
         );
     }
     add_explicit_integer_bounds(document);
+    if filename == "compatibility-analysis.schema.json" {
+        require_evidence_for_resolved_compatibility_assessments(document)?;
+    }
+    Ok(())
+}
+
+fn require_evidence_for_resolved_compatibility_assessments(document: &mut Value) -> Result<()> {
+    let assessment = document
+        .pointer_mut("/$defs/DimensionAssessment")
+        .and_then(Value::as_object_mut)
+        .context("compatibility schema is missing its dimension-assessment definition")?;
+    assessment.insert(
+        "allOf".to_owned(),
+        json!([{
+            "if": {
+                "properties": {
+                    "status": {
+                        "enum": ["satisfied", "unsatisfied", "not_applicable"]
+                    }
+                },
+                "required": ["status"]
+            },
+            "then": {
+                "properties": {
+                    "evidence": {
+                        "minItems": 1
+                    }
+                }
+            }
+        }]),
+    );
+    Ok(())
 }
 
 fn add_explicit_integer_bounds(value: &mut Value) {

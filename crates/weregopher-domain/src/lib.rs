@@ -7,6 +7,7 @@
 mod build;
 mod candidate;
 mod certification;
+mod compatibility;
 mod digest;
 mod discovery;
 mod ids;
@@ -18,14 +19,21 @@ pub use candidate::{
     CandidateChannelHint, CandidateProfile, CandidateTarget, initial_candidate_profiles,
 };
 pub use certification::{CertificationClass, PublicationStatus, TrustMode};
+pub use compatibility::{
+    AnalysisDisposition, COMPATIBILITY_ANALYSIS_FORMAT_VERSION, CompatibilityAnalysis,
+    CompatibilityArchitecture, CompatibilityContractError, CompatibilityDimensions,
+    CompatibilityEvidenceKind, CompatibilityEvidenceRef, CompatibilityPlatform,
+    CompatibilityTarget, DimensionAssessment, DimensionStatus, MAX_COMPATIBILITY_EVIDENCE_REFS,
+    MAX_COMPATIBILITY_WORKFLOWS,
+};
 pub use digest::{Sha256Digest, Sha256DigestError};
 pub use discovery::{
     CandidateInstallationEvidence, DerivedValue, DiscoveryConfidence, DiscoverySource,
 };
 pub use ids::{
-    AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, IdentifierError,
-    ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId, ScenarioId, TraceId,
-    UserActivationId, WindowId,
+    AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, FeatureId,
+    IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId, ScenarioId,
+    TraceId, UserActivationId, WindowId,
 };
 pub use protocol::{
     BufferStorage, CallAuthority, CallContext, ContentBlobId, FRAME_HEADER_LEN, FrameHeader,

@@ -17,7 +17,7 @@ Weregopher:
 
 ## Current milestone
 
-The committed foundation contains the Rust workspace, canonical platform-neutral domain and protocol contracts, and deterministic checked-in JSON Schemas. Package discovery, fingerprinting, and executable runtime components remain separate follow-up increments.
+The committed foundation contains the Rust workspace, canonical platform-neutral domain and protocol contracts, deterministic checked-in JSON Schemas, and pure package-tree manifest construction from pre-observed records. The manifest builder performs no filesystem access; package discovery, race-safe filesystem observation, and executable runtime components remain separate follow-up increments.
 
 ## Build
 

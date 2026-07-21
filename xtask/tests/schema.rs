@@ -21,6 +21,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "certification-class.schema.json",
         "effective-security-posture.schema.json",
         "frame-header.schema.json",
+        "package-tree-manifest.schema.json",
         "protocol-limits.schema.json",
         "publication-status.schema.json",
         "trust-mode.schema.json",
@@ -129,6 +130,25 @@ fn generated_protocol_schemas_match_registered_flags_and_positive_limits()
     for (name, schema) in properties {
         assert_eq!(schema["minimum"], 1, "limit {name} accepted zero");
     }
+    Ok(())
+}
+
+#[test]
+fn package_manifest_schema_is_generated_with_a_fixed_format_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let path = output.path().join("package-tree-manifest.schema.json");
+    assert!(path.is_file());
+
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    let version = &document["properties"]["format_version"];
+    assert_eq!(version["minimum"], 1);
+    assert_eq!(version["maximum"], 1);
+    let normalized_path = &document["$defs"]["PackageFileRecord"]["properties"]["normalized_path"];
+    assert_eq!(normalized_path["minLength"], 1);
+    assert_eq!(normalized_path["maxLength"], 32_767);
+    assert!(normalized_path["pattern"].is_string());
     Ok(())
 }
 

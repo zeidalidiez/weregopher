@@ -1,0 +1,22 @@
+[package]
+name = "weregopher-fingerprint"
+description = "Deterministic package-manifest construction for Weregopher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

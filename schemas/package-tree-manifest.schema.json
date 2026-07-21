@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "PackageFileKind": {
+      "description": "Package file classification used by manifests and later analyzers.",
+      "oneOf": [
+        {
+          "const": "regular",
+          "description": "Ordinary package file.",
+          "type": "string"
+        },
+        {
+          "const": "asar",
+          "description": "Electron ASAR archive.",
+          "type": "string"
+        },
+        {
+          "const": "native_module",
+          "description": "Node/Electron native module.",
+          "type": "string"
+        },
+        {
+          "const": "executable",
+          "description": "Windows executable image or loadable library.",
+          "type": "string"
+        },
+        {
+          "const": "symbolic_link",
+          "description": "Symbolic link whose target semantics are part of package identity.",
+          "type": "string"
+        }
+      ]
+    },
+    "PackageFileRecord": {
+      "description": "Canonical evidence for one included package file or symbolic link.",
+      "properties": {
+        "executable": {
+          "description": "Whether the file is expected to contain directly loadable machine code.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/PackageFileKind",
+          "description": "Deterministic file classification."
+        },
+        "normalized_path": {
+          "description": "Root-relative path using `/`, with original case preserved.",
+          "maxLength": 32767,
+          "minLength": 1,
+          "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^/\\\\:\\u0000-\\u001f\\u007f-\\u009f](?:[^\\\\:\\u0000-\\u001f\\u007f-\\u009f]*[^/\\\\:\\u0000-\\u001f\\u007f-\\u009f])?$",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Content digest, or domain-separated link-target digest."
+        },
+        "signer_thumbprint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sha256Digest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Authenticode signer thumbprint when a later evidence stage supplies it."
+        },
+        "size": {
+          "description": "File byte length, or canonical link-target text length for a symbolic link.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "normalized_path",
+        "size",
+        "sha256",
+        "executable",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Canonical immutable evidence assembled from pre-observed package records.",
+  "properties": {
+    "files": {
+      "description": "Canonically sorted included file/link records.",
+      "items": {
+        "$ref": "#/$defs/PackageFileRecord"
+      },
+      "type": "array"
+    },
+    "format_version": {
+      "description": "Version of path, leaf, and directory canonicalization rules.",
+      "format": "uint16",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "package_tree_merkle": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Root directory Merkle digest."
+    }
+  },
+  "required": [
+    "format_version",
+    "package_tree_merkle",
+    "files"
+  ],
+  "title": "PackageTreeManifest",
+  "type": "object"
+}

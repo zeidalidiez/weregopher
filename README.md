@@ -17,7 +17,7 @@ Weregopher:
 
 ## Current milestone
 
-The committed foundation contains the Rust workspace, canonical platform-neutral domain and protocol contracts, deterministic checked-in JSON Schemas, pure package-tree manifest construction from pre-observed records, a bounded Windows primitive that hashes one leased direct file, and read-only candidate profiles plus provenance-bound installation evidence contracts for Codex, Hermes Agent, Discord, and Visual Studio Code. Candidate evidence remains discovery output only: it does not assert that a product uses Electron or is compatible. Platform discovery sources, package-root traversal, coherent package scanning, and executable runtime components remain separate follow-up increments.
+The committed foundation contains the Rust workspace, canonical platform-neutral domain and protocol contracts, deterministic checked-in JSON Schemas, pure package-tree manifest construction from pre-observed records, a bounded Windows primitive that hashes one leased direct file, and read-only candidate profiles plus provenance-bound installation evidence contracts for Codex, Hermes Agent, Discord, and Visual Studio Code. A bounded Windows discovery source now checks maintained per-user Discord Stable/PTB/Canary and Visual Studio Code Stable/Insiders locations using direct directory and marker-file metadata; it does not recurse or infer compatibility. Additional Codex and Hermes Agent sources, package-catalog and registry sources, package-root traversal, coherent package scanning, and executable runtime components remain separate follow-up increments.
 
 ## Build
 

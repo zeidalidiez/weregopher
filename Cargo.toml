@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/weregopher-discovery",
   "crates/weregopher-domain",
   "crates/weregopher-fingerprint",
   "crates/weregopher-windows",

@@ -475,6 +475,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "weregopher-discovery"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "weregopher-domain",
+]
+
+[[package]]
 name = "weregopher-domain"
 version = "0.1.0"
 dependencies = [

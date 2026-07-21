@@ -8,6 +8,7 @@
 mod correlation;
 mod package_catalog;
 mod uninstall;
+mod verification;
 #[cfg(windows)]
 mod windows_package_catalog;
 #[cfg(windows)]
@@ -29,6 +30,10 @@ pub use correlation::{
 };
 pub use package_catalog::{PackageCatalogEntry, evidence_from_package_catalog_entry};
 pub use uninstall::{UninstallRegistryEntry, evidence_from_uninstall_entry};
+pub use verification::{
+    CandidateLayoutMarker, CandidateLayoutMarkerKind, CandidatePathKind,
+    CandidateVerificationInput, verification_inputs_for_candidate,
+};
 #[cfg(windows)]
 pub use windows_package_catalog::discover_windows_package_catalog;
 #[cfg(windows)]
@@ -139,6 +144,20 @@ pub enum DiscoveryError {
     #[error("candidate-evidence correlation exceeded its {limit}-record input limit")]
     CorrelationInputLimit {
         /// Maximum accepted evidence records.
+        limit: usize,
+    },
+    /// A candidate root contains more direct entries than verification accepts.
+    #[error("candidate verification root {path:?} exceeded its {limit}-entry limit")]
+    VerificationEntryLimit {
+        /// Candidate root whose direct entries exceeded the bound.
+        path: String,
+        /// Maximum accepted direct entries.
+        limit: usize,
+    },
+    /// More versioned package roots were found than verification accepts.
+    #[error("candidate verification exceeded its {limit}-package-root limit")]
+    VerificationCandidateLimit {
+        /// Maximum accepted versioned package roots.
         limit: usize,
     },
 }

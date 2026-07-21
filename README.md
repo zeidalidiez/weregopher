@@ -50,7 +50,7 @@ never makes an application compatible by itself.
 | Windows file observation | Bounded direct-file hashing with retained handle identity checks |
 | Installed-app discovery | Known locations, uninstall registry, and Windows package catalog |
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
-| Candidate verification | Fixed-layout inputs for Discord and Visual Studio Code |
+| Candidate verification | Fixed-layout inputs for Codex, Hermes Agent, Discord, and Visual Studio Code |
 | Transformation runtime | Specified, not yet available end to end |
 | Certified adapters | None yet |
 

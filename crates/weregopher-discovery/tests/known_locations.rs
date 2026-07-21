@@ -13,7 +13,7 @@ fn create_marker(root: &Path, relative_root: &str, marker: &str) -> std::io::Res
 }
 
 #[test]
-fn known_user_locations_discover_supported_discord_and_vscode_channels()
+fn known_user_locations_discover_supported_candidate_installations()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempdir()?;
     create_marker(fixture.path(), "Discord", "Update.exe")?;
@@ -25,6 +25,7 @@ fn known_user_locations_discover_supported_discord_and_vscode_channels()
         "Programs/Microsoft VS Code Insiders",
         "Code - Insiders.exe",
     )?;
+    create_marker(fixture.path(), "Programs/Hermes", "Hermes.exe")?;
 
     let discovered = discover_known_user_locations(fixture.path())?;
     let identities: Vec<_> = discovered
@@ -68,6 +69,7 @@ fn known_user_locations_discover_supported_discord_and_vscode_channels()
                 Some("insiders"),
                 InstallationKind::Exe,
             ),
+            (CandidateTarget::HermesAgent, None, InstallationKind::Exe,),
         ]
     );
 
@@ -110,6 +112,7 @@ fn known_user_locations_ignore_incomplete_and_unrelated_directories()
     let fixture = tempdir()?;
     fs::create_dir_all(fixture.path().join("Discord"))?;
     fs::create_dir_all(fixture.path().join("Programs/Microsoft VS Code"))?;
+    fs::create_dir_all(fixture.path().join("Programs/Hermes"))?;
     create_marker(fixture.path(), "Unrelated", "Update.exe")?;
 
     assert!(discover_known_user_locations(fixture.path())?.is_empty());

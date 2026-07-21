@@ -169,7 +169,7 @@ struct KnownLocationRule {
     marker: &'static str,
     marker_is_primary_executable: bool,
     installation_kind: InstallationKind,
-    channel: &'static str,
+    channel: Option<&'static str>,
 }
 
 const KNOWN_USER_LOCATION_RULES: &[KnownLocationRule] = &[
@@ -179,7 +179,7 @@ const KNOWN_USER_LOCATION_RULES: &[KnownLocationRule] = &[
         marker: "Update.exe",
         marker_is_primary_executable: false,
         installation_kind: InstallationKind::Squirrel,
-        channel: "stable",
+        channel: Some("stable"),
     },
     KnownLocationRule {
         target: CandidateTarget::Discord,
@@ -187,7 +187,7 @@ const KNOWN_USER_LOCATION_RULES: &[KnownLocationRule] = &[
         marker: "Update.exe",
         marker_is_primary_executable: false,
         installation_kind: InstallationKind::Squirrel,
-        channel: "ptb",
+        channel: Some("ptb"),
     },
     KnownLocationRule {
         target: CandidateTarget::Discord,
@@ -195,7 +195,7 @@ const KNOWN_USER_LOCATION_RULES: &[KnownLocationRule] = &[
         marker: "Update.exe",
         marker_is_primary_executable: false,
         installation_kind: InstallationKind::Squirrel,
-        channel: "canary",
+        channel: Some("canary"),
     },
     KnownLocationRule {
         target: CandidateTarget::VisualStudioCode,
@@ -203,7 +203,7 @@ const KNOWN_USER_LOCATION_RULES: &[KnownLocationRule] = &[
         marker: "Code.exe",
         marker_is_primary_executable: true,
         installation_kind: InstallationKind::Exe,
-        channel: "stable",
+        channel: Some("stable"),
     },
     KnownLocationRule {
         target: CandidateTarget::VisualStudioCode,
@@ -211,7 +211,15 @@ const KNOWN_USER_LOCATION_RULES: &[KnownLocationRule] = &[
         marker: "Code - Insiders.exe",
         marker_is_primary_executable: true,
         installation_kind: InstallationKind::Exe,
-        channel: "insiders",
+        channel: Some("insiders"),
+    },
+    KnownLocationRule {
+        target: CandidateTarget::HermesAgent,
+        relative_root: &["Programs", "Hermes"],
+        marker: "Hermes.exe",
+        marker_is_primary_executable: true,
+        installation_kind: InstallationKind::Exe,
+        channel: None,
     },
 ];
 
@@ -338,11 +346,13 @@ fn evidence_for_rule(
         primary_executable_path,
         package_identity: None,
         architecture: None,
-        channel: Some(DerivedValue::new(
-            rule.channel.to_owned(),
-            DiscoveryConfidence::Corroborated,
-            DiscoverySource::KnownInstallLocation,
-        )),
+        channel: rule.channel.map(|value| {
+            DerivedValue::new(
+                value.to_owned(),
+                DiscoveryConfidence::Corroborated,
+                DiscoverySource::KnownInstallLocation,
+            )
+        }),
         observed_version: None,
     })
 }

@@ -8,7 +8,7 @@ use std::{collections::BTreeSet, fs, io, path::Path};
 
 use weregopher_domain::{
     CandidateInstallationEvidence, CandidateTarget, DerivedValue, DiscoveryConfidence,
-    DiscoverySource,
+    DiscoverySource, InstallationKind,
 };
 
 use crate::{CandidateEvidenceGroup, DiscoveryError};
@@ -25,10 +25,14 @@ pub enum CandidateLayoutMarkerKind {
     ApplicationArchive,
     /// Optional unpacked companion directory for an application archive.
     UnpackedApplicationDirectory,
-    /// Unpacked application `package.json`.
+    /// Application or package manifest at a maintained fixed path.
     ApplicationManifest,
     /// Fixed unpacked main-process entry path.
     MainProcessEntry,
+    /// Candidate-specific helper executable bundled inside the package.
+    BundledHelper,
+    /// Candidate-specific installation metadata at a maintained fixed path.
+    InstallationMetadata,
     /// Supporting Electron runtime resource at a maintained fixed path.
     ElectronResource,
 }
@@ -117,8 +121,8 @@ impl CandidateVerificationInput {
 ///
 /// Discord inputs select complete direct `app-<version>` package directories.
 /// Visual Studio Code inputs require the maintained unpacked main-process
-/// layout. Codex and Hermes Agent remain fail-closed until their artifact
-/// identities are established from direct evidence.
+/// layout. Codex requires its exact package-catalog identity and observed MSIX
+/// layout. Hermes Agent requires its source-backed packaged desktop layout.
 ///
 /// # Errors
 ///
@@ -128,15 +132,19 @@ pub fn verification_inputs_for_candidate(
     group: &CandidateEvidenceGroup,
 ) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
     match group.target() {
+        CandidateTarget::Codex => codex_verification_inputs(group),
+        CandidateTarget::HermesAgent => hermes_verification_inputs(group),
         CandidateTarget::Discord => discord_verification_inputs(group),
         CandidateTarget::VisualStudioCode => vscode_verification_inputs(group),
-        CandidateTarget::Codex | CandidateTarget::HermesAgent => Ok(Vec::new()),
     }
 }
 
 fn discord_verification_inputs(
     group: &CandidateEvidenceGroup,
 ) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
+    if consistent_installation_kind(group) != Some(InstallationKind::Squirrel) {
+        return Ok(Vec::new());
+    }
     let Some(root) = representative_root(group) else {
         return Ok(Vec::new());
     };
@@ -256,6 +264,12 @@ fn discord_package_input(
 fn vscode_verification_inputs(
     group: &CandidateEvidenceGroup,
 ) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
+    if !matches!(
+        consistent_installation_kind(group),
+        Some(InstallationKind::Exe | InstallationKind::Msix)
+    ) {
+        return Ok(Vec::new());
+    }
     let Some(root) = representative_root(group) else {
         return Ok(Vec::new());
     };
@@ -325,11 +339,236 @@ fn vscode_verification_inputs(
     }])
 }
 
+fn codex_verification_inputs(
+    group: &CandidateEvidenceGroup,
+) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
+    if consistent_installation_kind(group) != Some(InstallationKind::Msix)
+        || !group_has_no_channels(group)
+        || !has_exact_codex_package_identity(group)
+    {
+        return Ok(Vec::new());
+    }
+    let Some(root) = representative_root(group) else {
+        return Ok(Vec::new());
+    };
+    if !root.is_absolute() || probe_path(root, &[], CandidatePathKind::Directory)?.is_none() {
+        return Ok(Vec::new());
+    }
+
+    let Some(primary) = marker(
+        root,
+        &["app", "ChatGPT.exe"],
+        CandidateLayoutMarkerKind::PrimaryExecutable,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(manifest) = marker(
+        root,
+        &["AppxManifest.xml"],
+        CandidateLayoutMarkerKind::ApplicationManifest,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(archive) = marker(
+        root,
+        &["app", "resources", "app.asar"],
+        CandidateLayoutMarkerKind::ApplicationArchive,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+
+    let primary_executable_path = primary.path.value.clone();
+    let mut markers = vec![primary, manifest, archive];
+    push_optional_marker(
+        &mut markers,
+        root,
+        &["app", "resources", "app.asar.unpacked"],
+        CandidateLayoutMarkerKind::UnpackedApplicationDirectory,
+        CandidatePathKind::Directory,
+    )?;
+    for helper in ["codex.exe", "codex-code-mode-host.exe"] {
+        push_optional_marker(
+            &mut markers,
+            root,
+            &["app", "resources", helper],
+            CandidateLayoutMarkerKind::BundledHelper,
+            CandidatePathKind::File,
+        )?;
+    }
+    for resource in [
+        "resources.pak",
+        "chrome_100_percent.pak",
+        "chrome_200_percent.pak",
+        "icudtl.dat",
+        "v8_context_snapshot.bin",
+        "snapshot_blob.bin",
+    ] {
+        push_optional_marker(
+            &mut markers,
+            root,
+            &["app", resource],
+            CandidateLayoutMarkerKind::ElectronResource,
+            CandidatePathKind::File,
+        )?;
+    }
+
+    Ok(vec![CandidateVerificationInput {
+        target: CandidateTarget::Codex,
+        discovery_observations: group.observations().to_vec(),
+        package_root_path: path_to_string(root)?,
+        primary_executable_path,
+        markers,
+    }])
+}
+
+fn hermes_verification_inputs(
+    group: &CandidateEvidenceGroup,
+) -> Result<Vec<CandidateVerificationInput>, DiscoveryError> {
+    let supported_installer_kinds = !group.observations().is_empty()
+        && group.observations().iter().all(|evidence| {
+            matches!(
+                evidence.installation_kind.value,
+                InstallationKind::Exe | InstallationKind::Msi | InstallationKind::Unknown
+            )
+        });
+    if !supported_installer_kinds || !group_has_no_channels(group) {
+        return Ok(Vec::new());
+    }
+    let Some(root) = representative_root(group) else {
+        return Ok(Vec::new());
+    };
+    if !root.is_absolute() || probe_path(root, &[], CandidatePathKind::Directory)?.is_none() {
+        return Ok(Vec::new());
+    }
+
+    let Some(primary) = marker(
+        root,
+        &["Hermes.exe"],
+        CandidateLayoutMarkerKind::PrimaryExecutable,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(archive) = marker(
+        root,
+        &["resources", "app.asar"],
+        CandidateLayoutMarkerKind::ApplicationArchive,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(unpacked) = marker(
+        root,
+        &["resources", "app.asar.unpacked"],
+        CandidateLayoutMarkerKind::UnpackedApplicationDirectory,
+        CandidatePathKind::Directory,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(main_entry) = marker(
+        root,
+        &[
+            "resources",
+            "app.asar.unpacked",
+            "dist",
+            "electron-main.mjs",
+        ],
+        CandidateLayoutMarkerKind::MainProcessEntry,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(install_metadata) = marker(
+        root,
+        &["resources", "install-stamp.json"],
+        CandidateLayoutMarkerKind::InstallationMetadata,
+        CandidatePathKind::File,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+
+    let primary_executable_path = primary.path.value.clone();
+    let mut markers = vec![primary, archive, unpacked, main_entry, install_metadata];
+    for resource in [
+        "resources.pak",
+        "chrome_100_percent.pak",
+        "chrome_200_percent.pak",
+        "icudtl.dat",
+        "v8_context_snapshot.bin",
+        "snapshot_blob.bin",
+    ] {
+        push_optional_marker(
+            &mut markers,
+            root,
+            &[resource],
+            CandidateLayoutMarkerKind::ElectronResource,
+            CandidatePathKind::File,
+        )?;
+    }
+
+    Ok(vec![CandidateVerificationInput {
+        target: CandidateTarget::HermesAgent,
+        discovery_observations: group.observations().to_vec(),
+        package_root_path: path_to_string(root)?,
+        primary_executable_path,
+        markers,
+    }])
+}
+
 fn representative_root(group: &CandidateEvidenceGroup) -> Option<&Path> {
     group
         .observations()
         .first()
         .map(|evidence| Path::new(&evidence.root_path.value))
+}
+
+fn consistent_installation_kind(group: &CandidateEvidenceGroup) -> Option<InstallationKind> {
+    let mut kinds = group
+        .observations()
+        .iter()
+        .map(|evidence| evidence.installation_kind.value);
+    let first = kinds.next()?;
+    kinds.all(|kind| kind == first).then_some(first)
+}
+
+fn group_has_no_channels(group: &CandidateEvidenceGroup) -> bool {
+    group
+        .observations()
+        .iter()
+        .all(|evidence| evidence.channel.is_none())
+}
+
+fn has_exact_codex_package_identity(group: &CandidateEvidenceGroup) -> bool {
+    let mut saw_identity = false;
+    for evidence in group.observations() {
+        let Some(identity) = evidence.package_identity.as_ref() else {
+            continue;
+        };
+        saw_identity = true;
+        let value = &identity.value;
+        if identity.source != DiscoverySource::PackageCatalog
+            || value.package_name != "OpenAI.Codex"
+            || value.package_family_name != "OpenAI.Codex_2p2nqsd0c76g0"
+            || value.publisher_id != "2p2nqsd0c76g0"
+            || !value.package_full_name.starts_with("OpenAI.Codex_")
+            || !value.package_full_name.ends_with("__2p2nqsd0c76g0")
+            || !value.application_ids.iter().any(|value| value == "App")
+        {
+            return false;
+        }
+    }
+    saw_identity
 }
 
 fn single_channel(group: &CandidateEvidenceGroup) -> Option<String> {
@@ -365,10 +604,9 @@ fn vscode_executable_name(channel: Option<&str>) -> Option<&'static str> {
 
 fn is_discord_version_directory_name(name: &str) -> bool {
     name.strip_prefix("app-").is_some_and(|version| {
-        !version.is_empty()
-            && version
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        version.split('.').all(|component| {
+            !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+        })
     })
 }
 

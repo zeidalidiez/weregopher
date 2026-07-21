@@ -1,2 +1,5 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalize text files to LF for deterministic cross-platform artifacts.
+* text=auto eol=lf
+
+# The copied architecture specification uses Markdown's two-space hard breaks.
+docs/spec/weregopher-electron-transformation-runtime-spec.md whitespace=-blank-at-eol

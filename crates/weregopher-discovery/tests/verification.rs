@@ -11,9 +11,9 @@ use weregopher_discovery::{
     evidence_from_package_catalog_entry, verification_inputs_for_candidate,
 };
 use weregopher_domain::{Architecture, CandidateTarget, DiscoverySource};
-use weregopher_domain::{
-    CandidateInstallationEvidence, DerivedValue, DiscoveryConfidence, InstallationKind,
-};
+use weregopher_domain::{CandidateInstallationEvidence, InstallationKind};
+#[cfg(windows)]
+use weregopher_domain::{DerivedValue, DiscoveryConfidence};
 
 #[test]
 fn discord_verification_inputs_select_complete_versioned_package_roots()

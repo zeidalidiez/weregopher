@@ -30,6 +30,7 @@ tempfile = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+winreg = "0.56"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

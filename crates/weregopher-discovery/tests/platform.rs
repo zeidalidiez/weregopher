@@ -1,6 +1,8 @@
 //! Platform behavior for current-user known-location discovery.
 
-use weregopher_discovery::discover_current_user_known_locations;
+use weregopher_discovery::{
+    discover_current_user_known_locations, discover_windows_uninstall_registry,
+};
 
 #[cfg(not(windows))]
 use weregopher_discovery::DiscoveryError;
@@ -14,11 +16,29 @@ fn current_user_known_location_discovery_is_bounded_and_read_only()
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn uninstall_registry_discovery_is_bounded_and_read_only() -> Result<(), Box<dyn std::error::Error>>
+{
+    let discovered = discover_windows_uninstall_registry()?;
+    assert!(discovered.len() <= 20);
+    Ok(())
+}
+
 #[cfg(not(windows))]
 #[test]
 fn current_user_known_location_discovery_fails_closed_off_windows() {
     assert!(matches!(
         discover_current_user_known_locations(),
+        Err(DiscoveryError::UnsupportedPlatform)
+    ));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn uninstall_registry_discovery_fails_closed_off_windows() {
+    assert!(matches!(
+        discover_windows_uninstall_registry(),
         Err(DiscoveryError::UnsupportedPlatform)
     ));
 }

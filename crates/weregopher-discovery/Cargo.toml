@@ -12,6 +12,9 @@ authors.workspace = true
 thiserror.workspace = true
 weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
 
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 

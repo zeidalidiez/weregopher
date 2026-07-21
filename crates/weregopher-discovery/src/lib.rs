@@ -5,6 +5,10 @@
 
 #![forbid(unsafe_code)]
 
+mod uninstall;
+#[cfg(windows)]
+mod windows_registry;
+
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -16,6 +20,22 @@ use weregopher_domain::{
     DiscoverySource, InstallationKind,
 };
 
+pub use uninstall::{UninstallRegistryEntry, evidence_from_uninstall_entry};
+#[cfg(windows)]
+pub use windows_registry::discover_windows_uninstall_registry;
+
+/// Reports that Windows uninstall-registry discovery is unavailable on this
+/// platform.
+///
+/// # Errors
+///
+/// Always returns [`DiscoveryError::UnsupportedPlatform`].
+#[cfg(not(windows))]
+pub fn discover_windows_uninstall_registry()
+-> Result<Vec<CandidateInstallationEvidence>, DiscoveryError> {
+    Err(DiscoveryError::UnsupportedPlatform)
+}
+
 /// Failure while reading bounded local discovery evidence.
 #[derive(Debug, Error)]
 pub enum DiscoveryError {
@@ -23,7 +43,7 @@ pub enum DiscoveryError {
     #[error("LOCALAPPDATA is unavailable")]
     MissingLocalAppData,
     /// The platform does not provide the requested discovery source.
-    #[error("current-user known-location discovery is supported only on Windows")]
+    #[error("the requested discovery source is supported only on Windows")]
     UnsupportedPlatform,
     /// A candidate path could not be inspected.
     #[error("failed to inspect candidate path {path:?}: {source}")]
@@ -39,6 +59,41 @@ pub enum DiscoveryError {
     NonUnicodePath {
         /// Path that could not be represented as a Rust string.
         path: PathBuf,
+    },
+    /// A Windows uninstall-registry key or value could not be read.
+    #[error("failed to read uninstall-registry location {location}: {source}")]
+    RegistryRead {
+        /// Registry view, key, or value being read.
+        location: String,
+        /// Registry error returned by the operating system.
+        #[source]
+        source: io::Error,
+    },
+    /// One registry view exceeded the bounded number of uninstall keys.
+    #[error("uninstall-registry location {location} exceeded its {limit}-key limit")]
+    RegistryEntryLimit {
+        /// Registry view whose enumeration exceeded the limit.
+        location: String,
+        /// Maximum accepted keys in one view.
+        limit: usize,
+    },
+    /// A registry string exceeded the accepted discovery bound.
+    #[error(
+        "uninstall-registry value {value_name} at {location} exceeded its {limit}-character limit"
+    )]
+    RegistryTextLimit {
+        /// Registry key containing the oversized value.
+        location: String,
+        /// Name of the oversized registry value.
+        value_name: &'static str,
+        /// Maximum accepted Unicode scalar values.
+        limit: usize,
+    },
+    /// Registry discovery produced more candidate records than accepted.
+    #[error("uninstall-registry discovery exceeded its {limit}-candidate result limit")]
+    RegistryResultLimit {
+        /// Maximum accepted candidate records.
+        limit: usize,
     },
 }
 

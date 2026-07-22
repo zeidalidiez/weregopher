@@ -10,7 +10,9 @@ use std::{collections::BTreeMap, fmt};
 
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
-use weregopher_domain::{GeneratedTransformOverlay, Sha256Digest, TransformRuleId};
+use weregopher_domain::{
+    GeneratedTransformOverlay, Sha256Digest, StructurallyValidatedTransformOverlay, TransformRuleId,
+};
 
 mod planning;
 
@@ -163,16 +165,26 @@ impl TransformArtifactLimits {
 ///
 /// This value proves digest conformance only; it carries no authentication or execution authority.
 #[derive(Debug)]
-pub struct VerifiedTransformArtifacts<'overlay, 'artifacts, 'bytes> {
-    overlay: &'overlay GeneratedTransformOverlay,
+pub struct VerifiedTransformArtifacts<'overlay, 'authority, 'artifacts, 'bytes> {
+    structural_validation: StructurallyValidatedTransformOverlay<'overlay, 'authority>,
     artifacts: &'artifacts BTreeMap<TransformRuleId, TransformArtifactBytes<'bytes>>,
 }
 
-impl<'overlay, 'artifacts, 'bytes> VerifiedTransformArtifacts<'overlay, 'artifacts, 'bytes> {
+impl<'overlay, 'authority, 'artifacts, 'bytes>
+    VerifiedTransformArtifacts<'overlay, 'authority, 'artifacts, 'bytes>
+{
     /// Returns the structurally referenced overlay.
     #[must_use]
     pub const fn overlay(&self) -> &'overlay GeneratedTransformOverlay {
-        self.overlay
+        self.structural_validation.overlay()
+    }
+
+    /// Returns the structural-conformance proof required to verify these artifact bytes.
+    #[must_use]
+    pub const fn structural_validation(
+        &self,
+    ) -> &StructurallyValidatedTransformOverlay<'overlay, 'authority> {
+        &self.structural_validation
     }
 
     /// Returns the number of verified rule artifact bundles.
@@ -190,16 +202,25 @@ impl<'overlay, 'artifacts, 'bytes> VerifiedTransformArtifacts<'overlay, 'artifac
     }
 }
 
-/// Checks supplied transform-artifact bytes against one generated overlay.
+/// Checks supplied transform-artifact bytes against one structurally validated generated overlay.
+///
+/// Requiring the opaque structural proof prevents this API from producing verified artifact
+/// evidence for a raw overlay that has not been checked against exact source identities and an
+/// authority object. Neither the structural proof nor this verification authenticates those
+/// inputs or grants transformation, execution, launch, or certification authority.
 ///
 /// # Errors
 ///
 /// Returns [`TransformArtifactError`] when artifact coverage, limits, or digests do not conform.
-pub fn verify_transform_artifacts<'overlay, 'artifacts, 'bytes>(
-    overlay: &'overlay GeneratedTransformOverlay,
+pub fn verify_transform_artifacts<'overlay, 'authority, 'artifacts, 'bytes>(
+    structural_validation: StructurallyValidatedTransformOverlay<'overlay, 'authority>,
     artifacts: &'artifacts BTreeMap<TransformRuleId, TransformArtifactBytes<'bytes>>,
     limits: TransformArtifactLimits,
-) -> Result<VerifiedTransformArtifacts<'overlay, 'artifacts, 'bytes>, TransformArtifactError> {
+) -> Result<
+    VerifiedTransformArtifacts<'overlay, 'authority, 'artifacts, 'bytes>,
+    TransformArtifactError,
+> {
+    let overlay = structural_validation.overlay();
     for rule_id in overlay.rebindings().keys() {
         if !artifacts.contains_key(rule_id) {
             return Err(TransformArtifactError::MissingArtifactBundle(
@@ -279,7 +300,10 @@ pub fn verify_transform_artifacts<'overlay, 'artifacts, 'bytes>(
             }
         }
     }
-    Ok(VerifiedTransformArtifacts { overlay, artifacts })
+    Ok(VerifiedTransformArtifacts {
+        structural_validation,
+        artifacts,
+    })
 }
 
 fn bounded_artifacts<'a>(

@@ -11,7 +11,7 @@ The next materialization stages need a narrow integrity boundary that checks act
 
 ## Decision
 
-The platform-neutral `weregopher-transform` crate verifies borrowed artifact bytes against one canonical `GeneratedTransformOverlay`.
+The platform-neutral `weregopher-transform` crate verifies borrowed artifact bytes against one canonical `GeneratedTransformOverlay`, but accepts that overlay only through the opaque `StructurallyValidatedTransformOverlay` proof returned by domain validation. This makes exact source/build identity and authority-nonexpansion checks a type-level prerequisite to artifact verification without treating either input as authenticated.
 
 For every rebinding, the caller supplies exactly one bundle containing:
 
@@ -27,7 +27,7 @@ The caller must provide nonzero limits for each artifact category and for the ag
 
 Original source bytes must match the `SourceUnitRef` source digest. Match evidence, transformed source, source map, and audit-log bytes must each match their corresponding rebinding digest. Every mismatch identifies the exact rule and artifact category.
 
-Successful verification returns an opaque borrowed `VerifiedTransformArtifacts` value that retains the exact overlay and artifact map checked by the function. The value proves only byte-for-digest conformance under the supplied limits. It is not serializable and carries no adapter authentication, transform authorization, materialization authorization, execution authorization, launch authorization, effective-security claim, efficiency claim, or certification.
+Successful verification returns an opaque borrowed `VerifiedTransformArtifacts` value that retains the structural-conformance proof and exact artifact map checked by the function. The value proves only structural conformance plus byte-for-digest conformance under the supplied limits. It is not serializable and carries no adapter authentication, transform authorization, materialization authorization, execution authorization, launch authorization, effective-security claim, efficiency claim, or certification.
 
 Debug formatting reports artifact byte lengths rather than artifact contents so routine diagnostics do not copy proprietary source, match evidence, transformed code, source maps, or audit records into logs.
 

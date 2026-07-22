@@ -294,6 +294,19 @@ pub fn plan_static_import_rewrite(
         let Some(literal) = static_module_specifier(statement) else {
             continue;
         };
+        let literal_start = literal.span.start as usize;
+        let literal_end = literal.span.end as usize;
+        let raw_literal = source_text.get(literal_start..literal_end).ok_or(
+            TransformPlanError::InvalidParserSpan {
+                start_byte: literal.span.start,
+                end_byte: literal.span.end,
+            },
+        )?;
+        if contains_lone_surrogate_escape(raw_literal) {
+            return Err(TransformPlanError::LoneSurrogateEscape {
+                start_byte: literal.span.start,
+            });
+        }
         if literal.value.as_str() != rule.from {
             continue;
         }
@@ -334,6 +347,78 @@ fn static_module_specifier<'ast, 'node>(
         Statement::ExportAllDeclaration(declaration) => Some(&declaration.source),
         _ => None,
     }
+}
+
+fn contains_lone_surrogate_escape(literal: &str) -> bool {
+    let bytes = literal.as_bytes();
+    let literal_end = bytes.len().saturating_sub(1);
+    let mut cursor = 1_usize;
+    while cursor < literal_end {
+        if bytes[cursor] != b'\\' {
+            cursor += 1;
+            continue;
+        }
+        let Some((value, next_cursor)) = unicode_escape_at(bytes, cursor, literal_end) else {
+            cursor = cursor.saturating_add(2);
+            continue;
+        };
+        if (0xd800..=0xdbff).contains(&value) {
+            let Some((low_surrogate, after_pair)) =
+                unicode_escape_at(bytes, next_cursor, literal_end)
+            else {
+                return true;
+            };
+            if !(0xdc00..=0xdfff).contains(&low_surrogate) {
+                return true;
+            }
+            cursor = after_pair;
+            continue;
+        }
+        if (0xdc00..=0xdfff).contains(&value) {
+            return true;
+        }
+        cursor = next_cursor;
+    }
+    false
+}
+
+fn unicode_escape_at(bytes: &[u8], slash: usize, literal_end: usize) -> Option<(u32, usize)> {
+    if bytes.get(slash) != Some(&b'\\') || bytes.get(slash.checked_add(1)?) != Some(&b'u') {
+        return None;
+    }
+    let digits_start = slash.checked_add(2)?;
+    if bytes.get(digits_start) == Some(&b'{') {
+        let value_start = digits_start.checked_add(1)?;
+        let close_offset = bytes
+            .get(value_start..literal_end)?
+            .iter()
+            .position(|byte| *byte == b'}')?;
+        let close = value_start.checked_add(close_offset)?;
+        let value = parse_hex_digits(bytes.get(value_start..close)?)?;
+        return Some((value, close.checked_add(1)?));
+    }
+    let digits_end = digits_start.checked_add(4)?;
+    if digits_end > literal_end {
+        return None;
+    }
+    Some((
+        parse_hex_digits(bytes.get(digits_start..digits_end)?)?,
+        digits_end,
+    ))
+}
+
+fn parse_hex_digits(digits: &[u8]) -> Option<u32> {
+    if digits.is_empty() {
+        return None;
+    }
+    digits.iter().try_fold(0_u32, |value, digit| {
+        value.checked_mul(16)?.checked_add(u32::from(match digit {
+            b'0'..=b'9' => digit - b'0',
+            b'a'..=b'f' => digit - b'a' + 10,
+            b'A'..=b'F' => digit - b'A' + 10,
+            _ => return None,
+        }))
+    })
 }
 
 fn canonical_replacement_byte_length(specifier: &str) -> Option<usize> {
@@ -446,6 +531,21 @@ pub enum TransformPlanError {
     ParseFailed {
         /// Number of parser diagnostics; diagnostic text is intentionally not retained.
         diagnostic_count: usize,
+    },
+    /// Oxc returned a static module-specifier span outside the supplied source.
+    #[error("ECMAScript parser returned invalid static module span {start_byte}..{end_byte}")]
+    InvalidParserSpan {
+        /// Parser-provided inclusive start byte.
+        start_byte: u32,
+        /// Parser-provided exclusive end byte.
+        end_byte: u32,
+    },
+    /// A static module specifier used a lone UTF-16 surrogate escape that Oxc cannot represent
+    /// losslessly as UTF-8.
+    #[error("static module specifier at byte {start_byte} contains a lone surrogate escape")]
+    LoneSurrogateEscape {
+        /// Start byte of the complete source literal.
+        start_byte: u32,
     },
     /// Semantic matching did not produce exactly the rule-declared count.
     #[error("transform rule expected {expected} matches but found {actual}")]

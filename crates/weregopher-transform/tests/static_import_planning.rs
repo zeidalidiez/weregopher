@@ -502,6 +502,91 @@ fn planner_stops_at_the_first_excess_match() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn lone_surrogate_specifier_escapes_do_not_alias_utf8_text()
+-> Result<(), Box<dyn std::error::Error>> {
+    const LITERAL_REPLACEMENT_TEXT: &str = "import \"\u{fffd}d800\";";
+    let rule_id = TransformRuleId::new("main.replace-ambiguous-specifier")?;
+    let one = NonZeroU16::new(1).ok_or("test match count must be nonzero")?;
+    let rule = StaticImportRewrite::new(
+        "\u{fffd}d800".to_owned(),
+        "compat:unambiguous".to_owned(),
+        one,
+    )?;
+    let authority = authority(rule_id.clone(), rule.canonical_digest())?;
+    let ambiguous_sources = [
+        r#"import "\uD800";"#,
+        r#"import "\uDC00";"#,
+        r#"import "\u{D800}";"#,
+    ];
+    for (case_index, ambiguous_bytes) in ambiguous_sources.into_iter().enumerate() {
+        let ambiguous_source = SourceUnitRef::new(
+            SourceUnitId::new(format!("module.main.ambiguous-{case_index}"))?,
+            digest(ambiguous_bytes.as_bytes()),
+        );
+        assert_eq!(
+            plan_static_import_rewrite(
+                &authority,
+                &rule_id,
+                &rule,
+                SourceUnitInput::new(ambiguous_source, ambiguous_bytes.as_bytes()),
+                PlannerLimits::new(ambiguous_bytes.len(), 1, MAX_REPLACEMENT_BYTES)?,
+            ),
+            Err(TransformPlanError::LoneSurrogateEscape { start_byte: 7 })
+        );
+    }
+
+    let literal_source = SourceUnitRef::new(
+        SourceUnitId::new("module.main.literal")?,
+        digest(LITERAL_REPLACEMENT_TEXT.as_bytes()),
+    );
+    assert!(
+        plan_static_import_rewrite(
+            &authority,
+            &rule_id,
+            &rule,
+            SourceUnitInput::new(literal_source, LITERAL_REPLACEMENT_TEXT.as_bytes()),
+            PlannerLimits::new(LITERAL_REPLACEMENT_TEXT.len(), 1, MAX_REPLACEMENT_BYTES)?,
+        )
+        .is_ok()
+    );
+    Ok(())
+}
+
+#[test]
+fn surrogate_pairs_and_escaped_backslashes_remain_matchable()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (r#"import "\uD83D\uDE00";"#, "😀"),
+        (r#"import "\\uD800";"#, r"\uD800"),
+    ];
+    for (case_index, (source_bytes, decoded_specifier)) in cases.into_iter().enumerate() {
+        let rule_id = TransformRuleId::new(format!("main.rewrite-surrogate-case-{case_index}"))?;
+        let one = NonZeroU16::new(1).ok_or("test match count must be nonzero")?;
+        let rule = StaticImportRewrite::new(
+            decoded_specifier.to_owned(),
+            "compat:unambiguous".to_owned(),
+            one,
+        )?;
+        let authority = authority(rule_id.clone(), rule.canonical_digest())?;
+        let source = SourceUnitRef::new(
+            SourceUnitId::new(format!("module.main.surrogate-case-{case_index}"))?,
+            digest(source_bytes.as_bytes()),
+        );
+        assert!(
+            plan_static_import_rewrite(
+                &authority,
+                &rule_id,
+                &rule,
+                SourceUnitInput::new(source, source_bytes.as_bytes()),
+                PlannerLimits::new(source_bytes.len(), 1, MAX_REPLACEMENT_BYTES)?,
+            )
+            .is_ok()
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn malformed_regular_expression_fails_closed() -> Result<(), Box<dyn std::error::Error>> {
     const MALFORMED_SOURCE: &str = r#"import "node-pty"; const broken = /(/;"#;
     let rule_id = TransformRuleId::new("main.replace-node-pty")?;

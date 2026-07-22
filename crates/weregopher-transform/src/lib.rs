@@ -2,8 +2,9 @@
 //!
 //! Planning validates exact static module matches and emits in-memory edits. Emission applies one
 //! exact plan to digest-matched source bytes without filesystem access. Artifact verification
-//! establishes byte-for-digest conformance. None of these boundaries authenticates adapter
-//! signatures, materializes source, authorizes execution, or authorizes launch.
+//! establishes byte-for-digest conformance, and materialization planning emits only closed relative
+//! content-addressed intent. None of these boundaries authenticates adapter signatures, writes
+//! files, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
 
@@ -17,6 +18,7 @@ use weregopher_domain::{
 
 mod bundle;
 mod emission;
+mod materialization;
 mod planning;
 mod source_map;
 
@@ -27,6 +29,10 @@ pub use bundle::{
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,
     TransformEmissionError, TransformEmissionLimits, emit_match_evidence, emit_transformed_source,
+};
+pub use materialization::{
+    MaterializationManifest, MaterializationManifestError, MaterializationManifestLimits,
+    plan_content_addressed_materialization,
 };
 pub use planning::{
     PlannerLimits, SourceUnitInput, StaticImportRewrite, StaticImportSpecifier, TextEdit,

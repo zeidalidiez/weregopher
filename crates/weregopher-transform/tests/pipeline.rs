@@ -9,10 +9,11 @@ use weregopher_domain::{
     TransformRuleId,
 };
 use weregopher_transform::{
-    MatchEvidenceLimits, PlannerLimits, SourceMapLimits, SourceUnitInput, StaticImportRewrite,
-    TransformArtifactLimits, TransformBundleLimits, TransformEmissionLimits,
-    assemble_transform_artifacts, emit_match_evidence, emit_source_map, emit_transformed_source,
-    plan_static_import_rewrite, verify_transform_artifacts,
+    MatchEvidenceLimits, MaterializationManifestError, MaterializationManifestLimits,
+    PlannerLimits, SourceMapLimits, SourceUnitInput, StaticImportRewrite, TransformArtifactLimits,
+    TransformBundleLimits, TransformEmissionLimits, assemble_transform_artifacts,
+    emit_match_evidence, emit_source_map, emit_transformed_source,
+    plan_content_addressed_materialization, plan_static_import_rewrite, verify_transform_artifacts,
 };
 
 const SOURCE: &[u8] = b"import pty from 'node-pty';\n";
@@ -102,7 +103,93 @@ fn exact_plan_composes_through_overlay_validation_and_artifact_verification()
     assert_eq!(verified.rule_count(), 1);
     assert_eq!(verified.artifacts(), &artifacts);
     assert_eq!(verified.structural_validation().authority(), &authority);
+    assert_materialization_manifest(&verified)?;
     Ok(())
+}
+
+fn assert_materialization_manifest(
+    verified: &weregopher_transform::VerifiedTransformArtifacts<'_, '_, '_, '_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest = plan_content_addressed_materialization(
+        verified,
+        MaterializationManifestLimits::new(1, 5, 5, 4_096)?,
+    )?;
+    assert_eq!(manifest.rule_count(), 1);
+    assert_eq!(manifest.reference_count(), 5);
+    assert_eq!(manifest.blob_count(), 5);
+    assert_eq!(manifest.verified_artifacts().overlay(), verified.overlay());
+    let parsed: serde_json::Value = serde_json::from_slice(manifest.bytes())?;
+    assert_eq!(parsed["format_version"].as_str(), Some("1"));
+    assert_eq!(parsed["layout"].as_str(), Some("sha256-fanout-v1"));
+    assert_eq!(parsed["target"].as_str(), Some("windows-x86_64"));
+    assert_eq!(parsed["rules"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        parsed["rules"][0]["artifacts"].as_array().map(Vec::len),
+        Some(5)
+    );
+    assert_eq!(
+        parsed["rules"][0]["artifacts"][0]["path"].as_str(),
+        Some("sha256/3c/d297afb3f4857b9c794d2f8495f5c5ecc766bfd8d1fc3598e819d46cd929df")
+    );
+    assert_eq!(
+        manifest.digest().to_string(),
+        "sha256:11c9347d5e7dda52dd9e1831694166023bed103caf8a72e15a775a7dc8d7adf5"
+    );
+    for (blob_digest, bytes) in manifest.blobs() {
+        assert_eq!(&digest(bytes), blob_digest);
+    }
+    assert!(
+        plan_content_addressed_materialization(
+            verified,
+            MaterializationManifestLimits::new(1, 5, 5, manifest.bytes().len())?,
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        plan_content_addressed_materialization(
+            verified,
+            MaterializationManifestLimits::new(1, 5, 5, manifest.bytes().len() - 1)?,
+        ),
+        Err(MaterializationManifestError::ManifestTooLarge {
+            actual_bytes,
+            max_bytes,
+        }) if actual_bytes == manifest.bytes().len()
+            && max_bytes == manifest.bytes().len() - 1
+    ));
+    assert!(matches!(
+        plan_content_addressed_materialization(
+            verified,
+            MaterializationManifestLimits::new(1, 4, 5, 4_096)?,
+        ),
+        Err(MaterializationManifestError::ReferenceLimitExceeded { actual: 5, max: 4 })
+    ));
+    assert!(matches!(
+        plan_content_addressed_materialization(
+            verified,
+            MaterializationManifestLimits::new(1, 5, 4, 4_096)?,
+        ),
+        Err(MaterializationManifestError::BlobLimitExceeded { max: 4 })
+    ));
+    let debug = format!("{manifest:?}");
+    assert!(!debug.contains("node-pty"));
+    assert!(
+        !manifest
+            .bytes()
+            .windows(b"import pty".len())
+            .any(|window| window == b"import pty")
+    );
+    assert!(debug.contains("manifest_digest"));
+    Ok(())
+}
+
+#[test]
+fn materialization_manifest_limits_must_be_nonzero() {
+    for limits in [(0, 1, 1, 1), (1, 0, 1, 1), (1, 1, 0, 1), (1, 1, 1, 0)] {
+        assert_eq!(
+            MaterializationManifestLimits::new(limits.0, limits.1, limits.2, limits.3),
+            Err(MaterializationManifestError::InvalidLimits)
+        );
+    }
 }
 
 fn digest(bytes: &[u8]) -> Sha256Digest {

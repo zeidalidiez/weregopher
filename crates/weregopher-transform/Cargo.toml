@@ -13,12 +13,11 @@ oxc_allocator.workspace = true
 oxc_ast.workspace = true
 oxc_parser.workspace = true
 oxc_span.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -52,6 +52,7 @@ never makes an application compatible by itself.
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
 | Candidate verification | Fixed-layout inputs for Codex, Hermes Agent, Discord, and Visual Studio Code |
 | Compatibility contracts | Bounded, exact-target, evidence-backed assessment model; analyzers and certification are not yet implemented |
+| Transformation contracts | Exact-build static-rule rebinding schemas plus Rust validation that rejects generated authority expansion; matcher execution and materialization are not yet implemented |
 | Transformation runtime | Specified, not yet available end to end |
 | Certified adapters | None yet |
 

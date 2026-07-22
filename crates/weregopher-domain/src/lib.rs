@@ -13,6 +13,7 @@ mod discovery;
 mod ids;
 mod protocol;
 mod security;
+mod transformation;
 
 pub use build::{Architecture, BuildFingerprint, InstallationKind, PackageIdentity};
 pub use candidate::{
@@ -33,7 +34,7 @@ pub use discovery::{
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, FeatureId,
     IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId, ScenarioId,
-    TraceId, UserActivationId, WindowId,
+    SourceUnitId, TraceId, TransformRuleId, UserActivationId, WindowId,
 };
 pub use protocol::{
     BufferStorage, CallAuthority, CallContext, ContentBlobId, FRAME_HEADER_LEN, FrameHeader,
@@ -43,3 +44,9 @@ pub use protocol::{
     WireError, WireObjectEntry, WireValue, WorldIdentity,
 };
 pub use security::EffectiveSecurityPosture;
+pub use transformation::{
+    AdapterTransformAuthority, AuthorizedTransformRuleRef, GeneratedTransformOverlay,
+    MAX_AUTHORIZED_TRANSFORM_RULES, MAX_GENERATED_TRANSFORM_REBINDINGS, SourceUnitRef,
+    TRANSFORM_REBINDING_FORMAT_VERSION, TransformArchitecture, TransformContractError,
+    TransformOverlayBinding, TransformPlatform, TransformRebinding,
+};

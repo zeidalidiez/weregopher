@@ -16,6 +16,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
     check_schemas(first.path())?;
 
     let expected = [
+        "adapter-transform-authority.schema.json",
         "build-fingerprint.schema.json",
         "call-context.schema.json",
         "candidate-installation-evidence.schema.json",
@@ -24,6 +25,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
         "frame-header.schema.json",
+        "generated-transform-overlay.schema.json",
         "package-tree-manifest.schema.json",
         "protocol-limits.schema.json",
         "publication-status.schema.json",
@@ -44,6 +46,191 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         );
     }
     Ok(())
+}
+
+#[test]
+fn transform_rebinding_schemas_are_exact_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+
+    let authority: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("adapter-transform-authority.schema.json"),
+    )?)?;
+    assert_transform_authority_schema(&authority)?;
+
+    let overlay: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("generated-transform-overlay.schema.json"),
+    )?)?;
+    assert_generated_overlay_shape(&overlay)?;
+    assert_generated_overlay_digest_refs(&overlay);
+    assert_generated_overlay_is_non_authorizing(&overlay);
+    Ok(())
+}
+
+fn assert_transform_authority_schema(
+    authority: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        authority["$defs"]["TransformRebindingFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(authority["properties"]["rules"]["minProperties"], 1);
+    assert_eq!(authority["properties"]["rules"]["maxProperties"], 128);
+    assert_eq!(authority["additionalProperties"], false);
+    assert_eq!(
+        authority["required"],
+        serde_json::json!([
+            "format_version",
+            "adapter_id",
+            "family",
+            "adapter_content_digest",
+            "rules"
+        ])
+    );
+    let authority_rule_schemas = authority["properties"]["rules"]["patternProperties"]
+        .as_object()
+        .ok_or("authority rule schema must constrain map keys")?;
+    assert_eq!(authority_rule_schemas.len(), 1);
+    assert_eq!(
+        authority_rule_schemas
+            .values()
+            .next()
+            .ok_or("authority rule schema is missing its value type")?["$ref"],
+        "#/$defs/AuthorizedTransformRuleRef"
+    );
+    assert_eq!(
+        authority["$defs"]["AuthorizedTransformRuleRef"]["additionalProperties"],
+        false
+    );
+    assert!(authority["properties"].get("capabilities").is_none());
+    assert!(
+        authority["properties"]
+            .get("execution_authorized")
+            .is_none()
+    );
+    Ok(())
+}
+
+fn assert_generated_overlay_shape(
+    overlay: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        overlay["$defs"]["TransformRebindingFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(
+        schema_string_constants(&overlay["$defs"]["TransformPlatform"])?,
+        ["windows"]
+    );
+    assert_eq!(
+        schema_string_constants(&overlay["$defs"]["TransformArchitecture"])?,
+        ["x86_64"]
+    );
+    assert_eq!(overlay["properties"]["rebindings"]["minProperties"], 1);
+    assert_eq!(overlay["properties"]["rebindings"]["maxProperties"], 128);
+    assert_eq!(overlay["additionalProperties"], false);
+    assert_eq!(
+        overlay["required"],
+        serde_json::json!([
+            "format_version",
+            "platform",
+            "architecture",
+            "binding",
+            "rebindings"
+        ])
+    );
+    let rebinding_schemas = overlay["properties"]["rebindings"]["patternProperties"]
+        .as_object()
+        .ok_or("generated rebinding schema must constrain map keys")?;
+    assert_eq!(rebinding_schemas.len(), 1);
+    assert_eq!(
+        rebinding_schemas
+            .values()
+            .next()
+            .ok_or("generated rebinding schema is missing its value type")?["$ref"],
+        "#/$defs/TransformRebinding"
+    );
+    assert_eq!(
+        overlay["properties"]["binding"]["$ref"],
+        "#/$defs/TransformOverlayBinding"
+    );
+    assert_eq!(
+        overlay["$defs"]["TransformOverlayBinding"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        overlay["$defs"]["TransformRebinding"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        overlay["$defs"]["SourceUnitRef"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        overlay["$defs"]["SourceUnitId"]["maxLength"],
+        serde_json::json!(255)
+    );
+    Ok(())
+}
+
+fn assert_generated_overlay_digest_refs(overlay: &serde_json::Value) {
+    let binding_properties = &overlay["$defs"]["TransformOverlayBinding"]["properties"];
+    assert_eq!(
+        binding_properties["adapter_id"]["$ref"],
+        "#/$defs/AdapterId"
+    );
+    assert_eq!(
+        binding_properties["family"]["$ref"],
+        "#/$defs/ApplicationFamilyId"
+    );
+    for field in [
+        "adapter_content_digest",
+        "adapter_transform_authority_digest",
+        "build_descriptor_digest",
+        "source_build_fingerprint_digest",
+    ] {
+        assert_eq!(binding_properties[field]["$ref"], "#/$defs/Sha256Digest");
+    }
+    let rebinding_properties = &overlay["$defs"]["TransformRebinding"]["properties"];
+    for field in [
+        "audit_log_digest",
+        "match_evidence_digest",
+        "rule_digest",
+        "source_map_digest",
+        "transformed_source_digest",
+    ] {
+        assert_eq!(rebinding_properties[field]["$ref"], "#/$defs/Sha256Digest");
+    }
+}
+
+fn assert_generated_overlay_is_non_authorizing(overlay: &serde_json::Value) {
+    for forbidden in [
+        "capabilities",
+        "execution_authorized",
+        "launch_authorized",
+        "native_content",
+        "privileged_operations",
+        "replacement_module",
+        "security_exceptions",
+        "state_migrations",
+    ] {
+        assert!(overlay["properties"].get(forbidden).is_none());
+        assert!(
+            overlay["$defs"]["TransformOverlayBinding"]["properties"]
+                .get(forbidden)
+                .is_none()
+        );
+        assert!(
+            overlay["$defs"]["TransformRebinding"]["properties"]
+                .get(forbidden)
+                .is_none()
+        );
+    }
 }
 
 #[test]

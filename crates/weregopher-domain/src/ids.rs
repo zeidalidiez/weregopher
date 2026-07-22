@@ -155,6 +155,16 @@ stable_string_id!(
     "feature",
     "A durable application-workflow or compatibility-feature identifier."
 );
+stable_string_id!(
+    SourceUnitId,
+    "source unit",
+    "A build-descriptor identifier for one semantic source unit."
+);
+stable_string_id!(
+    TransformRuleId,
+    "transform rule",
+    "A durable static semantic-transform rule identifier."
+);
 stable_string_id!(ProfileId, "profile", "An application profile identifier.");
 stable_string_id!(
     ScenarioId,

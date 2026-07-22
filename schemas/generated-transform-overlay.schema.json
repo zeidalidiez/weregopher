@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "AdapterId": {
+      "description": "A durable adapter identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ApplicationFamilyId": {
+      "description": "A durable application-family identifier, such as `openai.chatgpt`.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "SourceUnitId": {
+      "description": "A build-descriptor identifier for one semantic source unit.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "SourceUnitRef": {
+      "additionalProperties": false,
+      "description": "Exact source unit selected for one authenticated static transform rule.",
+      "properties": {
+        "source_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "unit_id": {
+          "$ref": "#/$defs/SourceUnitId"
+        }
+      },
+      "required": [
+        "unit_id",
+        "source_digest"
+      ],
+      "type": "object"
+    },
+    "TransformArchitecture": {
+      "description": "Architecture accepted by transform-rebinding format version 1.",
+      "oneOf": [
+        {
+          "const": "x86_64",
+          "description": "AMD64/x86-64 under the initial release profile.",
+          "type": "string"
+        }
+      ]
+    },
+    "TransformOverlayBinding": {
+      "additionalProperties": false,
+      "description": "Immutable identities binding generated transform evidence to exact source and adapter inputs.",
+      "properties": {
+        "adapter_content_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "adapter_id": {
+          "$ref": "#/$defs/AdapterId"
+        },
+        "adapter_transform_authority_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "build_descriptor_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "family": {
+          "$ref": "#/$defs/ApplicationFamilyId"
+        },
+        "source_build_fingerprint_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        }
+      },
+      "required": [
+        "source_build_fingerprint_digest",
+        "family",
+        "adapter_id",
+        "adapter_content_digest",
+        "adapter_transform_authority_digest",
+        "build_descriptor_digest"
+      ],
+      "type": "object"
+    },
+    "TransformPlatform": {
+      "description": "Platform accepted by transform-rebinding format version 1.",
+      "oneOf": [
+        {
+          "const": "windows",
+          "description": "Microsoft Windows under the initial release profile.",
+          "type": "string"
+        }
+      ]
+    },
+    "TransformRebinding": {
+      "additionalProperties": false,
+      "description": "Generated evidence binding one static semantic transform to one exact source unit.",
+      "properties": {
+        "audit_log_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "match_evidence_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "rule_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceUnitRef"
+        },
+        "source_map_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "transformed_source_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        }
+      },
+      "required": [
+        "rule_digest",
+        "source",
+        "match_evidence_digest",
+        "transformed_source_digest",
+        "source_map_digest",
+        "audit_log_digest"
+      ],
+      "type": "object"
+    },
+    "TransformRebindingFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Generated per-build semantic-transform overlay evidence.\n\nThis is content-addressed structural evidence, not transformation or execution authority.",
+  "properties": {
+    "architecture": {
+      "$ref": "#/$defs/TransformArchitecture"
+    },
+    "binding": {
+      "$ref": "#/$defs/TransformOverlayBinding"
+    },
+    "format_version": {
+      "$ref": "#/$defs/TransformRebindingFormatVersion"
+    },
+    "platform": {
+      "$ref": "#/$defs/TransformPlatform"
+    },
+    "rebindings": {
+      "additionalProperties": false,
+      "maxProperties": 128,
+      "minProperties": 1,
+      "patternProperties": {
+        "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$": {
+          "$ref": "#/$defs/TransformRebinding"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "format_version",
+    "platform",
+    "architecture",
+    "binding",
+    "rebindings"
+  ],
+  "title": "GeneratedTransformOverlay",
+  "type": "object"
+}

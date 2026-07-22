@@ -1,0 +1,382 @@
+//! Windows-first managed content-addressed publication for verified transform artifacts.
+
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
+
+#[cfg(windows)]
+use sha2::{Digest as _, Sha256};
+use thiserror::Error;
+use weregopher_domain::Sha256Digest;
+
+use crate::MaterializationManifest;
+
+/// Bounds the lexical directory chains retained while a managed store root is in use.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ManagedStoreRootLimits {
+    path_components: usize,
+}
+
+impl ManagedStoreRootLimits {
+    /// Constructs a nonzero retained-component limit for each root path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError::InvalidLimits`] when the limit is zero.
+    pub const fn new(max_path_components: usize) -> Result<Self, MaterializationStoreError> {
+        if max_path_components == 0 {
+            Err(MaterializationStoreError::InvalidLimits)
+        } else {
+            Ok(Self {
+                path_components: max_path_components,
+            })
+        }
+    }
+}
+
+/// Independent bounds for one verified-manifest publication operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MaterializationWriteLimits {
+    blobs: usize,
+    blob_bytes: usize,
+    total_bytes: usize,
+    temp_attempts: usize,
+}
+
+impl MaterializationWriteLimits {
+    /// Constructs nonzero blob-count, per-blob, aggregate-byte, and temporary-name limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError::InvalidLimits`] when any limit is zero.
+    pub const fn new(
+        max_blobs: usize,
+        max_blob_bytes: usize,
+        max_total_bytes: usize,
+        max_temp_attempts: usize,
+    ) -> Result<Self, MaterializationStoreError> {
+        if max_blobs == 0 || max_blob_bytes == 0 || max_total_bytes == 0 || max_temp_attempts == 0 {
+            Err(MaterializationStoreError::InvalidLimits)
+        } else {
+            Ok(Self {
+                blobs: max_blobs,
+                blob_bytes: max_blob_bytes,
+                total_bytes: max_total_bytes,
+                temp_attempts: max_temp_attempts,
+            })
+        }
+    }
+}
+
+/// An existing managed root retained through direct Windows directory handles.
+#[must_use = "keep the managed store alive for the complete publication operation"]
+pub struct ManagedArtifactStore {
+    root: PathBuf,
+    #[cfg(windows)]
+    lease: windows::ManagedRootLease,
+}
+
+impl fmt::Debug for ManagedArtifactStore {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedArtifactStore")
+            .field("root_components", &self.root.components().count())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ManagedArtifactStore {
+    /// Acquires an existing direct-directory store root that is disjoint from one vendor root.
+    ///
+    /// The Windows implementation rejects relative, parent-segment, unsupported-prefix,
+    /// reparse-backed, non-directory, over-component, equal, ancestor, and descendant placements.
+    /// It retains every store-root ancestor handle without delete sharing until this value is
+    /// dropped. The vendor chain is held only during placement comparison so this capability does
+    /// not block later vendor updates.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError`] when the platform is unsupported, either path is
+    /// invalid or unsafe, handle acquisition fails, or the roots overlap by live object identity.
+    pub fn open(
+        root: &Path,
+        vendor_root: &Path,
+        limits: ManagedStoreRootLimits,
+    ) -> Result<Self, MaterializationStoreError> {
+        #[cfg(windows)]
+        {
+            let lease = windows::ManagedRootLease::open(root, vendor_root, limits.path_components)?;
+            Ok(Self {
+                root: root.to_path_buf(),
+                lease,
+            })
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = (root, vendor_root, limits);
+            Err(MaterializationStoreError::UnsupportedPlatform)
+        }
+    }
+
+    /// Returns the caller-selected root path represented by the retained capability.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Atomically creates or verifies every unique blob retained by one verified manifest.
+    ///
+    /// Inputs are independently bounded and digest-checked before filesystem writes. On Windows,
+    /// publication uses direct retained directories, create-new temporary files, bounded writes,
+    /// file synchronization, no-replace hard-link publication, and post-publication identity and
+    /// byte verification. Existing content is reused only after the same direct-file checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError`] when limits, retained digest bindings, directory
+    /// safety, I/O, atomic publication, cleanup, or post-write integrity checks fail.
+    pub fn materialize(
+        &self,
+        manifest: &MaterializationManifest<'_, '_, '_, '_, '_>,
+        limits: MaterializationWriteLimits,
+    ) -> Result<MaterializationReceipt, MaterializationStoreError> {
+        #[cfg(windows)]
+        {
+            let total_bytes = validate_manifest(manifest, limits)?;
+            windows::materialize(&self.lease, manifest, limits, total_bytes)
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = (manifest, limits);
+            Err(MaterializationStoreError::UnsupportedPlatform)
+        }
+    }
+}
+
+/// Integrity-checked outcome of one complete manifest publication.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaterializationReceipt {
+    manifest_digest: Sha256Digest,
+    created_blobs: usize,
+    reused_blobs: usize,
+    total_blob_bytes: usize,
+}
+
+impl MaterializationReceipt {
+    /// Returns the canonical manifest identity whose blobs were published.
+    #[must_use]
+    pub const fn manifest_digest(&self) -> &Sha256Digest {
+        &self.manifest_digest
+    }
+
+    /// Returns how many digest paths were newly published.
+    #[must_use]
+    pub const fn created_blobs(&self) -> usize {
+        self.created_blobs
+    }
+
+    /// Returns how many digest paths already contained the exact expected bytes.
+    #[must_use]
+    pub const fn reused_blobs(&self) -> usize {
+        self.reused_blobs
+    }
+
+    /// Returns the logical bytes represented by unique blobs in this operation.
+    #[must_use]
+    pub const fn total_blob_bytes(&self) -> usize {
+        self.total_blob_bytes
+    }
+}
+
+#[cfg(windows)]
+fn validate_manifest(
+    manifest: &MaterializationManifest<'_, '_, '_, '_, '_>,
+    limits: MaterializationWriteLimits,
+) -> Result<usize, MaterializationStoreError> {
+    if manifest.blob_count() > limits.blobs {
+        return Err(MaterializationStoreError::BlobLimitExceeded {
+            actual: manifest.blob_count(),
+            max: limits.blobs,
+        });
+    }
+    let mut total = 0_usize;
+    for (digest, bytes) in manifest.blobs() {
+        if bytes.len() > limits.blob_bytes {
+            return Err(MaterializationStoreError::BlobTooLarge {
+                digest: *digest,
+                actual_bytes: bytes.len(),
+                max_bytes: limits.blob_bytes,
+            });
+        }
+        total = total
+            .checked_add(bytes.len())
+            .ok_or(MaterializationStoreError::TotalByteCountOverflow)?;
+        if total > limits.total_bytes {
+            return Err(MaterializationStoreError::TotalBytesExceeded {
+                actual_bytes: total,
+                max_bytes: limits.total_bytes,
+            });
+        }
+    }
+    for (expected, bytes) in manifest.blobs() {
+        if digest(bytes) != *expected {
+            return Err(MaterializationStoreError::VerifiedBlobDigestMismatch {
+                digest: *expected,
+            });
+        }
+    }
+    Ok(total)
+}
+
+#[cfg(windows)]
+fn digest(bytes: &[u8]) -> Sha256Digest {
+    Sha256Digest::from_bytes(Sha256::digest(bytes).into())
+}
+
+#[cfg(windows)]
+mod windows;
+
+/// Failure acquiring or publishing into a managed content-addressed artifact store.
+#[derive(Debug, Error)]
+pub enum MaterializationStoreError {
+    /// One or more caller-selected limits were zero.
+    #[error("managed materialization limits must be nonzero")]
+    InvalidLimits,
+    /// Filesystem publication is currently implemented only on Windows.
+    #[error("managed artifact materialization is currently supported only on Windows")]
+    UnsupportedPlatform,
+    /// A root path was not an accepted absolute Windows path without parent or unsafe prefixes.
+    #[error("invalid absolute {kind} root path: {path}")]
+    InvalidRootPath {
+        /// Safe root category.
+        kind: &'static str,
+        /// Rejected path.
+        path: PathBuf,
+    },
+    /// A root path exceeded its bounded lexical component count.
+    #[error("{kind} root has {actual} components; limit is {max}")]
+    RootComponentLimitExceeded {
+        /// Safe root category.
+        kind: &'static str,
+        /// Exact lexical component count.
+        actual: usize,
+        /// Caller-selected component limit.
+        max: usize,
+    },
+    /// Retaining a bounded directory-handle chain could not reserve its capacity.
+    #[error("could not allocate {components} managed-root handle slots")]
+    RootLeaseAllocationFailed {
+        /// Exact requested handle-slot count.
+        components: usize,
+    },
+    /// An operating-system operation failed.
+    #[error("failed to {operation} at {path}: {source}")]
+    Io {
+        /// Static operation label.
+        operation: &'static str,
+        /// Affected path.
+        path: PathBuf,
+        /// Operating-system failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A required direct directory was backed by a Windows reparse point.
+    #[error("managed materialization directory is a reparse point: {path}")]
+    ReparsePoint {
+        /// Rejected path.
+        path: PathBuf,
+    },
+    /// A required directory path opened a non-directory object.
+    #[error("managed materialization path is not a directory: {path}")]
+    NotDirectory {
+        /// Rejected path.
+        path: PathBuf,
+    },
+    /// The managed store and vendor installation roots overlap by live object identity.
+    #[error("managed store root overlaps the vendor installation root")]
+    StoreOverlapsVendor,
+    /// Unique blobs exceeded the independent writer limit.
+    #[error("materialization contains {actual} unique blobs; writer limit is {max}")]
+    BlobLimitExceeded {
+        /// Exact manifest blob count.
+        actual: usize,
+        /// Caller-selected blob limit.
+        max: usize,
+    },
+    /// One retained blob exceeded the independent writer limit.
+    #[error("blob {digest} contains {actual_bytes} bytes; writer limit is {max_bytes}")]
+    BlobTooLarge {
+        /// Content identity only; payload bytes are never reported.
+        digest: Sha256Digest,
+        /// Exact retained byte count.
+        actual_bytes: usize,
+        /// Caller-selected per-blob limit.
+        max_bytes: usize,
+    },
+    /// Aggregate blob-byte arithmetic overflowed.
+    #[error("materialization aggregate blob bytes overflowed the platform index")]
+    TotalByteCountOverflow,
+    /// Aggregate unique-blob bytes exceeded the independent writer limit.
+    #[error(
+        "materialization contains at least {actual_bytes} blob bytes; writer limit is {max_bytes}"
+    )]
+    TotalBytesExceeded {
+        /// Count at the first excess.
+        actual_bytes: usize,
+        /// Caller-selected aggregate limit.
+        max_bytes: usize,
+    },
+    /// Completed blob-count arithmetic overflowed the platform index.
+    #[error("materialized blob count overflowed the platform index")]
+    BlobCountOverflow,
+    /// A supposedly verified digest-to-byte association did not hash as declared.
+    #[error("retained verified bytes no longer match blob digest {digest}")]
+    VerifiedBlobDigestMismatch {
+        /// Mismatched identity.
+        digest: Sha256Digest,
+    },
+    /// The already-validated digest could not be rendered into the fixed store layout.
+    #[error("could not construct the closed content path for {digest}")]
+    ContentPathConstructionFailed {
+        /// Digest whose path could not be rendered.
+        digest: Sha256Digest,
+    },
+    /// A pre-existing content path did not contain the exact expected direct-file bytes.
+    #[error("content path for {digest} contains conflicting or unstable bytes")]
+    ExistingBlobMismatch {
+        /// Conflicting content identity.
+        digest: Sha256Digest,
+    },
+    /// A content path was a reparse point or non-regular object.
+    #[error("content path for {digest} is not a direct regular file")]
+    InvalidBlobObject {
+        /// Rejected content identity.
+        digest: Sha256Digest,
+    },
+    /// All bounded create-new temporary-name attempts collided.
+    #[error("could not allocate a unique temporary name for {digest} in {attempts} attempts")]
+    TemporaryNameAttemptsExhausted {
+        /// Blob being staged.
+        digest: Sha256Digest,
+        /// Caller-selected attempt limit.
+        attempts: usize,
+    },
+    /// Post-publication handles did not identify the staged file object.
+    #[error("published content path for {digest} did not retain the staged file identity")]
+    PublicationIdentityMismatch {
+        /// Mismatched published identity.
+        digest: Sha256Digest,
+    },
+    /// A bounded temporary file could not be removed after publication or failure.
+    #[error("failed to clean temporary materialization file at {path}: {source}")]
+    TemporaryCleanupFailed {
+        /// Closed internally generated temporary path.
+        path: PathBuf,
+        /// Removal failure.
+        #[source]
+        source: std::io::Error,
+    },
+}

@@ -2,9 +2,10 @@
 //!
 //! Planning validates exact static module matches and emits in-memory edits. Emission applies one
 //! exact plan to digest-matched source bytes without filesystem access. Artifact verification
-//! establishes byte-for-digest conformance, and materialization planning emits only closed relative
-//! content-addressed intent. None of these boundaries authenticates adapter signatures, writes
-//! files, authorizes execution, or authorizes launch.
+//! establishes byte-for-digest conformance, and materialization planning emits closed relative
+//! content-addressed intent. A separate Windows-only managed-store boundary can publish that exact
+//! verified intent without writing into a vendor installation. None of these boundaries
+//! authenticates adapter signatures, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
 
@@ -21,6 +22,7 @@ mod emission;
 mod materialization;
 mod planning;
 mod source_map;
+mod store;
 
 pub use bundle::{
     EmittedTransformArtifactBundle, TransformBundleError, TransformBundleLimits,
@@ -39,6 +41,10 @@ pub use planning::{
     TransformPlan, TransformPlanError, plan_static_import_rewrite,
 };
 pub use source_map::{EmittedSourceMap, SourceMapError, SourceMapLimits, emit_source_map};
+pub use store::{
+    ManagedArtifactStore, ManagedStoreRootLimits, MaterializationReceipt,
+    MaterializationStoreError, MaterializationWriteLimits,
+};
 
 /// Artifact category covered by one generated transform rebinding.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

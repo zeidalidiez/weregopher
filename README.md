@@ -52,12 +52,13 @@ never makes an application compatible by itself.
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
 | Candidate verification | Fixed-layout inputs for Codex, Hermes Agent, Discord, and Visual Studio Code |
 | Compatibility contracts | Bounded, exact-target, evidence-backed assessment model; analyzers and certification are not yet implemented |
-| Transformation contracts | Exact-build static-rule rebinding schemas plus Rust validation that rejects generated authority expansion; content-addressed materialization is not yet implemented |
+| Transformation contracts | Exact-build static-rule rebinding schemas plus Rust validation that rejects generated authority expansion; publication remains non-authorizing |
 | Transformation planning | Oxc-backed planning for exact static import and re-export specifier rewrites with explicit matcher, source, exact-cardinality, and replacement-byte limits; emits in-memory byte edits without mutating or materializing source |
-| Transformation emission | Deterministic bounded in-memory transformed-source, match-evidence, Source Map v3, and canonical audit emission with complete five-artifact bundle/rebinding assembly; materialization remains pending |
+| Transformation emission | Deterministic bounded in-memory transformed-source, match-evidence, Source Map v3, and canonical audit emission with complete five-artifact bundle/rebinding assembly |
 | Transformation artifacts | Bounded byte-for-digest verification for source, match evidence, transformed source, source maps, and audit logs requires an opaque structural overlay proof; this does not authenticate, execute, or materialize them |
 | Materialization planning | Verified artifacts produce a bounded canonical manifest with closed SHA-256 fanout paths and deduplicated digest-to-byte bindings; no filesystem writes or root safety claims yet |
-| Transformation runtime | Complete in-memory plan → emit → overlay → structural validation → byte verification composition is regression-tested; content-addressed materialization and execution remain pending |
+| Windows materialization | Existing disjoint managed roots publish verified manifest blobs through direct non-reparse directory handles, create-new staging, no-replace hard links, concurrent create-or-verify convergence, and post-write integrity checks |
+| Transformation runtime | Complete plan → emit → overlay → structural validation → byte verification → managed publication composition is regression-tested; immutable package views and bounded execution remain pending |
 | Certified adapters | None yet |
 
 The initial discovery work targets Codex, Hermes Agent, Discord, and Visual Studio

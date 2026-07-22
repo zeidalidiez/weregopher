@@ -341,7 +341,7 @@ fn manifest_artifact<'digest, 'bytes>(
     })
 }
 
-fn content_path(digest: &Sha256Digest) -> Result<String, MaterializationManifestError> {
+pub(crate) fn content_path(digest: &Sha256Digest) -> Result<String, MaterializationManifestError> {
     let mut path = String::new();
     path.try_reserve_exact(CONTENT_PATH_LENGTH)
         .map_err(|_| MaterializationManifestError::PathAllocationFailed)?;

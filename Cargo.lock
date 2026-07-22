@@ -930,8 +930,12 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror",
+ "uuid",
  "weregopher-domain",
+ "weregopher-windows",
+ "windows-sys",
 ]
 
 [[package]]

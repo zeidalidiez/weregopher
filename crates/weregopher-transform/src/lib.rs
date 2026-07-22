@@ -1,8 +1,8 @@
-//! Semantic-transform artifact verification.
+//! Semantic-transform planning and artifact verification.
 //!
-//! Verification in this crate establishes byte-for-digest conformance only. It does not
-//! authenticate adapter authority, execute a transform, authorize materialization, or authorize
-//! launch.
+//! Planning validates exact static module matches and emits in-memory edits. Artifact verification
+//! establishes byte-for-digest conformance. Neither boundary authenticates adapter signatures,
+//! mutates or materializes source, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
 
@@ -11,6 +11,13 @@ use std::{collections::BTreeMap, fmt};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use weregopher_domain::{GeneratedTransformOverlay, Sha256Digest, TransformRuleId};
+
+mod planning;
+
+pub use planning::{
+    PlannerLimits, SourceUnitInput, StaticImportRewrite, StaticImportSpecifier, TextEdit,
+    TransformPlan, TransformPlanError, plan_static_import_rewrite,
+};
 
 /// Artifact category covered by one generated transform rebinding.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

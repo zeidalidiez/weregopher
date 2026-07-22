@@ -4,6 +4,7 @@ members = [
   "crates/weregopher-discovery",
   "crates/weregopher-domain",
   "crates/weregopher-fingerprint",
+  "crates/weregopher-transform",
   "crates/weregopher-windows",
   "xtask",
 ]

@@ -6,8 +6,8 @@ use std::{fs, path::Path, process::Command};
 
 use tempfile::tempdir;
 use weregopher_transform::{
-    ManagedArtifactStore, ManagedStoreRootLimits, MaterializationStoreError,
-    MaterializationWriteLimits,
+    ManagedArtifactLeaseLimits, ManagedArtifactStore, ManagedStoreRootLimits,
+    MaterializationStoreError, MaterializationWriteLimits,
 };
 
 #[test]
@@ -19,6 +19,12 @@ fn managed_store_limits_and_root_paths_fail_closed() -> Result<(), Box<dyn std::
     for limits in [(0, 1, 1, 1), (1, 0, 1, 1), (1, 1, 0, 1), (1, 1, 1, 0)] {
         assert!(matches!(
             MaterializationWriteLimits::new(limits.0, limits.1, limits.2, limits.3),
+            Err(MaterializationStoreError::InvalidLimits)
+        ));
+    }
+    for limits in [(0, 1, 1), (1, 0, 1), (1, 1, 0)] {
+        assert!(matches!(
+            ManagedArtifactLeaseLimits::new(limits.0, limits.1, limits.2),
             Err(MaterializationStoreError::InvalidLimits)
         ));
     }

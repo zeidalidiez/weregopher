@@ -212,6 +212,8 @@ fn assert_windows_materialization(
     assert_eq!(second.created_blobs(), 0);
     assert_eq!(second.reused_blobs(), manifest.blob_count());
     assert_no_temporary_paths(&store_root)?;
+    assert_verified_managed_lease(&store, manifest, &store_root)?;
+    assert_missing_blob_is_rejected_and_repairable(&store, manifest, parsed, limits, &store_root)?;
     assert_conflicting_blob_is_not_replaced(&store, manifest, parsed, limits, &store_root)?;
     assert_content_root_junction_is_rejected(manifest, limits, fixture.path())?;
     assert_concurrent_publication_is_idempotent(manifest, limits, fixture.path())?;
@@ -305,6 +307,16 @@ fn assert_writer_limits_precede_filesystem_access(
         );
         assert!(!store_root.join("sha256").exists());
     }
+    let lease_limits = weregopher_transform::ManagedArtifactLeaseLimits::new(
+        manifest.blob_count() - 1,
+        max_blob_bytes,
+        total_blob_bytes,
+    )?;
+    assert!(matches!(
+        store.lease_manifest(manifest, lease_limits),
+        Err(MaterializationStoreError::BlobLimitExceeded { .. })
+    ));
+    assert!(!store_root.join("sha256").exists());
     Ok(())
 }
 
@@ -443,6 +455,80 @@ fn assert_no_temporary_paths(store_root: &std::path::Path) -> Result<(), std::io
         }
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn assert_verified_managed_lease(
+    store: &weregopher_transform::ManagedArtifactStore,
+    manifest: &weregopher_transform::MaterializationManifest<'_, '_, '_, '_, '_>,
+    store_root: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let limits = test_lease_limits(manifest)?;
+    let total_blob_bytes: usize = manifest.blobs().values().map(|bytes| bytes.len()).sum();
+    let lease = store.lease_manifest(manifest, limits)?;
+    assert_eq!(lease.manifest_digest(), manifest.digest());
+    assert_eq!(lease.blob_count(), manifest.blob_count());
+    assert_eq!(lease.total_blob_bytes(), total_blob_bytes);
+    assert!(!format!("{lease:?}").contains(&store_root.display().to_string()));
+    assert!(std::fs::rename(store_root.join("sha256"), store_root.join("sha256-moved")).is_err());
+    assert!(
+        lease
+            .blob_path(&weregopher_domain::Sha256Digest::from_bytes([0_u8; 32]))
+            .is_none()
+    );
+    for (digest, expected) in manifest.blobs() {
+        let path = lease
+            .blob_path(digest)
+            .ok_or("leased manifest digest must have a path")?;
+        assert_eq!(std::fs::read(path)?, *expected);
+        assert!(std::fs::write(path, b"tamper while leased").is_err());
+        assert!(std::fs::remove_file(path).is_err());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn assert_missing_blob_is_rejected_and_repairable(
+    store: &weregopher_transform::ManagedArtifactStore,
+    manifest: &weregopher_transform::MaterializationManifest<'_, '_, '_, '_, '_>,
+    parsed: &serde_json::Value,
+    write_limits: weregopher_transform::MaterializationWriteLimits,
+    store_root: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use weregopher_transform::MaterializationStoreError;
+
+    let path = store_root.join(
+        parsed["rules"][0]["artifacts"][0]["path"]
+            .as_str()
+            .ok_or("artifact path must be text")?,
+    );
+    std::fs::remove_file(&path)?;
+    assert!(matches!(
+        store.lease_manifest(manifest, test_lease_limits(manifest)?),
+        Err(MaterializationStoreError::MissingBlob { .. })
+    ));
+    let repaired = store.materialize(manifest, write_limits)?;
+    assert_eq!(repaired.created_blobs(), 1);
+    assert_eq!(repaired.reused_blobs(), manifest.blob_count() - 1);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn test_lease_limits(
+    manifest: &weregopher_transform::MaterializationManifest<'_, '_, '_, '_, '_>,
+) -> Result<weregopher_transform::ManagedArtifactLeaseLimits, Box<dyn std::error::Error>> {
+    let max_blob_bytes = manifest
+        .blobs()
+        .values()
+        .map(|bytes| bytes.len())
+        .max()
+        .ok_or("the manifest must contain a blob")?;
+    let total_blob_bytes: usize = manifest.blobs().values().map(|bytes| bytes.len()).sum();
+    Ok(weregopher_transform::ManagedArtifactLeaseLimits::new(
+        manifest.blob_count(),
+        max_blob_bytes,
+        total_blob_bytes,
+    )?)
 }
 
 #[cfg(windows)]

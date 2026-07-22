@@ -4,7 +4,8 @@
 //! exact plan to digest-matched source bytes without filesystem access. Artifact verification
 //! establishes byte-for-digest conformance, and materialization planning emits closed relative
 //! content-addressed intent. A separate Windows-only managed-store boundary can publish that exact
-//! verified intent without writing into a vendor installation. None of these boundaries
+//! verified intent without writing into a vendor installation and retain reverified blob handles
+//! for a later consumer. None of these boundaries
 //! authenticates adapter signatures, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
@@ -42,8 +43,8 @@ pub use planning::{
 };
 pub use source_map::{EmittedSourceMap, SourceMapError, SourceMapLimits, emit_source_map};
 pub use store::{
-    ManagedArtifactStore, ManagedStoreRootLimits, MaterializationReceipt,
-    MaterializationStoreError, MaterializationWriteLimits,
+    ManagedArtifactLease, ManagedArtifactLeaseLimits, ManagedArtifactStore, ManagedStoreRootLimits,
+    MaterializationReceipt, MaterializationStoreError, MaterializationWriteLimits,
 };
 
 /// Artifact category covered by one generated transform rebinding.

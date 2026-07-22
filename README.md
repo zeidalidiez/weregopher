@@ -57,8 +57,8 @@ never makes an application compatible by itself.
 | Transformation emission | Deterministic bounded in-memory transformed-source, match-evidence, Source Map v3, and canonical audit emission with complete five-artifact bundle/rebinding assembly |
 | Transformation artifacts | Bounded byte-for-digest verification for source, match evidence, transformed source, source maps, and audit logs requires an opaque structural overlay proof; this does not authenticate, execute, or materialize them |
 | Materialization planning | Verified artifacts produce a bounded canonical manifest with closed SHA-256 fanout paths and deduplicated digest-to-byte bindings; no filesystem writes or root safety claims yet |
-| Windows materialization | Existing disjoint managed roots publish verified manifest blobs through direct non-reparse directory handles, create-new staging, no-replace hard links, concurrent create-or-verify convergence, and post-write integrity checks |
-| Transformation runtime | Complete plan → emit → overlay → structural validation → byte verification → managed publication composition is regression-tested; immutable package views and bounded execution remain pending |
+| Windows materialization | Existing disjoint managed roots publish verified manifest blobs through direct non-reparse directory handles, create-new staging, no-replace hard links, concurrent create-or-verify convergence, and post-write integrity checks; bounded leases reverify exact blobs and retain direct directory/file handles without write or delete sharing |
+| Transformation runtime | Complete plan → emit → overlay → structural validation → byte verification → managed publication → execution-time lease composition is regression-tested; immutable package views and bounded execution remain pending |
 | Certified adapters | None yet |
 
 The initial discovery work targets Codex, Hermes Agent, Discord, and Visual Studio

@@ -1,6 +1,7 @@
 //! Windows managed-store implementation.
 
 use std::{
+    collections::{BTreeMap, btree_map::Entry},
     fs::{self, File, OpenOptions},
     io::{Read as _, Seek as _, SeekFrom, Write as _},
     os::windows::fs::{MetadataExt as _, OpenOptionsExt as _},
@@ -23,6 +24,27 @@ use crate::{MaterializationManifest, materialization::content_path};
 pub(super) struct ManagedRootLease {
     root: PathBuf,
     ancestors: Vec<FileIdentityLease>,
+}
+
+pub(super) struct ManagedManifestLease {
+    _content_root: FileIdentityLease,
+    _fanouts: BTreeMap<String, FileIdentityLease>,
+    blobs: BTreeMap<Sha256Digest, ManagedBlobLease>,
+}
+
+struct ManagedBlobLease {
+    path: PathBuf,
+    _identity: FileIdentityLease,
+}
+
+impl ManagedManifestLease {
+    pub(super) fn blob_count(&self) -> usize {
+        self.blobs.len()
+    }
+
+    pub(super) fn blob_path(&self, digest: &Sha256Digest) -> Option<&Path> {
+        self.blobs.get(digest).map(|blob| blob.path.as_path())
+    }
 }
 
 impl ManagedRootLease {
@@ -135,6 +157,51 @@ pub(super) fn materialize(
         created_blobs: created,
         reused_blobs: reused,
         total_blob_bytes: total_bytes,
+    })
+}
+
+pub(super) fn lease_manifest(
+    lease: &ManagedRootLease,
+    manifest: &MaterializationManifest<'_, '_, '_, '_, '_>,
+) -> Result<ManagedManifestLease, MaterializationStoreError> {
+    lease.verify_root_path()?;
+    let content_root_path = lease.root.join("sha256");
+    let content_root = open_direct_directory(&content_root_path)?;
+    let mut fanouts = BTreeMap::new();
+    let mut blobs = BTreeMap::new();
+    for (digest, bytes) in manifest.blobs() {
+        let relative = content_path(digest).map_err(|_| {
+            MaterializationStoreError::ContentPathConstructionFailed { digest: *digest }
+        })?;
+        let fanout = relative
+            .get(7..9)
+            .ok_or(MaterializationStoreError::ContentPathConstructionFailed { digest: *digest })?;
+        let filename = relative
+            .get(10..)
+            .ok_or(MaterializationStoreError::ContentPathConstructionFailed { digest: *digest })?;
+        let fanout_path = content_root_path.join(fanout);
+        if let Entry::Vacant(entry) = fanouts.entry(fanout.to_owned()) {
+            entry.insert(open_direct_directory(&fanout_path)?);
+        }
+        let blob_path = fanout_path.join(filename);
+        let file = open_existing_blob(&blob_path, digest)?
+            .ok_or(MaterializationStoreError::MissingBlob { digest: *digest })?;
+        let file = verify_blob(file, &blob_path, digest, bytes.len())?;
+        let identity = FileIdentityLease::from_file(file)
+            .map_err(|source| io_error("retain managed blob identity", &blob_path, source))?;
+        blobs.insert(
+            *digest,
+            ManagedBlobLease {
+                path: blob_path,
+                _identity: identity,
+            },
+        );
+    }
+    lease.verify_root_path()?;
+    Ok(ManagedManifestLease {
+        _content_root: content_root,
+        _fanouts: fanouts,
+        blobs,
     })
 }
 

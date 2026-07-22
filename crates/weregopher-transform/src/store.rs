@@ -69,6 +69,37 @@ impl MaterializationWriteLimits {
     }
 }
 
+/// Independent bounds for one execution-time managed-artifact lease.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ManagedArtifactLeaseLimits {
+    blobs: usize,
+    blob_bytes: usize,
+    total_bytes: usize,
+}
+
+impl ManagedArtifactLeaseLimits {
+    /// Constructs nonzero blob-count, per-blob, and aggregate-byte limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError::InvalidLimits`] when any limit is zero.
+    pub const fn new(
+        max_blobs: usize,
+        max_blob_bytes: usize,
+        max_total_bytes: usize,
+    ) -> Result<Self, MaterializationStoreError> {
+        if max_blobs == 0 || max_blob_bytes == 0 || max_total_bytes == 0 {
+            Err(MaterializationStoreError::InvalidLimits)
+        } else {
+            Ok(Self {
+                blobs: max_blobs,
+                blob_bytes: max_blob_bytes,
+                total_bytes: max_total_bytes,
+            })
+        }
+    }
+}
+
 /// An existing managed root retained through direct Windows directory handles.
 #[must_use = "keep the managed store alive for the complete publication operation"]
 pub struct ManagedArtifactStore {
@@ -154,6 +185,47 @@ impl ManagedArtifactStore {
             Err(MaterializationStoreError::UnsupportedPlatform)
         }
     }
+
+    /// Revalidates every manifest blob and retains direct read handles for a later consumer.
+    ///
+    /// The returned opaque lease borrows this store capability so root and fanout directory
+    /// identities remain retained. Each blob is opened without following a reparse point, checked
+    /// twice against its exact length and digest, and held without write or delete sharing. The
+    /// lease proves only the observed bytes and live filesystem identities; it grants no execution
+    /// or launch authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError`] when limits or digest bindings fail, a required
+    /// directory or blob is missing or unsafe, or repeated integrity observations disagree.
+    pub fn lease_manifest(
+        &self,
+        manifest: &MaterializationManifest<'_, '_, '_, '_, '_>,
+        limits: ManagedArtifactLeaseLimits,
+    ) -> Result<ManagedArtifactLease<'_>, MaterializationStoreError> {
+        #[cfg(windows)]
+        {
+            let total_bytes = validate_manifest_bounds(
+                manifest,
+                limits.blobs,
+                limits.blob_bytes,
+                limits.total_bytes,
+            )?;
+            let platform = windows::lease_manifest(&self.lease, manifest)?;
+            Ok(ManagedArtifactLease {
+                _store: self,
+                manifest_digest: *manifest.digest(),
+                total_blob_bytes: total_bytes,
+                platform,
+            })
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = (manifest, limits);
+            Err(MaterializationStoreError::UnsupportedPlatform)
+        }
+    }
 }
 
 /// Integrity-checked outcome of one complete manifest publication.
@@ -191,33 +263,112 @@ impl MaterializationReceipt {
     }
 }
 
+/// A reverified set of direct managed-artifact handles retained for one consumer lifetime.
+#[must_use = "keep the artifact lease alive while any returned blob path is in use"]
+pub struct ManagedArtifactLease<'store> {
+    _store: &'store ManagedArtifactStore,
+    manifest_digest: Sha256Digest,
+    total_blob_bytes: usize,
+    #[cfg(windows)]
+    platform: windows::ManagedManifestLease,
+}
+
+impl fmt::Debug for ManagedArtifactLease<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedArtifactLease")
+            .field("manifest_digest", &self.manifest_digest)
+            .field("blob_count", &self.blob_count())
+            .field("total_blob_bytes", &self.total_blob_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ManagedArtifactLease<'_> {
+    /// Returns the canonical manifest identity reverified by this lease.
+    #[must_use]
+    pub const fn manifest_digest(&self) -> &Sha256Digest {
+        &self.manifest_digest
+    }
+
+    /// Returns the number of retained direct blob handles.
+    #[must_use]
+    pub fn blob_count(&self) -> usize {
+        #[cfg(windows)]
+        {
+            self.platform.blob_count()
+        }
+
+        #[cfg(not(windows))]
+        {
+            0
+        }
+    }
+
+    /// Returns the logical aggregate bytes reverified by this lease.
+    #[must_use]
+    pub const fn total_blob_bytes(&self) -> usize {
+        self.total_blob_bytes
+    }
+
+    /// Returns the closed absolute path retained for one leased digest.
+    #[must_use]
+    pub fn blob_path(&self, digest: &Sha256Digest) -> Option<&Path> {
+        #[cfg(windows)]
+        {
+            self.platform.blob_path(digest)
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = digest;
+            None
+        }
+    }
+}
+
 #[cfg(windows)]
 fn validate_manifest(
     manifest: &MaterializationManifest<'_, '_, '_, '_, '_>,
     limits: MaterializationWriteLimits,
 ) -> Result<usize, MaterializationStoreError> {
-    if manifest.blob_count() > limits.blobs {
+    validate_manifest_bounds(
+        manifest,
+        limits.blobs,
+        limits.blob_bytes,
+        limits.total_bytes,
+    )
+}
+
+#[cfg(windows)]
+fn validate_manifest_bounds(
+    manifest: &MaterializationManifest<'_, '_, '_, '_, '_>,
+    max_blobs: usize,
+    max_blob_bytes: usize,
+    max_total_bytes: usize,
+) -> Result<usize, MaterializationStoreError> {
+    if manifest.blob_count() > max_blobs {
         return Err(MaterializationStoreError::BlobLimitExceeded {
             actual: manifest.blob_count(),
-            max: limits.blobs,
+            max: max_blobs,
         });
     }
     let mut total = 0_usize;
     for (digest, bytes) in manifest.blobs() {
-        if bytes.len() > limits.blob_bytes {
+        if bytes.len() > max_blob_bytes {
             return Err(MaterializationStoreError::BlobTooLarge {
                 digest: *digest,
                 actual_bytes: bytes.len(),
-                max_bytes: limits.blob_bytes,
+                max_bytes: max_blob_bytes,
             });
         }
         total = total
             .checked_add(bytes.len())
             .ok_or(MaterializationStoreError::TotalByteCountOverflow)?;
-        if total > limits.total_bytes {
+        if total > max_total_bytes {
             return Err(MaterializationStoreError::TotalBytesExceeded {
                 actual_bytes: total,
-                max_bytes: limits.total_bytes,
+                max_bytes: max_total_bytes,
             });
         }
     }
@@ -239,14 +390,14 @@ fn digest(bytes: &[u8]) -> Sha256Digest {
 #[cfg(windows)]
 mod windows;
 
-/// Failure acquiring or publishing into a managed content-addressed artifact store.
+/// Failure acquiring, publishing, or leasing a managed content-addressed artifact store.
 #[derive(Debug, Error)]
 pub enum MaterializationStoreError {
     /// One or more caller-selected limits were zero.
-    #[error("managed materialization limits must be nonzero")]
+    #[error("managed artifact limits must be nonzero")]
     InvalidLimits,
-    /// Filesystem publication is currently implemented only on Windows.
-    #[error("managed artifact materialization is currently supported only on Windows")]
+    /// Managed-store filesystem operations are currently implemented only on Windows.
+    #[error("managed artifact store operations are currently supported only on Windows")]
     UnsupportedPlatform,
     /// A root path was not an accepted absolute Windows path without parent or unsafe prefixes.
     #[error("invalid absolute {kind} root path: {path}")]
@@ -342,6 +493,12 @@ pub enum MaterializationStoreError {
     #[error("could not construct the closed content path for {digest}")]
     ContentPathConstructionFailed {
         /// Digest whose path could not be rendered.
+        digest: Sha256Digest,
+    },
+    /// One required canonical digest path was absent from the managed store.
+    #[error("managed store is missing required blob {digest}")]
+    MissingBlob {
+        /// Missing content identity.
         digest: Sha256Digest,
     },
     /// A pre-existing content path did not contain the exact expected direct-file bytes.

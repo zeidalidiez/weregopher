@@ -1,8 +1,9 @@
-//! Semantic-transform planning and artifact verification.
+//! Semantic-transform planning, deterministic in-memory emission, and artifact verification.
 //!
-//! Planning validates exact static module matches and emits in-memory edits. Artifact verification
-//! establishes byte-for-digest conformance. Neither boundary authenticates adapter signatures,
-//! mutates or materializes source, authorizes execution, or authorizes launch.
+//! Planning validates exact static module matches and emits in-memory edits. Emission applies one
+//! exact plan to digest-matched source bytes without filesystem access. Artifact verification
+//! establishes byte-for-digest conformance. None of these boundaries authenticates adapter
+//! signatures, materializes source, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
 
@@ -14,8 +15,13 @@ use weregopher_domain::{
     GeneratedTransformOverlay, Sha256Digest, StructurallyValidatedTransformOverlay, TransformRuleId,
 };
 
+mod emission;
 mod planning;
 
+pub use emission::{
+    EmittedTransformedSource, TransformEmissionError, TransformEmissionLimits,
+    emit_transformed_source,
+};
 pub use planning::{
     PlannerLimits, SourceUnitInput, StaticImportRewrite, StaticImportSpecifier, TextEdit,
     TransformPlan, TransformPlanError, plan_static_import_rewrite,

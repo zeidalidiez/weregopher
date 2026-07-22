@@ -52,8 +52,9 @@ never makes an application compatible by itself.
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
 | Candidate verification | Fixed-layout inputs for Codex, Hermes Agent, Discord, and Visual Studio Code |
 | Compatibility contracts | Bounded, exact-target, evidence-backed assessment model; analyzers and certification are not yet implemented |
-| Transformation contracts | Exact-build static-rule rebinding schemas plus Rust validation that rejects generated authority expansion; transformed-byte emission and materialization are not yet implemented |
+| Transformation contracts | Exact-build static-rule rebinding schemas plus Rust validation that rejects generated authority expansion; complete artifact emission and materialization are not yet implemented |
 | Transformation planning | Oxc-backed planning for exact static import and re-export specifier rewrites with explicit matcher, source, exact-cardinality, and replacement-byte limits; emits in-memory byte edits without mutating or materializing source |
+| Transformation emission | Deterministic bounded in-memory transformed-source emission from exact digest-bound plans; match evidence, source maps, audit artifacts, and materialization remain pending |
 | Transformation artifacts | Bounded byte-for-digest verification for source, match evidence, transformed source, source maps, and audit logs requires an opaque structural overlay proof; this does not authenticate, execute, or materialize them |
 | Transformation runtime | Specified, not yet available end to end |
 | Certified adapters | None yet |

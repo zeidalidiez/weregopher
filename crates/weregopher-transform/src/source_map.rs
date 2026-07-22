@@ -17,6 +17,7 @@ const MAP_SOURCE_DIGEST: &[u8] = br#"","source_digest":""#;
 const MAP_TRANSFORMED_DIGEST: &[u8] = br#"","transformed_source_digest":""#;
 const MAP_SUFFIX: &[u8] = b"\"}}";
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// Caller-selected bounds for one deterministic source-map emission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -153,7 +154,7 @@ pub fn emit_source_map<'emission, 'plan>(
     let transformed_text = str::from_utf8(transformed_source.transformed_source())
         .map_err(|_| SourceMapError::TransformedSourceNotUtf8)?;
 
-    let line_count = count_line_starts(source_text)?;
+    let line_count = count_line_starts(transformed_text)?;
     let edit_segments = plan
         .edits()
         .len()
@@ -169,9 +170,9 @@ pub fn emit_source_map<'emission, 'plan>(
         });
     }
 
-    let line_starts = collect_line_starts(source_text, line_count)?;
+    let line_starts = collect_line_starts(transformed_text, line_count)?;
     let mut anchors = allocate_vec(required_segments, "source-map anchors")?;
-    append_line_anchors(&mut anchors, &line_starts, plan)?;
+    append_generated_line_anchors(&mut anchors, &line_starts, plan, source.len())?;
     append_edit_anchors(&mut anchors, plan, source.len())?;
     anchors.sort_unstable();
     anchors.dedup();
@@ -218,11 +219,11 @@ pub fn emit_source_map<'emission, 'plan>(
     bytes.extend_from_slice(MAP_EXTENSION);
     bytes.extend_from_slice(plan.rule_id().as_str().as_bytes());
     bytes.extend_from_slice(MAP_RULE_DIGEST);
-    append_digest(&mut bytes, plan.rule_digest());
+    append_digest(&mut bytes, plan.rule_digest())?;
     bytes.extend_from_slice(MAP_SOURCE_DIGEST);
-    append_digest(&mut bytes, plan.source().source_digest());
+    append_digest(&mut bytes, plan.source().source_digest())?;
     bytes.extend_from_slice(MAP_TRANSFORMED_DIGEST);
-    append_digest(&mut bytes, transformed_source.transformed_source_digest());
+    append_digest(&mut bytes, transformed_source.transformed_source_digest())?;
     bytes.extend_from_slice(MAP_SUFFIX);
     if bytes.len() != map_length {
         return Err(SourceMapError::EmittedLengthMismatch {
@@ -307,47 +308,59 @@ fn collect_line_starts(text: &str, count: usize) -> Result<Vec<usize>, SourceMap
     Ok(starts)
 }
 
-fn append_line_anchors(
+fn append_generated_line_anchors(
     anchors: &mut Vec<ByteAnchor>,
     line_starts: &[usize],
     plan: &crate::TransformPlan,
+    source_bytes: usize,
 ) -> Result<(), SourceMapError> {
     let mut edit_index = 0_usize;
-    let mut removed_bytes = 0_usize;
-    let mut replacement_bytes = 0_usize;
-    for &original in line_starts {
-        while let Some(edit) = plan.edits().get(edit_index) {
+    let mut source_cursor = 0_usize;
+    let mut generated_cursor = 0_usize;
+    for &generated in line_starts {
+        let original = loop {
+            let Some(edit) = plan.edits().get(edit_index) else {
+                let unchanged = generated
+                    .checked_sub(generated_cursor)
+                    .ok_or(SourceMapError::InvalidEditRange)?;
+                let original = source_cursor
+                    .checked_add(unchanged)
+                    .ok_or(SourceMapError::OffsetOverflow)?;
+                if original > source_bytes {
+                    return Err(SourceMapError::InvalidAnchorOffset { offset: original });
+                }
+                break original;
+            };
             let start = usize::try_from(edit.start_byte())
                 .map_err(|_| SourceMapError::EditOffsetOutOfRange(edit.start_byte()))?;
             let end = usize::try_from(edit.end_byte())
                 .map_err(|_| SourceMapError::EditOffsetOutOfRange(edit.end_byte()))?;
-            if end > original {
-                if start < original {
-                    return Err(SourceMapError::LineStartInsideEdit {
-                        line_start: original,
-                        edit_start: start,
-                        edit_end: end,
-                    });
-                }
-                break;
+            if start < source_cursor || end < start || end > source_bytes {
+                return Err(SourceMapError::InvalidEditRange);
             }
-            removed_bytes = removed_bytes
-                .checked_add(
-                    end.checked_sub(start)
-                        .ok_or(SourceMapError::InvalidEditRange)?,
-                )
+            let generated_start = generated_cursor
+                .checked_add(start - source_cursor)
                 .ok_or(SourceMapError::OffsetOverflow)?;
-            replacement_bytes = replacement_bytes
+            let generated_end = generated_start
                 .checked_add(edit.replacement().len())
                 .ok_or(SourceMapError::OffsetOverflow)?;
+            if generated < generated_start {
+                let unchanged = generated
+                    .checked_sub(generated_cursor)
+                    .ok_or(SourceMapError::InvalidEditRange)?;
+                break source_cursor
+                    .checked_add(unchanged)
+                    .ok_or(SourceMapError::OffsetOverflow)?;
+            }
+            if generated < generated_end {
+                break start;
+            }
+            source_cursor = end;
+            generated_cursor = generated_end;
             edit_index = edit_index
                 .checked_add(1)
                 .ok_or(SourceMapError::OffsetOverflow)?;
-        }
-        let generated = original
-            .checked_sub(removed_bytes)
-            .and_then(|offset| offset.checked_add(replacement_bytes))
-            .ok_or(SourceMapError::OffsetOverflow)?;
+        };
         anchors.push(ByteAnchor {
             generated,
             original,
@@ -663,8 +676,19 @@ fn allocate_vec<T>(items: usize, purpose: &'static str) -> Result<Vec<T>, Source
     Ok(output)
 }
 
-fn append_digest(output: &mut Vec<u8>, value: &Sha256Digest) {
-    output.extend_from_slice(value.to_string().as_bytes());
+fn append_digest(output: &mut Vec<u8>, value: &Sha256Digest) -> Result<(), SourceMapError> {
+    output.extend_from_slice(b"sha256:");
+    for byte in value.as_bytes() {
+        let high = LOWER_HEX
+            .get(usize::from(byte >> 4))
+            .ok_or(SourceMapError::DigestEncodingFailed)?;
+        let low = LOWER_HEX
+            .get(usize::from(byte & 0x0f))
+            .ok_or(SourceMapError::DigestEncodingFailed)?;
+        output.push(*high);
+        output.push(*low);
+    }
+    Ok(())
 }
 
 fn digest(bytes: &[u8]) -> Sha256Digest {
@@ -733,10 +757,10 @@ pub enum SourceMapError {
     /// A retained edit range violated plan invariants.
     #[error("invalid retained edit range")]
     InvalidEditRange,
-    /// A source line start unexpectedly fell inside a replacement range.
+    /// A line start unexpectedly fell inside a replacement range.
     #[error("line start {line_start} falls inside edit {edit_start}..{edit_end}")]
     LineStartInsideEdit {
-        /// Original line-start byte offset.
+        /// Line-start byte offset.
         line_start: usize,
         /// Inclusive edit start.
         edit_start: usize,
@@ -784,6 +808,9 @@ pub enum SourceMapError {
     /// A Base64 VLQ value could not be encoded canonically.
     #[error("source-map Base64 VLQ encoding failed")]
     VlqEncodingFailed,
+    /// A SHA-256 identity could not be encoded into its fixed canonical text form.
+    #[error("source-map SHA-256 identity encoding failed")]
+    DigestEncodingFailed,
     /// Checked source-map length arithmetic overflowed.
     #[error("source-map length overflowed the platform byte index")]
     SourceMapLengthOverflow,

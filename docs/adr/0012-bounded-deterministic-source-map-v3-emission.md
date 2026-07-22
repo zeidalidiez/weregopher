@@ -15,7 +15,7 @@ The emitter retains one segment at every generated line start and at both sides 
 
 1. enforces source and transformed-source bounds before hashing or scanning;
 2. verifies the supplied source digest against the retained plan;
-3. conservatively bounds line-start plus edit-boundary segments before allocating anchor storage;
+3. counts generated line starts and bounds those anchors plus edit-boundary segments before allocating anchor storage;
 4. validates ordered, non-overlapping edit and anchor invariants;
 5. counts columns in UTF-16 code units;
 6. treats CRLF as one line break and also recognizes CR, LF, U+2028, and U+2029;
@@ -29,7 +29,7 @@ This map provides debugger correlation. Sparse replacement regions map their sta
 ## Consequences
 
 - Identical plans, source bytes, and transformed bytes produce byte-identical Source Map v3 artifacts and digests.
-- Non-BMP source columns and every ECMAScript line-terminator form have explicit deterministic handling.
+- Non-BMP source columns and every ECMAScript line-terminator form have explicit deterministic handling, including line continuations consumed by a rewritten static module specifier.
 - Vendor source content is not duplicated into the map.
-- Oversized inputs, excessive segment requirements, malformed internal ranges, invalid UTF-8, arithmetic failures, and allocation failures are typed fail-closed errors.
+- Oversized inputs, excessive segment requirements, malformed internal ranges, invalid UTF-8, arithmetic failures, and fallible retained/output allocations are typed fail-closed errors; fixed digest text is encoded directly into the reserved output buffer.
 - Audit-record emission and complete artifact-to-rebinding assembly remain the next bounded milestone.

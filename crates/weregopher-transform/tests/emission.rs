@@ -359,6 +359,65 @@ fn source_map_columns_are_utf16_and_crlf_is_one_line_break()
 }
 
 #[test]
+fn source_maps_accept_every_static_specifier_line_continuation()
+-> Result<(), Box<dyn std::error::Error>> {
+    const TRANSFORMED: &[u8] = b"import pty from \"x\";\n";
+    let cases: [&[u8]; 5] = [
+        b"import pty from \"node-\\\npty\";\n",
+        b"import pty from \"node-\\\rpty\";\n",
+        b"import pty from \"node-\\\r\npty\";\n",
+        "import pty from \"node-\\\u{2028}pty\";\n".as_bytes(),
+        "import pty from \"node-\\\u{2029}pty\";\n".as_bytes(),
+    ];
+
+    for source in cases {
+        let rule_id = TransformRuleId::new("main.replace-line-continuation")?;
+        let one = NonZeroU16::new(1).ok_or("test match count must be nonzero")?;
+        let rule = StaticImportRewrite::new("node-pty".to_owned(), "x".to_owned(), one)?;
+        let authority = AdapterTransformAuthority::new(
+            AdapterId::new("openai.desktop")?,
+            ApplicationFamilyId::new("openai.chatgpt.windows")?,
+            digest(b"adapter"),
+            BTreeMap::from([(
+                rule_id.clone(),
+                AuthorizedTransformRuleRef::new(rule.canonical_digest()),
+            )]),
+        )?;
+        let source_ref = SourceUnitRef::new(
+            SourceUnitId::new("module.main.line-continuation")?,
+            digest(source),
+        );
+        let plan = plan_static_import_rewrite(
+            &authority,
+            &rule_id,
+            &rule,
+            SourceUnitInput::new(source_ref, source),
+            PlannerLimits::new(source.len(), 1, 8)?,
+        )?;
+        let transformed = emit_transformed_source(
+            &plan,
+            source,
+            TransformEmissionLimits::new(source.len(), TRANSFORMED.len())?,
+        )?;
+        assert_eq!(transformed.transformed_source(), TRANSFORMED);
+        let emitted = emit_source_map(
+            &transformed,
+            source,
+            SourceMapLimits::new(source.len(), TRANSFORMED.len(), 4, 2_048)?,
+        )?;
+        let parsed: serde_json::Value = serde_json::from_slice(emitted.bytes())?;
+        assert_eq!(
+            parsed["mappings"]
+                .as_str()
+                .map(|mappings| mappings.matches(';').count()),
+            Some(1)
+        );
+        assert_eq!(emitted.segment_count(), 4);
+    }
+    Ok(())
+}
+
+#[test]
 fn complete_bundle_emits_canonical_audit_and_exact_rebinding()
 -> Result<(), Box<dyn std::error::Error>> {
     let plan = plan()?;

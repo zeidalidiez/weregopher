@@ -15,10 +15,15 @@ use weregopher_domain::{
     GeneratedTransformOverlay, Sha256Digest, StructurallyValidatedTransformOverlay, TransformRuleId,
 };
 
+mod bundle;
 mod emission;
 mod planning;
 mod source_map;
 
+pub use bundle::{
+    EmittedTransformArtifactBundle, TransformBundleError, TransformBundleLimits,
+    assemble_transform_artifacts,
+};
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,
     TransformEmissionError, TransformEmissionLimits, emit_match_evidence, emit_transformed_source,

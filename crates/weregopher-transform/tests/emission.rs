@@ -9,7 +9,8 @@ use weregopher_domain::{
 };
 use weregopher_transform::{
     MatchEvidenceError, MatchEvidenceLimits, PlannerLimits, SourceMapError, SourceMapLimits,
-    SourceUnitInput, StaticImportRewrite, TransformEmissionError, TransformEmissionLimits,
+    SourceUnitInput, StaticImportRewrite, TransformBundleError, TransformBundleLimits,
+    TransformEmissionError, TransformEmissionLimits, assemble_transform_artifacts,
     emit_match_evidence, emit_source_map, emit_transformed_source, plan_static_import_rewrite,
 };
 
@@ -357,8 +358,245 @@ fn source_map_columns_are_utf16_and_crlf_is_one_line_break()
     Ok(())
 }
 
+#[test]
+fn complete_bundle_emits_canonical_audit_and_exact_rebinding()
+-> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let transformed = emit_transformed_source(
+        &plan,
+        SOURCE,
+        TransformEmissionLimits::new(SOURCE.len(), TRANSFORMED.len())?,
+    )?;
+    let evidence = emit_match_evidence(&plan, MatchEvidenceLimits::new(2_048)?)?;
+    let source_map = emit_source_map(
+        &transformed,
+        SOURCE,
+        SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, 2_048)?,
+    )?;
+    let bundle = assemble_transform_artifacts(
+        SOURCE,
+        &transformed,
+        &evidence,
+        &source_map,
+        TransformBundleLimits::new(SOURCE.len(), 2_048, 8_192)?,
+    )?;
+    let expected_audit = format!(
+        r#"{{"format_version":"1","operation":"static_import_rewrite","rule_id":"{}","rule_digest":"{}","source":{{"unit_id":"{}","source_digest":"{}"}},"artifacts":{{"match_evidence_digest":"{}","transformed_source_digest":"{}","source_map_digest":"{}"}},"edit_count":{}}}"#,
+        plan.rule_id(),
+        plan.rule_digest(),
+        plan.source().unit_id(),
+        plan.source().source_digest(),
+        evidence.digest(),
+        transformed.transformed_source_digest(),
+        source_map.digest(),
+        plan.edits().len(),
+    );
+
+    assert_eq!(bundle.audit_log(), expected_audit.as_bytes());
+    assert_eq!(
+        bundle.audit_log_digest(),
+        &digest(expected_audit.as_bytes())
+    );
+    assert_eq!(
+        bundle.audit_log_digest().to_string(),
+        "sha256:928da19337a5af9a5f1c35772d19978a3389cfcd4e713ade91a69115821c2a17"
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(bundle.audit_log())?;
+    assert_eq!(parsed["edit_count"].as_u64(), Some(2));
+    assert_eq!(bundle.rebinding().rule_digest(), plan.rule_digest());
+    assert_eq!(bundle.rebinding().source(), plan.source());
+    assert_eq!(
+        bundle.rebinding().match_evidence_digest(),
+        evidence.digest()
+    );
+    assert_eq!(
+        bundle.rebinding().transformed_source_digest(),
+        transformed.transformed_source_digest()
+    );
+    assert_eq!(bundle.rebinding().source_map_digest(), source_map.digest());
+    assert_eq!(
+        bundle.rebinding().audit_log_digest(),
+        bundle.audit_log_digest()
+    );
+    let artifacts = bundle.artifacts();
+    assert_eq!(artifacts.source(), SOURCE);
+    assert_eq!(artifacts.match_evidence(), evidence.bytes());
+    assert_eq!(artifacts.transformed_source(), TRANSFORMED);
+    assert_eq!(artifacts.source_map(), source_map.bytes());
+    assert_eq!(artifacts.audit_log(), expected_audit.as_bytes());
+    assert_eq!(
+        bundle.total_bytes(),
+        SOURCE.len()
+            + evidence.bytes().len()
+            + TRANSFORMED.len()
+            + source_map.bytes().len()
+            + expected_audit.len()
+    );
+    let debug = format!("{bundle:?}");
+    assert!(!debug.contains("PRIVATE_SOURCE_MARKER"));
+    assert!(debug.contains("total_bytes"));
+    Ok(())
+}
+
+#[test]
+fn complete_bundle_limits_are_exact() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        TransformBundleLimits::new(0, 1, 1),
+        Err(TransformBundleError::InvalidLimits)
+    );
+    assert_eq!(
+        TransformBundleLimits::new(1, 0, 1),
+        Err(TransformBundleError::InvalidLimits)
+    );
+    assert_eq!(
+        TransformBundleLimits::new(1, 1, 0),
+        Err(TransformBundleError::InvalidLimits)
+    );
+    let first_plan = plan()?;
+    let transformed = emit_transformed_source(
+        &first_plan,
+        SOURCE,
+        TransformEmissionLimits::new(SOURCE.len(), TRANSFORMED.len())?,
+    )?;
+    let evidence = emit_match_evidence(&first_plan, MatchEvidenceLimits::new(2_048)?)?;
+    let source_map = emit_source_map(
+        &transformed,
+        SOURCE,
+        SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, 2_048)?,
+    )?;
+    let complete = assemble_transform_artifacts(
+        SOURCE,
+        &transformed,
+        &evidence,
+        &source_map,
+        TransformBundleLimits::new(SOURCE.len(), 2_048, 8_192)?,
+    )?;
+    assert_eq!(
+        assemble_transform_artifacts(
+            SOURCE,
+            &transformed,
+            &evidence,
+            &source_map,
+            TransformBundleLimits::new(SOURCE.len() - 1, 2_048, 8_192)?,
+        ),
+        Err(TransformBundleError::SourceTooLarge {
+            actual_bytes: SOURCE.len(),
+            max_bytes: SOURCE.len() - 1,
+        })
+    );
+    assert!(
+        assemble_transform_artifacts(
+            SOURCE,
+            &transformed,
+            &evidence,
+            &source_map,
+            TransformBundleLimits::new(
+                SOURCE.len(),
+                complete.audit_log().len(),
+                complete.total_bytes(),
+            )?,
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        assemble_transform_artifacts(
+            SOURCE,
+            &transformed,
+            &evidence,
+            &source_map,
+            TransformBundleLimits::new(
+                SOURCE.len(),
+                complete.audit_log().len() - 1,
+                complete.total_bytes(),
+            )?,
+        ),
+        Err(TransformBundleError::AuditLogTooLarge {
+            actual_bytes: complete.audit_log().len(),
+            max_bytes: complete.audit_log().len() - 1,
+        })
+    );
+    assert_eq!(
+        assemble_transform_artifacts(
+            SOURCE,
+            &transformed,
+            &evidence,
+            &source_map,
+            TransformBundleLimits::new(
+                SOURCE.len(),
+                complete.audit_log().len(),
+                complete.total_bytes() - 1,
+            )?,
+        ),
+        Err(TransformBundleError::AggregateTooLarge {
+            actual_bytes: complete.total_bytes(),
+            max_bytes: complete.total_bytes() - 1,
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn complete_bundle_identity_and_lineage_fail_closed() -> Result<(), Box<dyn std::error::Error>> {
+    let first_plan = plan()?;
+    let transformed = emit_transformed_source(
+        &first_plan,
+        SOURCE,
+        TransformEmissionLimits::new(SOURCE.len(), TRANSFORMED.len())?,
+    )?;
+    let evidence = emit_match_evidence(&first_plan, MatchEvidenceLimits::new(2_048)?)?;
+    let source_map = emit_source_map(
+        &transformed,
+        SOURCE,
+        SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, 2_048)?,
+    )?;
+    let equivalent_plan = plan()?;
+    let equivalent_evidence =
+        emit_match_evidence(&equivalent_plan, MatchEvidenceLimits::new(2_048)?)?;
+    assert!(
+        assemble_transform_artifacts(
+            SOURCE,
+            &transformed,
+            &equivalent_evidence,
+            &source_map,
+            TransformBundleLimits::new(SOURCE.len(), 2_048, 8_192)?,
+        )
+        .is_ok()
+    );
+    let second_plan = plan_with_rule_id("main.replace-node-pty-alternate")?;
+    let second_evidence = emit_match_evidence(&second_plan, MatchEvidenceLimits::new(2_048)?)?;
+    assert_eq!(
+        assemble_transform_artifacts(
+            SOURCE,
+            &transformed,
+            &second_evidence,
+            &source_map,
+            TransformBundleLimits::new(SOURCE.len(), 2_048, 8_192)?,
+        ),
+        Err(TransformBundleError::ArtifactPlanMismatch)
+    );
+    let mut tampered = SOURCE.to_vec();
+    tampered[0] = b'e';
+    assert_eq!(
+        assemble_transform_artifacts(
+            &tampered,
+            &transformed,
+            &evidence,
+            &source_map,
+            TransformBundleLimits::new(SOURCE.len(), 2_048, 8_192)?,
+        ),
+        Err(TransformBundleError::SourceDigestMismatch)
+    );
+    Ok(())
+}
+
 fn plan() -> Result<weregopher_transform::TransformPlan, Box<dyn std::error::Error>> {
-    let rule_id = TransformRuleId::new("main.replace-node-pty")?;
+    plan_with_rule_id("main.replace-node-pty")
+}
+
+fn plan_with_rule_id(
+    rule_id: &str,
+) -> Result<weregopher_transform::TransformPlan, Box<dyn std::error::Error>> {
+    let rule_id = TransformRuleId::new(rule_id)?;
     let two = NonZeroU16::new(2).ok_or("test match count must be nonzero")?;
     let rule = StaticImportRewrite::new(
         "node-pty".to_owned(),

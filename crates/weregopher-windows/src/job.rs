@@ -122,7 +122,7 @@ impl KillOnCloseJob {
     ///
     /// Returns the operating-system error when membership cannot be queried.
     pub fn contains_child(&self, child: &Child) -> io::Result<bool> {
-        contains_child(&self.handle, child)
+        contains_process_handle(&self.handle, child.as_raw_handle())
     }
 
     /// Terminates every process currently associated with this job.
@@ -132,6 +132,14 @@ impl KillOnCloseJob {
     /// Returns the operating-system error when Windows cannot terminate the job.
     pub fn terminate(&self, exit_code: u32) -> io::Result<()> {
         terminate_job(&self.handle, exit_code)
+    }
+
+    pub(crate) const fn handle(&self) -> &OwnedHandle {
+        &self.handle
+    }
+
+    pub(crate) fn contains_process(&self, process: &OwnedHandle) -> io::Result<bool> {
+        contains_process_handle(&self.handle, process.as_raw_handle())
     }
 }
 
@@ -214,16 +222,14 @@ fn assign_child(handle: &OwnedHandle, child: &Child) -> io::Result<()> {
     unsafe_code,
     reason = "isolated IsProcessInJob call with live handles and initialized BOOL output storage"
 )]
-fn contains_child(handle: &OwnedHandle, child: &Child) -> io::Result<bool> {
+fn contains_process_handle(
+    handle: &OwnedHandle,
+    process: std::os::windows::io::RawHandle,
+) -> io::Result<bool> {
     let mut result = 0;
     // SAFETY: both handles remain alive and `result` points to writable BOOL-sized storage.
-    let query = unsafe {
-        IsProcessInJob(
-            child.as_raw_handle(),
-            handle.as_raw_handle(),
-            ptr::from_mut(&mut result),
-        )
-    };
+    let query =
+        unsafe { IsProcessInJob(process, handle.as_raw_handle(), ptr::from_mut(&mut result)) };
     if query == 0 {
         return Err(io::Error::last_os_error());
     }

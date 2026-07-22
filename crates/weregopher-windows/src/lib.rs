@@ -1,8 +1,10 @@
-//! Minimal safe wrappers for Windows handle identity and process-tree ownership.
+//! Minimal safe wrappers for Windows handle identity, process-tree ownership, and atomic
+//! Job-owned suspended launch.
 //!
 //! This crate is the workspace's explicit unsafe-code exception. Each unsafe block isolates one
-//! documented Win32 call over live owned handles and exactly sized initialized storage. No raw
-//! handle or pointer crosses the public API.
+//! documented Win32 call over live owned handles and exactly sized initialized storage. Executable
+//! path locking and launch remain non-authorizing lifecycle primitives. No raw handle or pointer
+//! crosses the public API.
 
 #![cfg(windows)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -14,8 +16,10 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 
 mod job;
+mod process;
 
 pub use job::{JobLimits, KillOnCloseJob};
+pub use process::{LockedExecutable, OwnedJobProcess, ProcessLaunchLimits};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct FileIdentity {

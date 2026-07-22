@@ -56,7 +56,7 @@ never makes an application compatible by itself.
 | Transformation planning | Oxc-backed planning for exact static import and re-export specifier rewrites with explicit matcher, source, exact-cardinality, and replacement-byte limits; emits in-memory byte edits without mutating or materializing source |
 | Transformation emission | Deterministic bounded in-memory transformed-source, match-evidence, Source Map v3, and canonical audit emission with complete five-artifact bundle/rebinding assembly; materialization remains pending |
 | Transformation artifacts | Bounded byte-for-digest verification for source, match evidence, transformed source, source maps, and audit logs requires an opaque structural overlay proof; this does not authenticate, execute, or materialize them |
-| Transformation runtime | Specified, not yet available end to end |
+| Transformation runtime | Complete in-memory plan → emit → overlay → structural validation → byte verification composition is regression-tested; content-addressed materialization and execution remain pending |
 | Certified adapters | None yet |
 
 The initial discovery work targets Codex, Hermes Agent, Discord, and Visual Studio

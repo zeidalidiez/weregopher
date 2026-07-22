@@ -19,8 +19,8 @@ mod emission;
 mod planning;
 
 pub use emission::{
-    EmittedTransformedSource, TransformEmissionError, TransformEmissionLimits,
-    emit_transformed_source,
+    EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,
+    TransformEmissionError, TransformEmissionLimits, emit_match_evidence, emit_transformed_source,
 };
 pub use planning::{
     PlannerLimits, SourceUnitInput, StaticImportRewrite, StaticImportSpecifier, TextEdit,

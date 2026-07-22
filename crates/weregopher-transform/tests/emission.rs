@@ -8,8 +8,9 @@ use weregopher_domain::{
     Sha256Digest, SourceUnitId, SourceUnitRef, TransformRuleId,
 };
 use weregopher_transform::{
-    PlannerLimits, SourceUnitInput, StaticImportRewrite, TransformEmissionError,
-    TransformEmissionLimits, emit_transformed_source, plan_static_import_rewrite,
+    MatchEvidenceError, MatchEvidenceLimits, PlannerLimits, SourceUnitInput, StaticImportRewrite,
+    TransformEmissionError, TransformEmissionLimits, emit_match_evidence, emit_transformed_source,
+    plan_static_import_rewrite,
 };
 
 const SOURCE: &[u8] =
@@ -114,6 +115,66 @@ fn emitted_debug_output_redacts_transformed_source() -> Result<(), Box<dyn std::
     assert!(!debug.contains("PRIVATE_SOURCE_MARKER"));
     assert!(debug.contains("transformed_source_length"));
     assert!(debug.contains("transformed_source_digest"));
+    Ok(())
+}
+
+#[test]
+fn match_evidence_has_one_canonical_bounded_representation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let emitted = emit_match_evidence(&plan, MatchEvidenceLimits::new(2_048)?)?;
+    let matches = plan
+        .edits()
+        .iter()
+        .map(|edit| {
+            format!(
+                r#"{{"start_byte":{},"end_byte":{}}}"#,
+                edit.start_byte(),
+                edit.end_byte()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let expected = format!(
+        r#"{{"format_version":"1","kind":"static_module_specifier_matches","rule_id":"{}","rule_digest":"{}","source":{{"unit_id":"{}","source_digest":"{}"}},"matches":[{matches}]}}"#,
+        plan.rule_id(),
+        plan.rule_digest(),
+        plan.source().unit_id(),
+        plan.source().source_digest(),
+    );
+
+    assert_eq!(emitted.bytes(), expected.as_bytes());
+    assert_eq!(emitted.digest(), &digest(expected.as_bytes()));
+    assert_eq!(
+        emitted.digest().to_string(),
+        "sha256:8554d8bc4dc7ffde03e11bcd8ecb9d2da0d27ae679a99c9f9fe467e40e486137"
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(emitted.bytes())?;
+    assert_eq!(parsed["matches"].as_array().map(Vec::len), Some(2));
+    assert_eq!(emitted.plan(), &plan);
+    assert!(emit_match_evidence(&plan, MatchEvidenceLimits::new(expected.len())?).is_ok());
+    assert_eq!(
+        emit_match_evidence(&plan, MatchEvidenceLimits::new(expected.len() - 1)?,),
+        Err(MatchEvidenceError::EvidenceTooLarge {
+            actual_bytes: expected.len(),
+            max_bytes: expected.len() - 1,
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn match_evidence_limits_and_debug_output_fail_closed() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        MatchEvidenceLimits::new(0),
+        Err(MatchEvidenceError::InvalidLimit)
+    );
+    let plan = plan()?;
+    let emitted = emit_match_evidence(&plan, MatchEvidenceLimits::new(2_048)?)?;
+    let debug = format!("{emitted:?}");
+    assert!(!debug.contains("PRIVATE_SOURCE_MARKER"));
+    assert!(debug.contains("evidence_length"));
+    assert!(debug.contains("evidence_digest"));
     Ok(())
 }
 

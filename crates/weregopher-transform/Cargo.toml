@@ -17,5 +17,8 @@ sha2.workspace = true
 thiserror.workspace = true
 weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

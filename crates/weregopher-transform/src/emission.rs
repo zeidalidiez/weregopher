@@ -8,6 +8,18 @@ use weregopher_domain::Sha256Digest;
 
 use crate::TransformPlan;
 
+const DIGEST_TEXT_LENGTH: usize = 71;
+const EVIDENCE_PREFIX: &[u8] =
+    br#"{"format_version":"1","kind":"static_module_specifier_matches","rule_id":""#;
+const EVIDENCE_RULE_DIGEST: &[u8] = br#"","rule_digest":""#;
+const EVIDENCE_SOURCE_UNIT: &[u8] = br#"","source":{"unit_id":""#;
+const EVIDENCE_SOURCE_DIGEST: &[u8] = br#"","source_digest":""#;
+const EVIDENCE_MATCHES: &[u8] = br#""},"matches":["#;
+const MATCH_START: &[u8] = br#"{"start_byte":"#;
+const MATCH_END: &[u8] = br#","end_byte":"#;
+const EVIDENCE_SUFFIX: &[u8] = b"]}";
+const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
+
 /// Caller-selected byte limits for one transformed-source emission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TransformEmissionLimits {
@@ -189,6 +201,246 @@ pub fn emit_transformed_source<'plan>(
         transformed_source,
         transformed_source_digest,
     })
+}
+
+/// Caller-selected byte limit for canonical semantic-match evidence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MatchEvidenceLimits {
+    evidence_bytes: usize,
+}
+
+impl MatchEvidenceLimits {
+    /// Constructs a nonzero canonical-evidence byte limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MatchEvidenceError::InvalidLimit`] when the limit is zero.
+    pub const fn new(max_evidence_bytes: usize) -> Result<Self, MatchEvidenceError> {
+        if max_evidence_bytes == 0 {
+            return Err(MatchEvidenceError::InvalidLimit);
+        }
+        Ok(Self {
+            evidence_bytes: max_evidence_bytes,
+        })
+    }
+}
+
+/// Canonical semantic-match evidence emitted from one exact transform plan.
+///
+/// The evidence records stable identities and parser-selected byte ranges. It does not contain
+/// source bytes, authenticate the plan, prove matcher correctness, or authorize later effects.
+#[derive(Eq, PartialEq)]
+pub struct EmittedMatchEvidence<'plan> {
+    plan: &'plan TransformPlan,
+    bytes: Vec<u8>,
+    digest: Sha256Digest,
+}
+
+impl fmt::Debug for EmittedMatchEvidence<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EmittedMatchEvidence")
+            .field("rule_id", self.plan.rule_id())
+            .field("source", self.plan.source())
+            .field("evidence_length", &self.bytes.len())
+            .field("evidence_digest", &self.digest)
+            .finish()
+    }
+}
+
+impl<'plan> EmittedMatchEvidence<'plan> {
+    /// Returns the exact plan whose semantic matches are recorded.
+    #[must_use]
+    pub const fn plan(&self) -> &'plan TransformPlan {
+        self.plan
+    }
+
+    /// Returns canonical compact UTF-8 JSON evidence bytes.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Returns the SHA-256 identity of the canonical evidence bytes.
+    #[must_use]
+    pub const fn digest(&self) -> &Sha256Digest {
+        &self.digest
+    }
+}
+
+/// Emits canonical semantic-match evidence for one exact transform plan.
+///
+/// The exact output length is computed and checked before fallible allocation. Stable identifiers
+/// are emitted directly because their domain grammar excludes JSON metacharacters; digest and
+/// decimal encodings are written without intermediate allocations.
+///
+/// # Errors
+///
+/// Returns [`MatchEvidenceError`] when output length arithmetic, limits, allocation, or canonical
+/// numeric encoding fails.
+pub fn emit_match_evidence(
+    plan: &TransformPlan,
+    limits: MatchEvidenceLimits,
+) -> Result<EmittedMatchEvidence<'_>, MatchEvidenceError> {
+    let evidence_length = match_evidence_length(plan)?;
+    if evidence_length > limits.evidence_bytes {
+        return Err(MatchEvidenceError::EvidenceTooLarge {
+            actual_bytes: evidence_length,
+            max_bytes: limits.evidence_bytes,
+        });
+    }
+
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(evidence_length)
+        .map_err(|_| MatchEvidenceError::AllocationFailed {
+            requested_bytes: evidence_length,
+        })?;
+    bytes.extend_from_slice(EVIDENCE_PREFIX);
+    bytes.extend_from_slice(plan.rule_id().as_str().as_bytes());
+    bytes.extend_from_slice(EVIDENCE_RULE_DIGEST);
+    append_digest(&mut bytes, plan.rule_digest());
+    bytes.extend_from_slice(EVIDENCE_SOURCE_UNIT);
+    bytes.extend_from_slice(plan.source().unit_id().as_str().as_bytes());
+    bytes.extend_from_slice(EVIDENCE_SOURCE_DIGEST);
+    append_digest(&mut bytes, plan.source().source_digest());
+    bytes.extend_from_slice(EVIDENCE_MATCHES);
+    for (index, edit) in plan.edits().iter().enumerate() {
+        if index > 0 {
+            bytes.push(b',');
+        }
+        bytes.extend_from_slice(MATCH_START);
+        append_u32(&mut bytes, edit.start_byte())?;
+        bytes.extend_from_slice(MATCH_END);
+        append_u32(&mut bytes, edit.end_byte())?;
+        bytes.push(b'}');
+    }
+    bytes.extend_from_slice(EVIDENCE_SUFFIX);
+    if bytes.len() != evidence_length {
+        return Err(MatchEvidenceError::EmittedLengthMismatch {
+            expected_bytes: evidence_length,
+            actual_bytes: bytes.len(),
+        });
+    }
+    let digest = digest(&bytes);
+    Ok(EmittedMatchEvidence {
+        plan,
+        bytes,
+        digest,
+    })
+}
+
+fn match_evidence_length(plan: &TransformPlan) -> Result<usize, MatchEvidenceError> {
+    let mut length = 0_usize;
+    for fixed in [
+        EVIDENCE_PREFIX,
+        EVIDENCE_RULE_DIGEST,
+        EVIDENCE_SOURCE_UNIT,
+        EVIDENCE_SOURCE_DIGEST,
+        EVIDENCE_MATCHES,
+        EVIDENCE_SUFFIX,
+    ] {
+        length = checked_evidence_add(length, fixed.len())?;
+    }
+    length = checked_evidence_add(length, plan.rule_id().as_str().len())?;
+    length = checked_evidence_add(length, DIGEST_TEXT_LENGTH)?;
+    length = checked_evidence_add(length, plan.source().unit_id().as_str().len())?;
+    length = checked_evidence_add(length, DIGEST_TEXT_LENGTH)?;
+    for (index, edit) in plan.edits().iter().enumerate() {
+        if index > 0 {
+            length = checked_evidence_add(length, 1)?;
+        }
+        length = checked_evidence_add(length, MATCH_START.len())?;
+        length = checked_evidence_add(length, decimal_length(edit.start_byte()))?;
+        length = checked_evidence_add(length, MATCH_END.len())?;
+        length = checked_evidence_add(length, decimal_length(edit.end_byte()))?;
+        length = checked_evidence_add(length, 1)?;
+    }
+    Ok(length)
+}
+
+fn checked_evidence_add(current: usize, additional: usize) -> Result<usize, MatchEvidenceError> {
+    current
+        .checked_add(additional)
+        .ok_or(MatchEvidenceError::EvidenceLengthOverflow)
+}
+
+fn decimal_length(mut value: u32) -> usize {
+    let mut length = 1_usize;
+    while value >= 10 {
+        value /= 10;
+        length += 1;
+    }
+    length
+}
+
+fn append_u32(output: &mut Vec<u8>, mut value: u32) -> Result<(), MatchEvidenceError> {
+    let mut encoded = [0_u8; 10];
+    let mut position = encoded.len();
+    loop {
+        position = position
+            .checked_sub(1)
+            .ok_or(MatchEvidenceError::IntegerEncodingFailed)?;
+        let slot = encoded
+            .get_mut(position)
+            .ok_or(MatchEvidenceError::IntegerEncodingFailed)?;
+        *slot = b'0'
+            + u8::try_from(value % 10).map_err(|_| MatchEvidenceError::IntegerEncodingFailed)?;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    output.extend_from_slice(
+        encoded
+            .get(position..)
+            .ok_or(MatchEvidenceError::IntegerEncodingFailed)?,
+    );
+    Ok(())
+}
+
+fn append_digest(output: &mut Vec<u8>, value: &Sha256Digest) {
+    output.extend_from_slice(b"sha256:");
+    for byte in value.as_bytes() {
+        output.push(LOWER_HEX[usize::from(byte >> 4)]);
+        output.push(LOWER_HEX[usize::from(byte & 0x0f)]);
+    }
+}
+
+/// Failure emitting canonical semantic-match evidence.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum MatchEvidenceError {
+    /// The caller-selected evidence limit was zero.
+    #[error("match-evidence byte limit must be nonzero")]
+    InvalidLimit,
+    /// Checked canonical-evidence length arithmetic overflowed.
+    #[error("match-evidence length overflowed the platform byte index")]
+    EvidenceLengthOverflow,
+    /// Canonical evidence exceeded the caller-selected pre-allocation limit.
+    #[error("match evidence is {actual_bytes} bytes; emission limit is {max_bytes}")]
+    EvidenceTooLarge {
+        /// Exact computed evidence length.
+        actual_bytes: usize,
+        /// Caller-selected evidence limit.
+        max_bytes: usize,
+    },
+    /// Bounded canonical-evidence allocation failed.
+    #[error("could not allocate {requested_bytes} bytes for match evidence")]
+    AllocationFailed {
+        /// Exact precomputed allocation request.
+        requested_bytes: usize,
+    },
+    /// A bounded decimal byte offset could not be encoded.
+    #[error("could not encode a match-evidence byte offset")]
+    IntegerEncodingFailed,
+    /// Emitted bytes differed from the precomputed exact length.
+    #[error("emitted {actual_bytes} evidence bytes; expected {expected_bytes}")]
+    EmittedLengthMismatch {
+        /// Precomputed exact evidence length.
+        expected_bytes: usize,
+        /// Actual emitted evidence length.
+        actual_bytes: usize,
+    },
 }
 
 /// Failure emitting transformed source from one exact in-memory plan.

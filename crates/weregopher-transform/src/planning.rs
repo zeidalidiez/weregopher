@@ -136,7 +136,10 @@ impl PlannerLimits {
         if max_source_bytes == 0 || max_edits == 0 || max_replacement_bytes == 0 {
             return Err(TransformPlanError::InvalidLimits);
         }
-        let parser_capacity = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
+        let parser_capacity = match usize::try_from(u32::MAX) {
+            Ok(capacity) => capacity,
+            Err(_) => usize::MAX,
+        };
         if max_source_bytes > parser_capacity {
             return Err(TransformPlanError::SourceByteLimitExceedsParserCapacity {
                 requested_bytes: max_source_bytes,

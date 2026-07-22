@@ -444,6 +444,42 @@ pub struct GeneratedTransformOverlay {
     rebindings: BTreeMap<TransformRuleId, TransformRebinding>,
 }
 
+/// Opaque proof that one generated overlay passed structural validation against exact supplied
+/// source identities and one exact authority object.
+///
+/// This proof establishes only structural conformance and authority non-expansion. It does not
+/// authenticate either input, authorize transformation or execution, or establish that referenced
+/// artifacts exist or are correct.
+#[derive(Eq, PartialEq)]
+pub struct StructurallyValidatedTransformOverlay<'overlay, 'authority> {
+    overlay: &'overlay GeneratedTransformOverlay,
+    authority: &'authority AdapterTransformAuthority,
+}
+
+impl fmt::Debug for StructurallyValidatedTransformOverlay<'_, '_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StructurallyValidatedTransformOverlay")
+            .field("binding", self.overlay.binding())
+            .field("rule_count", &self.overlay.rebindings().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'overlay, 'authority> StructurallyValidatedTransformOverlay<'overlay, 'authority> {
+    /// Returns the exact generated overlay covered by this structural proof.
+    #[must_use]
+    pub const fn overlay(&self) -> &'overlay GeneratedTransformOverlay {
+        self.overlay
+    }
+
+    /// Returns the exact caller-supplied authority object covered by this structural proof.
+    #[must_use]
+    pub const fn authority(&self) -> &'authority AdapterTransformAuthority {
+        self.authority
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GeneratedTransformOverlayTransport {
@@ -572,12 +608,13 @@ impl GeneratedTransformOverlay {
     /// # Errors
     ///
     /// Returns [`TransformContractError`] when identities or rule bindings do not match.
-    pub fn validate_against(
-        &self,
-        authority: &AdapterTransformAuthority,
+    pub fn validate_against<'overlay, 'authority>(
+        &'overlay self,
+        authority: &'authority AdapterTransformAuthority,
         source_build_fingerprint_digest: Sha256Digest,
         build_descriptor_digest: Sha256Digest,
-    ) -> Result<(), TransformContractError> {
+    ) -> Result<StructurallyValidatedTransformOverlay<'overlay, 'authority>, TransformContractError>
+    {
         if self.binding.source_build_fingerprint_digest != source_build_fingerprint_digest {
             return Err(TransformContractError::SourceBuildMismatch);
         }
@@ -603,7 +640,10 @@ impl GeneratedTransformOverlay {
                 return Err(TransformContractError::TransformRuleDigestMismatch);
             }
         }
-        Ok(())
+        Ok(StructurallyValidatedTransformOverlay {
+            overlay: self,
+            authority,
+        })
     }
 
     /// Returns generated transform rebindings in canonical order.

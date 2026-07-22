@@ -47,6 +47,7 @@ pub use security::EffectiveSecurityPosture;
 pub use transformation::{
     AdapterTransformAuthority, AuthorizedTransformRuleRef, GeneratedTransformOverlay,
     MAX_AUTHORIZED_TRANSFORM_RULES, MAX_GENERATED_TRANSFORM_REBINDINGS, SourceUnitRef,
-    TRANSFORM_REBINDING_FORMAT_VERSION, TransformArchitecture, TransformContractError,
-    TransformOverlayBinding, TransformPlatform, TransformRebinding,
+    StructurallyValidatedTransformOverlay, TRANSFORM_REBINDING_FORMAT_VERSION,
+    TransformArchitecture, TransformContractError, TransformOverlayBinding, TransformPlatform,
+    TransformRebinding,
 };

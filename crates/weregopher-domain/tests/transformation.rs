@@ -59,7 +59,9 @@ fn exact_signed_rule_rebinding_is_structurally_valid() -> Result<(), Box<dyn std
         TRANSFORM_REBINDING_FORMAT_VERSION
     );
 
-    overlay.validate_against(&authority, digest(0x21), digest(0x22))?;
+    let validated = overlay.validate_against(&authority, digest(0x21), digest(0x22))?;
+    assert_eq!(validated.overlay(), &overlay);
+    assert_eq!(validated.authority(), &authority);
     assert_eq!(
         overlay.binding().source_build_fingerprint_digest(),
         &digest(0x21)
@@ -562,7 +564,7 @@ fn duplicate_static_rule_keys_fail_closed() -> Result<(), Box<dyn std::error::Er
     let digest_json = serde_json::to_string(&digest(0xb1))?;
     let rule_json = serde_json::to_string(&AuthorizedTransformRuleRef::new(digest(0xb2)))?;
     let document = format!(
-        r#"{{"format_version":"1","adapter_id":"openai.desktop","family":"openai.chatgpt.windows","adapter_content_digest":{digest_json},"rules":{{"main.same":{rule_json},"main.same":{rule_json}}}}}"#
+        r#"{{"format_version":"1","adapter_id":"openai.desktop","family":"openai.chatgpt.windows","adapter_content_digest":{digest_json},"rules":{{"main.same":{rule_json},"main.same":{{"invalid":["payload"]}}}}}}"#
     );
 
     let Err(error) = serde_json::from_str::<AdapterTransformAuthority>(&document) else {
@@ -660,8 +662,9 @@ fn duplicate_generated_rebinding_keys_fail_closed() -> Result<(), Box<dyn std::e
     let serialized = serde_json::to_string(&overlay)?;
     let generated_json = serde_json::to_string(&generated)?;
     let single = format!(r#""rebindings":{{"main.seed":{generated_json}}}"#);
-    let duplicate =
-        format!(r#""rebindings":{{"main.seed":{generated_json},"main.seed":{generated_json}}}"#);
+    let duplicate = format!(
+        r#""rebindings":{{"main.seed":{generated_json},"main.seed":{{"invalid":["payload"]}}}}"#
+    );
     let document = serialized.replacen(&single, &duplicate, 1);
     assert_ne!(
         document, serialized,

@@ -7,8 +7,8 @@ use thiserror::Error;
 use weregopher_domain::Sha256Digest;
 
 use crate::{
-    MAX_NORMALIZED_PACKAGE_PATH_CHARS, PACKAGE_TREE_FORMAT_VERSION, PackageFileKind,
-    PackageFileRecord, PackageTreeManifest,
+    MAX_NORMALIZED_PACKAGE_PATH_CHARS, MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES,
+    PACKAGE_TREE_FORMAT_VERSION, PackageFileKind, PackageFileRecord, PackageTreeManifest,
 };
 
 const FILE_HASH_DOMAIN: &[u8] = b"weregopher.package.file.v1\0";
@@ -26,6 +26,7 @@ const DIRECTORY_HASH_DOMAIN: &[u8] = b"weregopher.package.directory.v1\0";
 pub fn build_package_manifest(
     mut files: Vec<PackageFileRecord>,
 ) -> Result<PackageTreeManifest, ManifestError> {
+    validate_resource_bounds(&files)?;
     files.sort_by(|left, right| left.normalized_path.cmp(&right.normalized_path));
 
     let mut tree = DirectoryNode::default();
@@ -46,6 +47,31 @@ pub fn build_package_manifest(
         package_tree_merkle: tree.hash(""),
         files,
     })
+}
+
+fn validate_resource_bounds(files: &[PackageFileRecord]) -> Result<(), ManifestError> {
+    if files.len() > MAX_PACKAGE_FILE_RECORDS {
+        return Err(ManifestError::FileLimitExceeded {
+            actual: files.len(),
+            max: MAX_PACKAGE_FILE_RECORDS,
+        });
+    }
+    let aggregate_path_bytes = files.iter().try_fold(0_usize, |total, record| {
+        total.checked_add(record.normalized_path.len())
+    });
+    let Some(aggregate_path_bytes) = aggregate_path_bytes else {
+        return Err(ManifestError::PathBytesExceeded {
+            actual: usize::MAX,
+            max: MAX_PACKAGE_RECORD_PATH_BYTES,
+        });
+    };
+    if aggregate_path_bytes > MAX_PACKAGE_RECORD_PATH_BYTES {
+        return Err(ManifestError::PathBytesExceeded {
+            actual: aggregate_path_bytes,
+            max: MAX_PACKAGE_RECORD_PATH_BYTES,
+        });
+    }
+    Ok(())
 }
 
 fn validate_executable_kind(record: &PackageFileRecord) -> Result<(), ManifestError> {
@@ -213,6 +239,22 @@ impl DirectoryNode {
 /// A package manifest could not be represented as one canonical tree.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ManifestError {
+    /// The caller supplied more file records than one manifest may retain.
+    #[error("package has {actual} file records; limit is {max}")]
+    FileLimitExceeded {
+        /// Supplied file-record count.
+        actual: usize,
+        /// Maximum retained file-record count.
+        max: usize,
+    },
+    /// Normalized package paths exceeded the aggregate retained-byte limit.
+    #[error("package record paths use {actual} bytes; limit is {max}")]
+    PathBytesExceeded {
+        /// Aggregate path bytes, or `usize::MAX` when addition overflowed.
+        actual: usize,
+        /// Maximum aggregate normalized-path bytes.
+        max: usize,
+    },
     /// A path was not a nonempty, root-relative `/`-separated canonical path.
     #[error("package record path is not canonical: {path:?}")]
     InvalidPath {

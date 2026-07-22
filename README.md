@@ -46,7 +46,7 @@ never makes an application compatible by itself.
 | Area | Current state |
 | --- | --- |
 | Domain and protocol contracts | Implemented in Rust with deterministic JSON Schemas |
-| Package manifest construction | Deterministic construction from pre-observed file records |
+| Package manifest construction | Deterministic construction from pre-observed file records, with closed transport objects, a 65,536-record ceiling, and a 16 MiB aggregate normalized-path budget |
 | Windows file observation | Bounded direct-file hashing with retained handle identity checks |
 | Installed-app discovery | Known locations, uninstall registry, and Windows package catalog |
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |

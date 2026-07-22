@@ -31,6 +31,7 @@
       ]
     },
     "PackageFileRecord": {
+      "additionalProperties": false,
       "description": "Canonical evidence for one included package file or symbolic link.",
       "properties": {
         "executable": {
@@ -89,6 +90,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "Canonical immutable evidence assembled from pre-observed package records.",
   "properties": {
     "files": {
@@ -96,6 +98,7 @@
       "items": {
         "$ref": "#/$defs/PackageFileRecord"
       },
+      "maxItems": 65536,
       "type": "array"
     },
     "format_version": {

@@ -335,6 +335,15 @@ fn package_manifest_schema_is_generated_with_a_fixed_format_version()
     let version = &document["properties"]["format_version"];
     assert_eq!(version["minimum"], 1);
     assert_eq!(version["maximum"], 1);
+    assert_eq!(document["additionalProperties"], false);
+    assert_eq!(
+        document["properties"]["files"]["maxItems"],
+        weregopher_fingerprint::MAX_PACKAGE_FILE_RECORDS
+    );
+    assert_eq!(
+        document["$defs"]["PackageFileRecord"]["additionalProperties"],
+        false
+    );
     let normalized_path = &document["$defs"]["PackageFileRecord"]["properties"]["normalized_path"];
     assert_eq!(normalized_path["minLength"], 1);
     assert_eq!(normalized_path["maxLength"], 32_767);

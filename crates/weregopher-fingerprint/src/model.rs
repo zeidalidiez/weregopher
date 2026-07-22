@@ -1,7 +1,12 @@
 //! Serializable package-tree fingerprint evidence.
 
+use std::fmt;
+
 use schemars::JsonSchema;
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{Error as _, IgnoredAny, SeqAccess, Visitor},
+};
 use weregopher_domain::Sha256Digest;
 
 /// Current deterministic package-tree Merkle algorithm version.
@@ -10,8 +15,15 @@ pub const PACKAGE_TREE_FORMAT_VERSION: u16 = 1;
 /// Maximum Unicode scalar count accepted in one normalized package path.
 pub const MAX_NORMALIZED_PACKAGE_PATH_CHARS: usize = 32_767;
 
+/// Maximum file/link records retained by one package-tree manifest.
+pub const MAX_PACKAGE_FILE_RECORDS: usize = 65_536;
+
+/// Maximum aggregate UTF-8 bytes retained across normalized package paths.
+pub const MAX_PACKAGE_RECORD_PATH_BYTES: usize = 16 * 1024 * 1024;
+
 /// Canonical immutable evidence assembled from pre-observed package records.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageTreeManifest {
     /// Version of path, leaf, and directory canonicalization rules.
     #[schemars(range(min = 1, max = 1))]
@@ -19,6 +31,7 @@ pub struct PackageTreeManifest {
     /// Root directory Merkle digest.
     pub package_tree_merkle: Sha256Digest,
     /// Canonically sorted included file/link records.
+    #[schemars(length(max = 65_536))]
     pub files: Vec<PackageFileRecord>,
 }
 
@@ -62,14 +75,17 @@ impl<'de> Deserialize<'de> for PackageTreeManifest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UncheckedPackageTreeManifest {
     format_version: u16,
     package_tree_merkle: Sha256Digest,
+    #[serde(deserialize_with = "deserialize_package_file_records")]
     files: Vec<PackageFileRecord>,
 }
 
 /// Canonical evidence for one included package file or symbolic link.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageFileRecord {
     /// Root-relative path using `/`, with original case preserved.
     #[schemars(
@@ -115,6 +131,71 @@ impl PackageFileKind {
             Self::NativeModule => 3,
             Self::Executable => 4,
             Self::SymbolicLink => 5,
+        }
+    }
+}
+
+fn deserialize_package_file_records<'de, D>(
+    deserializer: D,
+) -> Result<Vec<PackageFileRecord>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_seq(PackageFileRecordsVisitor)
+}
+
+struct PackageFileRecordsVisitor;
+
+impl<'de> Visitor<'de> for PackageFileRecordsVisitor {
+    type Value = Vec<PackageFileRecord>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "at most {MAX_PACKAGE_FILE_RECORDS} package file records using at most {MAX_PACKAGE_RECORD_PATH_BYTES} aggregate path bytes"
+        )
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let disclosed = sequence.size_hint().unwrap_or(0);
+        if disclosed > MAX_PACKAGE_FILE_RECORDS {
+            return Err(A::Error::custom(format_args!(
+                "package file record limit is {MAX_PACKAGE_FILE_RECORDS}; input disclosed {disclosed}"
+            )));
+        }
+        let capacity = disclosed.min(MAX_PACKAGE_FILE_RECORDS);
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(capacity)
+            .map_err(|_| A::Error::custom("package file record allocation failed"))?;
+        let mut path_bytes = 0_usize;
+        while records.len() < MAX_PACKAGE_FILE_RECORDS {
+            let Some(record) = sequence.next_element::<PackageFileRecord>()? else {
+                return Ok(records);
+            };
+            path_bytes = path_bytes
+                .checked_add(record.normalized_path.len())
+                .ok_or_else(|| {
+                    A::Error::custom(format_args!(
+                        "package record path bytes exceed {MAX_PACKAGE_RECORD_PATH_BYTES}"
+                    ))
+                })?;
+            if path_bytes > MAX_PACKAGE_RECORD_PATH_BYTES {
+                return Err(A::Error::custom(format_args!(
+                    "package record path bytes {path_bytes} exceed {MAX_PACKAGE_RECORD_PATH_BYTES}"
+                )));
+            }
+            records.push(record);
+        }
+        if sequence.next_element::<IgnoredAny>()?.is_some() {
+            Err(A::Error::custom(format_args!(
+                "package file record limit is {MAX_PACKAGE_FILE_RECORDS}"
+            )))
+        } else {
+            Ok(records)
         }
     }
 }

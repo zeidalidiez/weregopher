@@ -2,7 +2,8 @@
 
 use weregopher_domain::Sha256Digest;
 use weregopher_fingerprint::{
-    PackageEntryType, PackageFileKind, PackageFileRecord, PackageTreeManifest,
+    MAX_NORMALIZED_PACKAGE_PATH_CHARS, MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES,
+    ManifestError, PackageEntryType, PackageFileKind, PackageFileRecord, PackageTreeManifest,
     build_package_manifest, classify_package_file,
 };
 
@@ -123,6 +124,103 @@ fn manifest_json_rejects_noncanonical_or_tampered_content() -> Result<(), Box<dy
 }
 
 #[test]
+fn package_manifest_rejects_unknown_outer_and_record_fields()
+-> Result<(), Box<dyn std::error::Error>> {
+    let manifest = build_package_manifest(vec![record(
+        "resources/main.js",
+        0xab,
+        PackageFileKind::Regular,
+    )])?;
+
+    let mut unknown_outer = serde_json::to_value(&manifest)?;
+    unknown_outer["execution_authorized"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<PackageTreeManifest>(unknown_outer).is_err());
+
+    let mut unknown_record = serde_json::to_value(manifest)?;
+    unknown_record["files"][0]["trusted"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<PackageTreeManifest>(unknown_record).is_err());
+    Ok(())
+}
+
+#[test]
+fn package_manifest_file_and_aggregate_path_limits_are_exact() {
+    let mut at_file_limit = (0..MAX_PACKAGE_FILE_RECORDS)
+        .map(|index| {
+            record(
+                &format!("files/{index:05}.bin"),
+                0xac,
+                PackageFileKind::Regular,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(build_package_manifest(at_file_limit.clone()).is_ok());
+    at_file_limit.push(record("files/excess.bin", 0xac, PackageFileKind::Regular));
+    assert_eq!(
+        build_package_manifest(at_file_limit),
+        Err(ManifestError::FileLimitExceeded {
+            actual: MAX_PACKAGE_FILE_RECORDS + 1,
+            max: MAX_PACKAGE_FILE_RECORDS,
+        })
+    );
+
+    let mut at_path_limit = records_with_aggregate_path_bytes(MAX_PACKAGE_RECORD_PATH_BYTES);
+    assert!(build_package_manifest(at_path_limit.clone()).is_ok());
+    let Some(last) = at_path_limit.last_mut() else {
+        return;
+    };
+    last.normalized_path.push('b');
+    assert_eq!(
+        build_package_manifest(at_path_limit),
+        Err(ManifestError::PathBytesExceeded {
+            actual: MAX_PACKAGE_RECORD_PATH_BYTES + 1,
+            max: MAX_PACKAGE_RECORD_PATH_BYTES,
+        })
+    );
+}
+
+#[test]
+fn transport_stops_at_the_first_excess_file_before_deserializing_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    let valid_record =
+        serde_json::to_string(&record("resources/main.js", 0xae, PackageFileKind::Regular))?;
+    let mut document = String::from(
+        r#"{"format_version":1,"package_tree_merkle":"sha256:0000000000000000000000000000000000000000000000000000000000000000","files":["#,
+    );
+    for index in 0..MAX_PACKAGE_FILE_RECORDS {
+        if index != 0 {
+            document.push(',');
+        }
+        document.push_str(&valid_record);
+    }
+    document.push_str(
+        r#",{"normalized_path":{"malformed":"must not deserialize"},"size":0,"sha256":"sha256:0000000000000000000000000000000000000000000000000000000000000000","executable":false,"kind":"regular","signer_thumbprint":null}]}"#,
+    );
+
+    let Err(error) = serde_json::from_str::<PackageTreeManifest>(&document) else {
+        return Err("oversized package manifest unexpectedly deserialized".into());
+    };
+    let error = error.to_string();
+    assert!(error.contains("package file record limit"), "{error}");
+    Ok(())
+}
+
+#[test]
+fn transport_rejects_excess_aggregate_path_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    let records = records_with_aggregate_path_bytes(MAX_PACKAGE_RECORD_PATH_BYTES + 1);
+    let files = serde_json::to_string(&records)?;
+    let document = format!(
+        r#"{{"format_version":1,"package_tree_merkle":"sha256:0000000000000000000000000000000000000000000000000000000000000000","files":{files}}}"#
+    );
+
+    let Err(error) = serde_json::from_str::<PackageTreeManifest>(&document) else {
+        return Err("package paths above the transport limit unexpectedly deserialized".into());
+    };
+    let error = error.to_string();
+    assert!(error.contains("package record path bytes"), "{error}");
+    Ok(())
+}
+
+#[test]
 fn package_file_classification_is_case_insensitive_and_link_aware() {
     for (path, expected) in [
         ("resources/app.ASAR", PackageFileKind::Asar),
@@ -158,4 +256,21 @@ fn record(path: &str, digest_byte: u8, kind: PackageFileKind) -> PackageFileReco
         kind,
         signer_thumbprint: None,
     }
+}
+
+fn records_with_aggregate_path_bytes(target: usize) -> Vec<PackageFileRecord> {
+    let mut records = Vec::new();
+    let mut retained = 0_usize;
+    while retained < target {
+        let prefix = format!("{:05}/", records.len());
+        let path_bytes = (target - retained).min(MAX_NORMALIZED_PACKAGE_PATH_CHARS);
+        let body_bytes = path_bytes.saturating_sub(prefix.len());
+        if body_bytes == 0 {
+            break;
+        }
+        let path = format!("{prefix}{}", "a".repeat(body_bytes));
+        retained += path.len();
+        records.push(record(&path, 0xaf, PackageFileKind::Regular));
+    }
+    records
 }

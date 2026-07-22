@@ -1,10 +1,8 @@
-//! Minimal safe wrappers for Windows file-handle identity operations.
+//! Minimal safe wrappers for Windows handle identity and process-tree ownership.
 //!
-//! This crate is the workspace's explicit unsafe-code exception. Its only two
-//! unsafe operations call `GetFileInformationByHandleEx(FileIdInfo)` with a live
-//! owned `File` and read the exactly sized output buffer only after Windows
-//! reports successful initialization. No raw handle or pointer crosses the
-//! public API.
+//! This crate is the workspace's explicit unsafe-code exception. Each unsafe block isolates one
+//! documented Win32 call over live owned handles and exactly sized initialized storage. No raw
+//! handle or pointer crosses the public API.
 
 #![cfg(windows)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -14,6 +12,10 @@ use std::{fs::File, io, mem::MaybeUninit, os::windows::io::AsRawHandle as _};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ID_INFO, FileIdInfo, GetFileInformationByHandleEx,
 };
+
+mod job;
+
+pub use job::{JobLimits, KillOnCloseJob};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct FileIdentity {

@@ -59,6 +59,7 @@ never makes an application compatible by itself.
 | Materialization planning | Verified artifacts produce a bounded canonical manifest with closed SHA-256 fanout paths and deduplicated digest-to-byte bindings; no filesystem writes or root safety claims yet |
 | Windows materialization | Existing disjoint managed roots publish verified manifest blobs through direct non-reparse directory handles, create-new staging, no-replace hard links, concurrent create-or-verify convergence, and post-write integrity checks; bounded leases reverify exact blobs and retain direct directory/file handles without write or delete sharing |
 | Transformation runtime | Complete plan → emit → overlay → structural validation → byte verification → managed publication → execution-time lease composition is regression-tested; immutable package views and bounded execution remain pending |
+| Windows process ownership | Safe Job Object capabilities apply nonzero active-process, per-process-memory, aggregate-memory, and kill-on-close limits; assigned process trees terminate on drop and support explicit whole-job termination | Assignment of an already-running child is not race-free launch; suspended creation, explicit inheritance, executable authority, and graceful shutdown remain pending |
 | Certified adapters | None yet |
 
 The initial discovery work targets Codex, Hermes Agent, Discord, and Visual Studio

@@ -42,7 +42,12 @@ windows = { version = "0.62", features = [
   "Storage_Search",
   "System",
 ] }
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
 winreg = "0.56"
 
 [workspace.lints.rust]

@@ -17,6 +17,7 @@ use weregopher_domain::{
 
 mod emission;
 mod planning;
+mod source_map;
 
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,
@@ -26,6 +27,7 @@ pub use planning::{
     PlannerLimits, SourceUnitInput, StaticImportRewrite, StaticImportSpecifier, TextEdit,
     TransformPlan, TransformPlanError, plan_static_import_rewrite,
 };
+pub use source_map::{EmittedSourceMap, SourceMapError, SourceMapLimits, emit_source_map};
 
 /// Artifact category covered by one generated transform rebinding.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

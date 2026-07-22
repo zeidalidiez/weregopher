@@ -8,9 +8,9 @@ use weregopher_domain::{
     Sha256Digest, SourceUnitId, SourceUnitRef, TransformRuleId,
 };
 use weregopher_transform::{
-    MatchEvidenceError, MatchEvidenceLimits, PlannerLimits, SourceUnitInput, StaticImportRewrite,
-    TransformEmissionError, TransformEmissionLimits, emit_match_evidence, emit_transformed_source,
-    plan_static_import_rewrite,
+    MatchEvidenceError, MatchEvidenceLimits, PlannerLimits, SourceMapError, SourceMapLimits,
+    SourceUnitInput, StaticImportRewrite, TransformEmissionError, TransformEmissionLimits,
+    emit_match_evidence, emit_source_map, emit_transformed_source, plan_static_import_rewrite,
 };
 
 const SOURCE: &[u8] =
@@ -175,6 +175,185 @@ fn match_evidence_limits_and_debug_output_fail_closed() -> Result<(), Box<dyn st
     assert!(!debug.contains("PRIVATE_SOURCE_MARKER"));
     assert!(debug.contains("evidence_length"));
     assert!(debug.contains("evidence_digest"));
+    Ok(())
+}
+
+#[test]
+fn source_map_v3_is_canonical_and_maps_every_edit_boundary()
+-> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let transformed = emit_transformed_source(
+        &plan,
+        SOURCE,
+        TransformEmissionLimits::new(SOURCE.len(), TRANSFORMED.len())?,
+    )?;
+    let emitted = emit_source_map(
+        &transformed,
+        SOURCE,
+        SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, 2_048)?,
+    )?;
+    let mappings = "AAAA,gBAAgB,sBAAU;AAC1B,cAAc,sBAAU;AACxB;AACA";
+    let expected = format!(
+        r#"{{"version":3,"sources":["{}"],"names":[],"mappings":"{mappings}","x_weregopher":{{"format_version":"1","rule_id":"{}","rule_digest":"{}","source_digest":"{}","transformed_source_digest":"{}"}}}}"#,
+        plan.source().unit_id(),
+        plan.rule_id(),
+        plan.rule_digest(),
+        plan.source().source_digest(),
+        transformed.transformed_source_digest(),
+    );
+
+    assert_eq!(emitted.bytes(), expected.as_bytes());
+    assert_eq!(emitted.digest(), &digest(expected.as_bytes()));
+    assert_eq!(
+        emitted.digest().to_string(),
+        "sha256:d04815969760ee6702ac42647ac0117bbda9a67ba5b35612cc0dccd4624b1dd6"
+    );
+    assert_eq!(emitted.segment_count(), 8);
+    assert_eq!(emitted.transformed_source(), &transformed);
+    let debug = format!("{emitted:?}");
+    assert!(!debug.contains("PRIVATE_SOURCE_MARKER"));
+    assert!(debug.contains("source_map_length"));
+    let parsed: serde_json::Value = serde_json::from_slice(emitted.bytes())?;
+    assert_eq!(parsed["version"].as_u64(), Some(3));
+    assert_eq!(parsed["mappings"].as_str(), Some(mappings));
+    assert!(
+        emit_source_map(
+            &transformed,
+            SOURCE,
+            SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, expected.len())?,
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        emit_source_map(
+            &transformed,
+            SOURCE,
+            SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, expected.len() - 1)?,
+        ),
+        Err(SourceMapError::SourceMapTooLarge {
+            actual_bytes: expected.len(),
+            max_bytes: expected.len() - 1,
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn source_map_limits_and_source_identity_fail_closed() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        SourceMapLimits::new(0, 1, 1, 1),
+        Err(SourceMapError::InvalidLimits)
+    );
+    assert_eq!(
+        SourceMapLimits::new(1, 0, 1, 1),
+        Err(SourceMapError::InvalidLimits)
+    );
+    assert_eq!(
+        SourceMapLimits::new(1, 1, 0, 1),
+        Err(SourceMapError::InvalidLimits)
+    );
+    assert_eq!(
+        SourceMapLimits::new(1, 1, 1, 0),
+        Err(SourceMapError::InvalidLimits)
+    );
+    let plan = plan()?;
+    let transformed = emit_transformed_source(
+        &plan,
+        SOURCE,
+        TransformEmissionLimits::new(SOURCE.len(), TRANSFORMED.len())?,
+    )?;
+    assert_eq!(
+        emit_source_map(
+            &transformed,
+            SOURCE,
+            SourceMapLimits::new(SOURCE.len() - 1, TRANSFORMED.len(), 8, 2_048)?,
+        ),
+        Err(SourceMapError::SourceTooLarge {
+            actual_bytes: SOURCE.len(),
+            max_bytes: SOURCE.len() - 1,
+        })
+    );
+    assert_eq!(
+        emit_source_map(
+            &transformed,
+            SOURCE,
+            SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len() - 1, 8, 2_048)?,
+        ),
+        Err(SourceMapError::TransformedSourceTooLarge {
+            actual_bytes: TRANSFORMED.len(),
+            max_bytes: TRANSFORMED.len() - 1,
+        })
+    );
+    assert_eq!(
+        emit_source_map(
+            &transformed,
+            SOURCE,
+            SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 7, 2_048)?,
+        ),
+        Err(SourceMapError::SegmentLimitExceeded {
+            required_segments: 8,
+            max_segments: 7,
+        })
+    );
+    let mut tampered = SOURCE.to_vec();
+    tampered[0] = b'e';
+    assert_eq!(
+        emit_source_map(
+            &transformed,
+            &tampered,
+            SourceMapLimits::new(SOURCE.len(), TRANSFORMED.len(), 8, 2_048)?,
+        ),
+        Err(SourceMapError::SourceDigestMismatch)
+    );
+    Ok(())
+}
+
+#[test]
+fn source_map_columns_are_utf16_and_crlf_is_one_line_break()
+-> Result<(), Box<dyn std::error::Error>> {
+    const SOURCE_WITH_ASTRAL: &[u8] = "import \"😀\"; export * from \"node-pty\";\r\n".as_bytes();
+    const TRANSFORMED_WITH_ASTRAL: &[u8] = "import \"😀\"; export * from \"x\";\r\n".as_bytes();
+    let rule_id = TransformRuleId::new("main.replace-node-pty-utf16")?;
+    let one = NonZeroU16::new(1).ok_or("test match count must be nonzero")?;
+    let rule = StaticImportRewrite::new("node-pty".to_owned(), "x".to_owned(), one)?;
+    let authority = AdapterTransformAuthority::new(
+        AdapterId::new("openai.desktop")?,
+        ApplicationFamilyId::new("openai.chatgpt.windows")?,
+        digest(b"adapter"),
+        BTreeMap::from([(
+            rule_id.clone(),
+            AuthorizedTransformRuleRef::new(rule.canonical_digest()),
+        )]),
+    )?;
+    let source_ref = SourceUnitRef::new(
+        SourceUnitId::new("module.main.utf16")?,
+        digest(SOURCE_WITH_ASTRAL),
+    );
+    let plan = plan_static_import_rewrite(
+        &authority,
+        &rule_id,
+        &rule,
+        SourceUnitInput::new(source_ref, SOURCE_WITH_ASTRAL),
+        PlannerLimits::new(SOURCE_WITH_ASTRAL.len(), 1, 8)?,
+    )?;
+    let transformed = emit_transformed_source(
+        &plan,
+        SOURCE_WITH_ASTRAL,
+        TransformEmissionLimits::new(SOURCE_WITH_ASTRAL.len(), TRANSFORMED_WITH_ASTRAL.len())?,
+    )?;
+    let emitted = emit_source_map(
+        &transformed,
+        SOURCE_WITH_ASTRAL,
+        SourceMapLimits::new(
+            SOURCE_WITH_ASTRAL.len(),
+            TRANSFORMED_WITH_ASTRAL.len(),
+            4,
+            2_048,
+        )?,
+    )?;
+    let parsed: serde_json::Value = serde_json::from_slice(emitted.bytes())?;
+    assert_eq!(parsed["mappings"].as_str(), Some("AAAA,2BAA2B,GAAU;AACrC"));
+    assert_eq!(emitted.segment_count(), 4);
     Ok(())
 }
 

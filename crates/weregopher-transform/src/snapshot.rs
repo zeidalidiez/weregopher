@@ -1,11 +1,13 @@
 //! Content-addressed package snapshots composed outside vendor installations.
 //!
-//! A lease revalidates exact bytes, identities, and complete manifest membership. It does not turn
-//! ordinary Windows directories into an OS sandbox or prevent an unrestricted same-user process
-//! from adding a child after validation.
+//! A lease can perform point-in-time revalidation of exact bytes, identities, and complete manifest
+//! membership. It does not turn ordinary Windows directories into an OS sandbox or prevent an
+//! unrestricted same-user process from adding a child after enumeration but before validation returns.
 
 use std::{
     fmt,
+    fs::File,
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -23,7 +25,7 @@ use weregopher_fingerprint::{MAX_PACKAGE_RECORD_PATH_BYTES, PackageFileKind};
 
 use crate::{ManagedArtifactStore, MaterializationStoreError};
 
-/// Independent bounds for publishing one observed package into an immutable managed view.
+/// Independent bounds for publishing one observed package into a deterministic managed view.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PackageSnapshotWriteLimits {
     files: usize,
@@ -99,8 +101,11 @@ impl PackageSnapshotLeaseLimits {
     }
 }
 
-/// A reverified package snapshot whose represented directories and files remain identity-locked.
-#[must_use = "keep the snapshot lease alive while its physical view path is in use"]
+/// A manifest-scoped package snapshot with retained identities for its declared files and directories.
+///
+/// The logical allowlist is stable. The physical Windows namespace is not: ordinary directory handles
+/// cannot prevent a same-user process from adding children beneath the view.
+#[must_use = "keep the snapshot lease alive while manifest-scoped files are in use"]
 pub struct PackageSnapshotLease<'store> {
     store: &'store ManagedArtifactStore,
     root: PathBuf,
@@ -114,6 +119,50 @@ pub struct PackageSnapshotLease<'store> {
     reused_links: usize,
     #[cfg(windows)]
     platform: windows::WindowsPackageSnapshotLease,
+}
+
+/// Bounded reader over one manifest-listed, freshly reverified snapshot file.
+///
+/// The operating-system handle and physical path remain private. Unlisted filesystem children are
+/// therefore outside this logical package-view capability even if a same-user process injects them
+/// beneath the physical view.
+#[must_use = "consume the reader or retain it until the manifest-listed bytes are no longer needed"]
+pub struct PackageSnapshotFileReader {
+    file: File,
+    remaining: u64,
+}
+
+impl PackageSnapshotFileReader {
+    /// Returns the maximum number of manifest-listed bytes that remain readable.
+    #[must_use]
+    pub const fn remaining(&self) -> u64 {
+        self.remaining
+    }
+}
+
+impl Read for PackageSnapshotFileReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let request = usize::try_from(self.remaining)
+            .map_or(buffer.len(), |remaining| remaining.min(buffer.len()));
+        let count = self.file.read(&mut buffer[..request])?;
+        if request != 0 && count == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "snapshot file ended before its manifest length",
+            ));
+        }
+        self.remaining = self.remaining.saturating_sub(count as u64);
+        Ok(count)
+    }
+}
+
+impl fmt::Debug for PackageSnapshotFileReader {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PackageSnapshotFileReader")
+            .field("remaining", &self.remaining)
+            .finish_non_exhaustive()
+    }
 }
 
 impl fmt::Debug for PackageSnapshotLease<'_> {
@@ -139,21 +188,55 @@ impl PackageSnapshotLease<'_> {
         &self.package_tree_merkle
     }
 
-    /// Returns the retained physical package-view root.
+    /// Returns the unrestricted physical package-view root for diagnostics and adversarial tests.
     ///
-    /// The root contains only manifest members when the lease is created and whenever
-    /// [`Self::verify_current_view`] succeeds. The path is not an authorization capability or a
-    /// package-wide mutation lock against unrestricted same-user processes.
+    /// This path is deliberately named as unrestricted: another same-user process can add an
+    /// unmanifested child after any membership enumeration, including before lease acquisition or
+    /// [`Self::verify_current_view`] returns. Never traverse or resolve execution inputs from this path
+    /// as a security-qualified package view. Use [`Self::open_file`] for manifest-scoped reads.
     #[must_use]
-    pub fn root(&self) -> &Path {
+    pub fn unrestricted_physical_root(&self) -> &Path {
         &self.root
     }
 
-    /// Revalidates retained identities, exact file bytes, and complete directory membership.
+    /// Opens one exact manifest-listed file through the logical package-view allowlist.
     ///
-    /// Ordinary Windows directory handles do not prevent another same-user process from adding a
-    /// child beneath the view. Consumers should call this immediately before using the physical
-    /// root and keep the lease alive for the complete operation.
+    /// The Windows implementation reopens the direct non-reparse file, rehashes it twice around
+    /// metadata checks, compares its full identity with this lease's retained identity, and returns
+    /// only its manifest-declared byte range. The physical root is never joined until after an exact
+    /// allowlist lookup succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError::UnknownFile`] for an unlisted path, or another snapshot error
+    /// when the platform is unsupported or the listed file no longer matches this lease.
+    pub fn open_file(
+        &self,
+        normalized_path: &str,
+    ) -> Result<PackageSnapshotFileReader, PackageSnapshotError> {
+        #[cfg(windows)]
+        {
+            self.store.lease.verify_root_path()?;
+            let (file, remaining) = self.platform.open_file(&self.root, normalized_path)?;
+            self.store.lease.verify_root_path()?;
+            Ok(PackageSnapshotFileReader { file, remaining })
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = normalized_path;
+            Err(PackageSnapshotError::UnsupportedPlatform)
+        }
+    }
+
+    /// Performs a diagnostic point-in-time revalidation of retained identities, exact file bytes,
+    /// and directory membership.
+    ///
+    /// Success means each enumeration observed the expected state while it ran. It does **not** mean
+    /// the physical tree is closed when this method returns: ordinary Windows directory handles do
+    /// not prevent another same-user process from adding a child immediately after an enumeration.
+    /// This method therefore cannot authorize unrestricted physical-root traversal. Use
+    /// [`Self::open_file`] for manifest-scoped reads.
     ///
     /// # Errors
     ///
@@ -583,6 +666,12 @@ pub enum PackageSnapshotError {
     #[error("managed package view file does not match its manifest: {normalized_path}")]
     FileMismatch {
         /// Canonical package-relative path.
+        normalized_path: String,
+    },
+    /// A caller requested a path outside the manifest-scoped logical package view.
+    #[error("package snapshot does not contain manifest file {normalized_path}")]
+    UnknownFile {
+        /// Rejected caller-supplied path.
         normalized_path: String,
     },
     /// The managed package view contains missing or extra membership.

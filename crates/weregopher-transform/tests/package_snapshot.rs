@@ -4,8 +4,10 @@
 
 use std::{
     fs,
+    io::Read as _,
     path::{Path, PathBuf},
     process::Command,
+    sync::Barrier,
     thread,
 };
 
@@ -56,9 +58,25 @@ fn snapshot_survives_vendor_replacement_and_can_be_released()
     assert_eq!(snapshot.total_file_bytes(), 8);
     assert_eq!(snapshot.created_blobs(), 2);
     assert_eq!(snapshot.created_links(), 2);
-    assert_eq!(fs::read(snapshot.root().join("main.js"))?, b"main");
-    assert_eq!(fs::read(snapshot.root().join("assets/icon.bin"))?, b"icon");
-    assert!(fs::write(snapshot.root().join("main.js"), b"changed").is_err());
+    assert_eq!(
+        fs::read(snapshot.unrestricted_physical_root().join("main.js"))?,
+        b"main"
+    );
+    assert_eq!(
+        fs::read(
+            snapshot
+                .unrestricted_physical_root()
+                .join("assets/icon.bin")
+        )?,
+        b"icon"
+    );
+    assert!(
+        fs::write(
+            snapshot.unrestricted_physical_root().join("main.js"),
+            b"changed"
+        )
+        .is_err()
+    );
 
     let reused = store.snapshot_package(
         &observation,
@@ -69,8 +87,9 @@ fn snapshot_survives_vendor_replacement_and_can_be_released()
     assert_eq!(reused.created_links(), 0);
     assert_eq!(reused.reused_links(), 2);
     drop(reused);
-    let injected = snapshot.root().join("injected.bin");
+    let injected = snapshot.unrestricted_physical_root().join("injected.bin");
     fs::write(&injected, b"injected")?;
+    assert_manifest_scoped_reader_ignores_injected_children(&snapshot)?;
     assert!(matches!(
         snapshot.verify_current_view(),
         Err(PackageSnapshotError::MembershipMismatch)
@@ -85,7 +104,7 @@ fn snapshot_survives_vendor_replacement_and_can_be_released()
     fs::remove_file(injected)?;
     snapshot.verify_current_view()?;
 
-    let snapshot_root = snapshot.root().to_path_buf();
+    let snapshot_root = snapshot.unrestricted_physical_root().to_path_buf();
     drop(snapshot);
     drop(observation);
     fs::rename(&vendor, fixture.path().join("vendor-replaced"))?;
@@ -94,9 +113,20 @@ fn snapshot_survives_vendor_replacement_and_can_be_released()
         &manifest,
         PackageSnapshotLeaseLimits::new(16, 16, 1_024, 4_096)?,
     )?;
-    assert_eq!(reopened.root(), snapshot_root);
-    assert_eq!(fs::read(reopened.root().join("main.js"))?, b"main");
-    assert!(fs::write(reopened.root().join("assets/icon.bin"), b"changed").is_err());
+    assert_eq!(reopened.unrestricted_physical_root(), snapshot_root);
+    assert_eq!(
+        fs::read(reopened.unrestricted_physical_root().join("main.js"))?,
+        b"main"
+    );
+    assert!(
+        fs::write(
+            reopened
+                .unrestricted_physical_root()
+                .join("assets/icon.bin"),
+            b"changed"
+        )
+        .is_err()
+    );
     Ok(())
 }
 
@@ -126,6 +156,38 @@ fn snapshot_source_must_match_the_store_vendor_root() -> Result<(), Box<dyn std:
     ));
     assert!(!store_root.join("sha256").exists());
     assert!(!store_root.join("package-views").exists());
+    Ok(())
+}
+
+#[test]
+fn snapshot_persists_across_store_instances() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let vendor = fixture.path().join("vendor");
+    let store_root = fixture.path().join("store");
+    fs::create_dir(&vendor)?;
+    fs::create_dir(&store_root)?;
+    fs::write(vendor.join("main.js"), b"persistent")?;
+    let observation = observe_package_tree(
+        &vendor,
+        PackageTreeObservationLimits::new(8, 8, 4, 128, 128, 128)?,
+    )?;
+    let manifest = observation.manifest().clone();
+    let store = ManagedArtifactStore::open(&store_root, &vendor, ManagedStoreRootLimits::new(64)?)?;
+    let snapshot = store.snapshot_package(
+        &observation,
+        PackageSnapshotWriteLimits::new(8, 8, 128, 128, 8)?,
+    )?;
+    drop(snapshot);
+    drop(store);
+    drop(observation);
+
+    let reopened_store =
+        ManagedArtifactStore::open(&store_root, &vendor, ManagedStoreRootLimits::new(64)?)?;
+    let reopened = reopened_store
+        .lease_package_snapshot(&manifest, PackageSnapshotLeaseLimits::new(8, 8, 128, 128)?)?;
+    let mut bytes = Vec::new();
+    reopened.open_file("main.js")?.read_to_end(&mut bytes)?;
+    assert_eq!(bytes, b"persistent");
     Ok(())
 }
 
@@ -217,7 +279,7 @@ fn snapshot_lease_rejects_extra_membership() -> Result<(), Box<dyn std::error::E
         &observation,
         PackageSnapshotWriteLimits::new(8, 8, 128, 128, 8)?,
     )?;
-    let root = snapshot.root().to_path_buf();
+    let root = snapshot.unrestricted_physical_root().to_path_buf();
     drop(snapshot);
     fs::write(root.join("extra.bin"), b"extra")?;
 
@@ -231,47 +293,88 @@ fn snapshot_lease_rejects_extra_membership() -> Result<(), Box<dyn std::error::E
 #[test]
 fn concurrent_snapshot_publishers_converge() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempdir()?;
+    for round in 0..16 {
+        let vendor = fixture.path().join(format!("vendor-{round}"));
+        let store_root = fixture.path().join(format!("store-{round}"));
+        fs::create_dir(&vendor)?;
+        fs::create_dir(&store_root)?;
+        fs::write(vendor.join("main.js"), format!("concurrent-{round}"))?;
+        let observation = observe_package_tree(
+            &vendor,
+            PackageTreeObservationLimits::new(8, 8, 4, 128, 128, 128)?,
+        )?;
+        let store =
+            ManagedArtifactStore::open(&store_root, &vendor, ManagedStoreRootLimits::new(64)?)?;
+
+        let barrier = Barrier::new(9);
+        let results = thread::scope(|scope| -> SnapshotPublicationResults {
+            let mut handles = Vec::new();
+            for _ in 0..8 {
+                handles.push(scope.spawn(|| {
+                    barrier.wait();
+                    let lease = store.snapshot_package(
+                        &observation,
+                        PackageSnapshotWriteLimits::new(8, 8, 128, 128, 32)?,
+                    )?;
+                    Ok::<_, PackageSnapshotError>((
+                        lease.created_blobs(),
+                        lease.reused_blobs(),
+                        lease.created_links(),
+                        lease.reused_links(),
+                    ))
+                }));
+            }
+            barrier.wait();
+            let mut results = Vec::new();
+            for handle in handles {
+                let result = handle
+                    .join()
+                    .map_err(|_| "snapshot publisher thread panicked")??;
+                results.push(result);
+            }
+            Ok(results)
+        })?;
+
+        assert_eq!(results.iter().map(|counts| counts.0).sum::<usize>(), 1);
+        assert_eq!(results.iter().map(|counts| counts.1).sum::<usize>(), 7);
+        assert_eq!(results.iter().map(|counts| counts.2).sum::<usize>(), 1);
+        assert_eq!(results.iter().map(|counts| counts.3).sum::<usize>(), 7);
+    }
+    Ok(())
+}
+
+#[test]
+fn snapshot_lease_classifies_a_replaced_directory_as_a_file_mismatch()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
     let vendor = fixture.path().join("vendor");
     let store_root = fixture.path().join("store");
     fs::create_dir(&vendor)?;
     fs::create_dir(&store_root)?;
-    fs::write(vendor.join("main.js"), b"concurrent")?;
+    fs::write(vendor.join("main.js"), b"main")?;
     let observation = observe_package_tree(
         &vendor,
         PackageTreeObservationLimits::new(8, 8, 4, 128, 128, 128)?,
     )?;
+    let manifest = observation.manifest().clone();
     let store = ManagedArtifactStore::open(&store_root, &vendor, ManagedStoreRootLimits::new(64)?)?;
+    let snapshot = store.snapshot_package(
+        &observation,
+        PackageSnapshotWriteLimits::new(8, 8, 128, 128, 8)?,
+    )?;
+    let main = snapshot.unrestricted_physical_root().join("main.js");
+    drop(snapshot);
+    fs::remove_file(&main)?;
+    fs::create_dir(&main)?;
 
-    let results = thread::scope(|scope| -> SnapshotPublicationResults {
-        let mut handles = Vec::new();
-        for _ in 0..8 {
-            handles.push(scope.spawn(|| {
-                let lease = store.snapshot_package(
-                    &observation,
-                    PackageSnapshotWriteLimits::new(8, 8, 128, 128, 32)?,
-                )?;
-                Ok::<_, PackageSnapshotError>((
-                    lease.created_blobs(),
-                    lease.reused_blobs(),
-                    lease.created_links(),
-                    lease.reused_links(),
-                ))
-            }));
-        }
-        let mut results = Vec::new();
-        for handle in handles {
-            let result = handle
-                .join()
-                .map_err(|_| "snapshot publisher thread panicked")??;
-            results.push(result);
-        }
-        Ok(results)
-    })?;
-
-    assert_eq!(results.iter().map(|counts| counts.0).sum::<usize>(), 1);
-    assert_eq!(results.iter().map(|counts| counts.1).sum::<usize>(), 7);
-    assert_eq!(results.iter().map(|counts| counts.2).sum::<usize>(), 1);
-    assert_eq!(results.iter().map(|counts| counts.3).sum::<usize>(), 7);
+    assert!(matches!(
+        store.lease_package_snapshot(
+            &manifest,
+            PackageSnapshotLeaseLimits::new(8, 8, 128, 128)?,
+        ),
+        Err(PackageSnapshotError::FileMismatch { normalized_path })
+            if normalized_path == "main.js"
+    ));
     Ok(())
 }
 
@@ -330,8 +433,14 @@ fn snapshot_deduplicates_equal_files_but_retains_each_path()
     assert_eq!(snapshot.created_blobs(), 1);
     assert_eq!(snapshot.created_links(), 2);
     assert_eq!(snapshot.file_count(), 2);
-    assert_eq!(fs::read(snapshot.root().join("alpha.bin"))?, b"shared");
-    assert_eq!(fs::read(snapshot.root().join("beta.bin"))?, b"shared");
+    assert_eq!(
+        fs::read(snapshot.unrestricted_physical_root().join("alpha.bin"))?,
+        b"shared"
+    );
+    assert_eq!(
+        fs::read(snapshot.unrestricted_physical_root().join("beta.bin"))?,
+        b"shared"
+    );
     Ok(())
 }
 
@@ -356,9 +465,18 @@ fn snapshot_preserves_asar_native_module_and_executable_bytes()
         &observation,
         PackageSnapshotWriteLimits::new(8, 8, 128, 128, 8)?,
     )?;
-    assert_eq!(fs::read(snapshot.root().join("app.asar"))?, b"asar");
-    assert_eq!(fs::read(snapshot.root().join("addon.node"))?, b"native");
-    assert_eq!(fs::read(snapshot.root().join("helper.exe"))?, b"executable");
+    assert_eq!(
+        fs::read(snapshot.unrestricted_physical_root().join("app.asar"))?,
+        b"asar"
+    );
+    assert_eq!(
+        fs::read(snapshot.unrestricted_physical_root().join("addon.node"))?,
+        b"native"
+    );
+    assert_eq!(
+        fs::read(snapshot.unrestricted_physical_root().join("helper.exe"))?,
+        b"executable"
+    );
     Ok(())
 }
 
@@ -382,7 +500,10 @@ fn empty_package_snapshot_has_a_retained_empty_root() -> Result<(), Box<dyn std:
     assert_eq!(snapshot.file_count(), 0);
     assert_eq!(snapshot.directory_count(), 1);
     assert_eq!(snapshot.total_file_bytes(), 0);
-    assert_eq!(fs::read_dir(snapshot.root())?.count(), 0);
+    assert_eq!(
+        fs::read_dir(snapshot.unrestricted_physical_root())?.count(),
+        0
+    );
     Ok(())
 }
 
@@ -426,6 +547,22 @@ fn snapshot_lease_rejects_windows_ambiguous_manifest_paths()
         ));
     }
     assert!(!store_root.join("package-views").exists());
+    Ok(())
+}
+
+fn assert_manifest_scoped_reader_ignores_injected_children(
+    snapshot: &weregopher_transform::PackageSnapshotLease<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut listed = snapshot.open_file("main.js")?;
+    let mut listed_bytes = Vec::new();
+    listed.read_to_end(&mut listed_bytes)?;
+    assert_eq!(listed_bytes, b"main");
+    for unknown in ["injected.bin", "../main.js"] {
+        assert!(matches!(
+            snapshot.open_file(unknown),
+            Err(PackageSnapshotError::UnknownFile { .. })
+        ));
+    }
     Ok(())
 }
 

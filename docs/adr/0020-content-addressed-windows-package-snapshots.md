@@ -45,10 +45,12 @@ The initial Windows snapshot implementation will:
 10. retain managed-root ancestors, every view directory identity, and every exact file identity for
     the lease lifetime, with represented files opened without write or delete sharing;
 11. rehash every represented file twice around metadata checks when a lease is acquired;
-12. expose `verify_current_view` so a consumer can repeat managed-root, directory identity, exact
-    file-content, file-identity, and complete-membership verification immediately before physical-path
-    use; and
-13. support empty package roots as one retained root directory with zero files.
+12. expose `verify_current_view` as a diagnostic point-in-time managed-root, directory-identity,
+    file-content, file-identity, and membership check, without claiming its result still describes the
+    physical namespace when the method returns;
+13. expose manifest-allowlisted file readers that reopen and reverify exact listed files without
+    granting unlisted children through unrestricted physical-root traversal; and
+14. support empty package roots as one retained root directory with zero files.
 
 The canonical package-tree manifest keeps its serialized fields but exposes only read-only public
 accessors. Normalized package paths have a fixed 256-component ceiling in addition to the existing
@@ -60,10 +62,11 @@ aggregate path ceiling so prefix expansion cannot create an unbounded retained n
 
 ## Acceptance boundary
 
-Publication is incremental and convergent rather than a single directory rename. The acceptance
-boundary is the successfully returned lease, after complete membership, all content, and all retained
-identities have been verified. Callers must not treat the mere existence of a digest-named directory
-as a completed snapshot.
+Publication is incremental and convergent rather than a single directory rename. A successfully
+returned lease proves that complete membership, all content, and all retained identities were observed
+as expected during acquisition; it does not prove the physical namespace is still closed at return.
+Callers must not treat either the lease or the mere existence of a digest-named directory as authority
+for unrestricted traversal.
 
 A lease prevents ordinary replacement or new write opens for represented files and prevents ordinary
 replacement of retained directories. It does not:
@@ -74,9 +77,11 @@ replacement of retained directories. It does not:
 - sandbox Bun, Electron helpers, native modules, or any other same-user process; or
 - certify functional compatibility, security posture, or efficiency.
 
-Consumers of the physical view must keep the lease alive and call `verify_current_view` at the closest
-available pre-use boundary. A future VFS/package-view layer should prefer manifest-scoped operations
-over unconstrained pathname lookup and will define the stronger logical namespace used by execution.
+Consumers must prefer manifest-scoped operations over unconstrained pathname lookup. The snapshot API
+provides an exact allowlisted file reader for this purpose. `verify_current_view` remains useful for
+diagnostics and tamper detection, but calling it immediately before physical-root use cannot close the
+check/use race and must not authorize execution. A future complete VFS/package-view layer will define
+the stronger logical directory and resolution semantics used by execution.
 
 ## Consequences
 
@@ -90,5 +95,11 @@ over unconstrained pathname lookup and will define the stronger logical namespac
   while sharing the same verified byte-publication mechanism.
 - Snapshot publication remains separate from transformation overlays, execution authorization,
   supervisor policy, garbage collection, and certification evidence.
+- Dropping a lease releases handles but does not delete managed bytes. The initial implementation has
+  no automatic garbage collector; snapshots persist until a future lease-aware retention subsystem
+  explicitly removes them.
+- Publication and lease acquisition deliberately perform multiple full-file verification reads. The
+  byte limits bound each pass rather than promising a single-pass I/O budget; efficiency remains a
+  separate measured claim.
 - The first implementation is Windows-only; non-Windows builds expose the contract and fail with an
   explicit unsupported-platform error.

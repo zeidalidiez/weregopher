@@ -1167,13 +1167,15 @@ Snapshot implementation SHOULD:
 - store source metadata separately from package bytes;
 - support garbage collection based on leases, pins, and retention policy.
 
-The physical `tree/` directory is not itself a same-user sandbox. A snapshot lease MUST verify exact
-file bytes, represented identities, and complete manifest membership before use, MUST stay alive for
-the complete operation, and SHOULD repeat verification at the closest available pre-use boundary.
-The runtime MUST NOT infer execution authority merely from the existence of a digest-named directory.
-Manifest-scoped VFS operations are the stronger logical namespace; unrestricted same-user processes
-remain outside the initial snapshot threat boundary unless an independently tested OS sandbox says
-otherwise.
+The physical `tree/` directory is not itself a same-user sandbox. A snapshot lease MUST retain and
+reverify exact listed file bytes and identities and MAY provide diagnostic point-in-time complete
+membership checks. Membership success does not establish a closed namespace at method return: a
+same-user process can inject a child after enumeration and before the check returns. The runtime MUST
+NOT infer execution authority from a digest-named directory, a successful membership check, or an
+unrestricted physical-root path. Execution-qualified consumers MUST use manifest-scoped VFS operations
+or exact allowlisted retained handles and MUST keep the relevant lease alive for the complete operation.
+Unrestricted same-user processes remain outside the initial snapshot threat boundary unless an
+independently tested OS sandbox says otherwise.
 
 ## 15.3 Auto mode
 

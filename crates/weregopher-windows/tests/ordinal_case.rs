@@ -1,6 +1,6 @@
-#![cfg(windows)]
-
 //! Windows ordinal case-key integration tests.
+
+#![cfg(windows)]
 
 use weregopher_windows::windows_ordinal_case_key;
 

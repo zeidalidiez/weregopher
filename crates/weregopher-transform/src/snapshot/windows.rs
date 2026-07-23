@@ -23,7 +23,7 @@ use super::{
 use crate::{
     ManagedArtifactStore,
     materialization::content_path,
-    store::windows::{Publication, publish_reader},
+    store::windows::{Publication, ReaderPublicationError, publish_reader},
 };
 
 const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
@@ -67,6 +67,34 @@ impl WindowsPackageSnapshotLease {
         }
         verify_membership(&self.directories, &self.files)
     }
+
+    pub(super) fn open_file(
+        &self,
+        root: &Path,
+        normalized_path: &str,
+    ) -> Result<(File, u64), PackageSnapshotError> {
+        let retained =
+            self.files
+                .get(normalized_path)
+                .ok_or_else(|| PackageSnapshotError::UnknownFile {
+                    normalized_path: normalized_path.to_owned(),
+                })?;
+        let path = join_normalized(root, normalized_path);
+        let mut file = open_verified_file(&path, normalized_path, retained.size, retained.digest)?;
+        let identity_file = file
+            .try_clone()
+            .map_err(|source| io_error("duplicate package-view file handle", &path, source))?;
+        let current = FileIdentityLease::from_file(identity_file)
+            .map_err(|source| io_error("revalidate package-view file identity", &path, source))?;
+        if !retained.identity.has_same_identity(&current) {
+            return Err(PackageSnapshotError::FileMismatch {
+                normalized_path: normalized_path.to_owned(),
+            });
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|source| io_error("rewind package-view file reader", &path, source))?;
+        Ok((file, retained.size))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,13 +132,27 @@ pub(super) fn snapshot<'store>(
             }
         })?;
         let mut reader = package.open_file(&record.normalized_path)?;
-        match publish_reader(
+        let publication = publish_reader(
             &store.lease,
             &record.sha256,
             expected_bytes,
             &mut reader,
             limits.temp_attempts,
-        )? {
+        )
+        .map_err(|source| match source {
+            ReaderPublicationError::SourceRead(source) => PackageSnapshotError::SourceRead {
+                normalized_path: record.normalized_path.clone(),
+                source,
+            },
+            ReaderPublicationError::SourceLengthMismatch
+            | ReaderPublicationError::SourceDigestMismatch => {
+                PackageSnapshotError::SourceFileMismatch {
+                    normalized_path: record.normalized_path.clone(),
+                }
+            }
+            ReaderPublicationError::Store(source) => PackageSnapshotError::ManagedContent(source),
+        })?;
+        match publication {
             Publication::Created => increment(&mut counts.created_blobs)?,
             Publication::Reused => increment(&mut counts.reused_blobs)?,
         }
@@ -212,48 +254,110 @@ fn compose_links(
         )?;
         let source_identity = FileIdentityLease::from_file(source_file)
             .map_err(|source| io_error("retain content blob identity", &source_path, source))?;
-        match fs::symlink_metadata(&destination) {
-            Ok(_) => increment(&mut counts.reused_links)?,
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                match fs::hard_link(&source_path, &destination) {
-                    Ok(()) => increment(&mut counts.created_links)?,
-                    Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
-                        increment(&mut counts.reused_links)?;
-                    }
-                    Err(source) => {
-                        return Err(io_error(
-                            "publish package-view hard link",
-                            &destination,
-                            source,
-                        ));
-                    }
-                }
-            }
-            Err(source) => {
-                return Err(io_error(
-                    "inspect package-view destination",
-                    &destination,
-                    source,
-                ));
-            }
-        }
-        let destination_file = open_verified_file(
-            &destination,
-            &record.normalized_path,
-            record.size,
-            record.sha256,
-        )?;
-        let destination_identity =
-            FileIdentityLease::from_file(destination_file).map_err(|source| {
-                io_error("retain package-view file identity", &destination, source)
-            })?;
-        if !source_identity.has_same_identity(&destination_identity) {
-            return Err(PackageSnapshotError::FileMismatch {
-                normalized_path: record.normalized_path.clone(),
-            });
-        }
+        let expectation = ViewLinkExpectation {
+            source_path: &source_path,
+            destination: &destination,
+            normalized_path: &record.normalized_path,
+            expected_size: record.size,
+            expected_digest: record.sha256,
+            source_identity: &source_identity,
+        };
+        create_or_verify_view_link(&expectation, counts)?;
     }
     Ok(())
+}
+
+struct ViewLinkExpectation<'a> {
+    source_path: &'a Path,
+    destination: &'a Path,
+    normalized_path: &'a str,
+    expected_size: u64,
+    expected_digest: Sha256Digest,
+    source_identity: &'a FileIdentityLease,
+}
+
+fn create_or_verify_view_link(
+    expectation: &ViewLinkExpectation<'_>,
+    counts: &mut PublicationCounts,
+) -> Result<(), PackageSnapshotError> {
+    create_or_verify_view_link_with(expectation, counts, |source, destination| {
+        fs::hard_link(source, destination)
+    })
+}
+
+fn create_or_verify_view_link_with<F>(
+    expectation: &ViewLinkExpectation<'_>,
+    counts: &mut PublicationCounts,
+    create_link: F,
+) -> Result<(), PackageSnapshotError>
+where
+    F: FnOnce(&Path, &Path) -> std::io::Result<()>,
+{
+    if let Some(destination_file) = open_optional_verified_file(
+        expectation.destination,
+        expectation.normalized_path,
+        expectation.expected_size,
+        expectation.expected_digest,
+    )? {
+        verify_link_identity(
+            destination_file,
+            expectation.destination,
+            expectation.normalized_path,
+            expectation.source_identity,
+        )?;
+        increment(&mut counts.reused_links)?;
+        return Ok(());
+    }
+
+    let creation_error = create_link(expectation.source_path, expectation.destination).err();
+    let Some(destination_file) = open_optional_verified_file(
+        expectation.destination,
+        expectation.normalized_path,
+        expectation.expected_size,
+        expectation.expected_digest,
+    )?
+    else {
+        return Err(creation_error.map_or_else(
+            || PackageSnapshotError::FileMismatch {
+                normalized_path: expectation.normalized_path.to_owned(),
+            },
+            |source| {
+                io_error(
+                    "publish package-view hard link",
+                    expectation.destination,
+                    source,
+                )
+            },
+        ));
+    };
+    verify_link_identity(
+        destination_file,
+        expectation.destination,
+        expectation.normalized_path,
+        expectation.source_identity,
+    )?;
+    if creation_error.is_some() {
+        increment(&mut counts.reused_links)
+    } else {
+        increment(&mut counts.created_links)
+    }
+}
+
+fn verify_link_identity(
+    destination_file: File,
+    destination: &Path,
+    normalized_path: &str,
+    source_identity: &FileIdentityLease,
+) -> Result<(), PackageSnapshotError> {
+    let destination_identity = FileIdentityLease::from_file(destination_file)
+        .map_err(|source| io_error("retain package-view file identity", destination, source))?;
+    if source_identity.has_same_identity(&destination_identity) {
+        Ok(())
+    } else {
+        Err(PackageSnapshotError::FileMismatch {
+            normalized_path: normalized_path.to_owned(),
+        })
+    }
 }
 
 fn lease_view<'store>(
@@ -434,12 +538,36 @@ fn join_normalized(root: &Path, normalized: &str) -> PathBuf {
 }
 
 fn ensure_direct_directory(path: &Path) -> Result<FileIdentityLease, PackageSnapshotError> {
-    match fs::create_dir(path) {
-        Ok(()) => {}
-        Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(source) => return Err(io_error("create package-view directory", path, source)),
+    ensure_direct_directory_with(path, |path| fs::create_dir(path))
+}
+
+fn ensure_direct_directory_with<F>(
+    path: &Path,
+    create_directory: F,
+) -> Result<FileIdentityLease, PackageSnapshotError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    if let Some(directory) = open_optional_directory(path, FILE_SHARE_READ | FILE_SHARE_WRITE)? {
+        return Ok(directory);
     }
-    open_mutable_directory(path)
+    let creation_error = create_directory(path).err();
+    match open_optional_directory(path, FILE_SHARE_READ | FILE_SHARE_WRITE)? {
+        Some(directory) => Ok(directory),
+        None => Err(creation_error.map_or_else(
+            || {
+                io_error(
+                    "open newly created package-view directory",
+                    path,
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "package-view directory was not found after creation",
+                    ),
+                )
+            },
+            |source| io_error("create package-view directory", path, source),
+        )),
+    }
 }
 
 fn open_direct_directory(path: &Path) -> Result<FileIdentityLease, PackageSnapshotError> {
@@ -451,14 +579,34 @@ fn open_mutable_directory(path: &Path) -> Result<FileIdentityLease, PackageSnaps
 }
 
 fn open_directory(path: &Path, share_mode: u32) -> Result<FileIdentityLease, PackageSnapshotError> {
+    open_optional_directory(path, share_mode)?.ok_or_else(|| {
+        io_error(
+            "open direct package-view directory",
+            path,
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "package-view directory was not found",
+            ),
+        )
+    })
+}
+
+fn open_optional_directory(
+    path: &Path,
+    share_mode: u32,
+) -> Result<Option<FileIdentityLease>, PackageSnapshotError> {
     let mut options = OpenOptions::new();
     options
         .read(true)
         .share_mode(share_mode)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
-    let file = options
-        .open(path)
-        .map_err(|source| io_error("open direct package-view directory", path, source))?;
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(io_error("open direct package-view directory", path, source));
+        }
+    };
     let metadata = file
         .metadata()
         .map_err(|source| io_error("inspect package-view directory", path, source))?;
@@ -473,6 +621,7 @@ fn open_directory(path: &Path, share_mode: u32) -> Result<FileIdentityLease, Pac
         });
     }
     FileIdentityLease::from_file(file)
+        .map(Some)
         .map_err(|source| io_error("retain package-view directory identity", path, source))
 }
 
@@ -490,20 +639,29 @@ fn open_verified_file(
     expected_size: u64,
     expected_digest: Sha256Digest,
 ) -> Result<File, PackageSnapshotError> {
+    open_optional_verified_file(path, normalized_path, expected_size, expected_digest)?.ok_or_else(
+        || PackageSnapshotError::FileMismatch {
+            normalized_path: normalized_path.to_owned(),
+        },
+    )
+}
+
+fn open_optional_verified_file(
+    path: &Path,
+    normalized_path: &str,
+    expected_size: u64,
+    expected_digest: Sha256Digest,
+) -> Result<Option<File>, PackageSnapshotError> {
     let mut options = OpenOptions::new();
     options.read(true).share_mode(FILE_SHARE_READ).custom_flags(
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
     );
-    let mut file = options.open(path).map_err(|source| {
-        if source.kind() == std::io::ErrorKind::NotFound {
-            PackageSnapshotError::FileMismatch {
-                normalized_path: normalized_path.to_owned(),
-            }
-        } else {
-            io_error("open package-view file", path, source)
-        }
-    })?;
-    let before = file_metadata(&file, path)?;
+    let mut file = match options.open(path) {
+        Ok(file) => file,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => return Err(io_error("open package-view file", path, source)),
+    };
+    let before = file_metadata(&file, path, normalized_path)?;
     if before.attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || before.size != expected_size {
         return Err(PackageSnapshotError::FileMismatch {
             normalized_path: normalized_path.to_owned(),
@@ -511,24 +669,26 @@ fn open_verified_file(
     }
     let first = hash_exact(&mut file, path, expected_size)?;
     let second = hash_exact(&mut file, path, expected_size)?;
-    let after = file_metadata(&file, path)?;
+    let after = file_metadata(&file, path, normalized_path)?;
     if before != after || first != second || first != expected_digest {
         return Err(PackageSnapshotError::FileMismatch {
             normalized_path: normalized_path.to_owned(),
         });
     }
-    Ok(file)
+    Ok(Some(file))
 }
 
-fn file_metadata(file: &File, path: &Path) -> Result<FileMetadataSnapshot, PackageSnapshotError> {
+fn file_metadata(
+    file: &File,
+    path: &Path,
+    normalized_path: &str,
+) -> Result<FileMetadataSnapshot, PackageSnapshotError> {
     let metadata = file
         .metadata()
         .map_err(|source| io_error("inspect package-view file", path, source))?;
     if !metadata.is_file() {
-        return Err(PackageSnapshotError::Io {
-            operation: "inspect package-view regular file",
-            path: path.to_path_buf(),
-            source: std::io::Error::other("package-view entry is not a regular file"),
+        return Err(PackageSnapshotError::FileMismatch {
+            normalized_path: normalized_path.to_owned(),
         });
     }
     Ok(FileMetadataSnapshot {
@@ -585,5 +745,57 @@ fn io_error(operation: &'static str, path: &Path, source: std::io::Error) -> Pac
         operation,
         path: path.to_path_buf(),
         source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn concurrent_hard_link_winner_is_reused_after_any_creation_error()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempdir()?;
+        let source_path = fixture.path().join("source.bin");
+        let destination = fixture.path().join("destination.bin");
+        fs::write(&source_path, b"shared")?;
+        let digest = Sha256Digest::from_bytes(Sha256::digest(b"shared").into());
+        let source_file = open_verified_file(&source_path, "source.bin", 6, digest)?;
+        let source_identity = FileIdentityLease::from_file(source_file)?;
+        let mut counts = PublicationCounts::default();
+        let expectation = ViewLinkExpectation {
+            source_path: &source_path,
+            destination: &destination,
+            normalized_path: "destination.bin",
+            expected_size: 6,
+            expected_digest: digest,
+            source_identity: &source_identity,
+        };
+
+        create_or_verify_view_link_with(&expectation, &mut counts, |source, destination| {
+            fs::hard_link(source, destination)?;
+            Err(std::io::Error::from_raw_os_error(32))
+        })?;
+
+        assert_eq!(counts.created_links, 0);
+        assert_eq!(counts.reused_links, 1);
+        assert_eq!(fs::read(destination)?, b"shared");
+        Ok(())
+    }
+
+    #[test]
+    fn concurrent_directory_winner_is_reopened_after_any_creation_error()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempdir()?;
+        let path = fixture.path().join("winner");
+
+        let _lease = ensure_direct_directory_with(&path, |path| {
+            fs::create_dir(path)?;
+            Err(std::io::Error::from_raw_os_error(32))
+        })?;
+
+        assert!(path.is_dir());
+        Ok(())
     }
 }

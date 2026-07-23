@@ -166,7 +166,7 @@ pub(crate) fn publish_reader(
     expected_bytes: usize,
     reader: &mut dyn std::io::Read,
     temp_attempts: usize,
-) -> Result<Publication, MaterializationStoreError> {
+) -> Result<Publication, ReaderPublicationError> {
     lease.verify_root_path()?;
     let content_root_path = lease.root.join("sha256");
     let _content_root_lease = ensure_direct_directory(&content_root_path)?;
@@ -470,6 +470,38 @@ pub(crate) enum Publication {
     Reused,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ReaderPublicationError {
+    #[error("source reader failed: {0}")]
+    SourceRead(#[source] std::io::Error),
+    #[error("source reader length differs from its declared length")]
+    SourceLengthMismatch,
+    #[error("source reader digest differs from its declared digest")]
+    SourceDigestMismatch,
+    #[error(transparent)]
+    Store(#[from] MaterializationStoreError),
+}
+
+impl ReaderPublicationError {
+    fn into_store_error(self, path: &Path, digest: &Sha256Digest) -> MaterializationStoreError {
+        match self {
+            Self::SourceRead(source) => io_error("read materialization source", path, source),
+            Self::SourceLengthMismatch => io_error(
+                "read exact materialization source",
+                path,
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "materialization source length differed from its declaration",
+                ),
+            ),
+            Self::SourceDigestMismatch => {
+                MaterializationStoreError::ExistingBlobMismatch { digest: *digest }
+            }
+            Self::Store(source) => source,
+        }
+    }
+}
+
 fn stage_and_publish(
     directory: &Path,
     destination: &Path,
@@ -486,6 +518,7 @@ fn stage_and_publish(
         bytes.len(),
         temp_attempts,
     )
+    .map_err(|source| source.into_store_error(destination, expected_digest))
 }
 
 fn stage_and_publish_reader(
@@ -495,7 +528,7 @@ fn stage_and_publish_reader(
     reader: &mut dyn std::io::Read,
     expected_bytes: usize,
     temp_attempts: usize,
-) -> Result<Publication, MaterializationStoreError> {
+) -> Result<Publication, ReaderPublicationError> {
     let (temporary_path, temporary_file) =
         create_temporary_file(directory, expected_digest, temp_attempts)?;
     let result = stage_and_publish_inner(
@@ -512,7 +545,8 @@ fn stage_and_publish_reader(
         Err(source) => Err(MaterializationStoreError::TemporaryCleanupFailed {
             path: temporary_path,
             source,
-        }),
+        }
+        .into()),
     }
 }
 
@@ -521,43 +555,35 @@ fn copy_exact(
     writer: &mut File,
     temporary_path: &Path,
     expected_bytes: usize,
-) -> Result<(), MaterializationStoreError> {
+    expected_digest: &Sha256Digest,
+) -> Result<(), ReaderPublicationError> {
     let mut remaining = expected_bytes;
     let mut buffer = [0_u8; 16 * 1024];
+    let mut hasher = Sha256::new();
     while remaining != 0 {
         let request = remaining.min(buffer.len());
         let read = reader
             .read(&mut buffer[..request])
-            .map_err(|source| io_error("read package source", temporary_path, source))?;
+            .map_err(ReaderPublicationError::SourceRead)?;
         if read == 0 {
-            return Err(io_error(
-                "read complete package source",
-                temporary_path,
-                std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "package source ended before its declared length",
-                ),
-            ));
+            return Err(ReaderPublicationError::SourceLengthMismatch);
         }
         writer
             .write_all(&buffer[..read])
             .map_err(|source| io_error("write temporary content file", temporary_path, source))?;
+        hasher.update(&buffer[..read]);
         remaining -= read;
     }
     let mut extra = [0_u8; 1];
     if reader
         .read(&mut extra)
-        .map_err(|source| io_error("check package source length", temporary_path, source))?
+        .map_err(ReaderPublicationError::SourceRead)?
         != 0
     {
-        return Err(io_error(
-            "check package source length",
-            temporary_path,
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "package source exceeded its declared length",
-            ),
-        ));
+        return Err(ReaderPublicationError::SourceLengthMismatch);
+    }
+    if Sha256Digest::from_bytes(hasher.finalize().into()) != *expected_digest {
+        return Err(ReaderPublicationError::SourceDigestMismatch);
     }
     Ok(())
 }
@@ -608,8 +634,14 @@ fn stage_and_publish_inner(
     expected_digest: &Sha256Digest,
     reader: &mut dyn std::io::Read,
     expected_bytes: usize,
-) -> Result<Publication, MaterializationStoreError> {
-    copy_exact(reader, &mut temporary_file, temporary_path, expected_bytes)?;
+) -> Result<Publication, ReaderPublicationError> {
+    copy_exact(
+        reader,
+        &mut temporary_file,
+        temporary_path,
+        expected_bytes,
+        expected_digest,
+    )?;
     temporary_file
         .sync_all()
         .map_err(|source| io_error("flush temporary content file", temporary_path, source))?;
@@ -637,7 +669,8 @@ fn stage_and_publish_inner(
     if !write_identity.has_same_identity(&transition_identity) {
         return Err(MaterializationStoreError::PublicationIdentityMismatch {
             digest: *expected_digest,
-        });
+        }
+        .into());
     }
     drop(write_identity);
     let locked_file = open_existing_blob(temporary_path, expected_digest)?.ok_or_else(|| {
@@ -661,10 +694,27 @@ fn stage_and_publish_inner(
     if !transition_identity.has_same_identity(&temporary_identity) {
         return Err(MaterializationStoreError::PublicationIdentityMismatch {
             digest: *expected_digest,
-        });
+        }
+        .into());
     }
     drop(transition_identity);
 
+    publish_locked_temporary(
+        temporary_path,
+        destination,
+        expected_digest,
+        expected_bytes,
+        &temporary_identity,
+    )
+}
+
+fn publish_locked_temporary(
+    temporary_path: &Path,
+    destination: &Path,
+    expected_digest: &Sha256Digest,
+    expected_bytes: usize,
+    temporary_identity: &FileIdentityLease,
+) -> Result<Publication, ReaderPublicationError> {
     match fs::hard_link(temporary_path, destination) {
         Ok(()) => {
             let published = open_existing_blob(destination, expected_digest)?.ok_or_else(|| {
@@ -684,7 +734,8 @@ fn stage_and_publish_inner(
             if !temporary_identity.has_same_identity(&published_identity) {
                 return Err(MaterializationStoreError::PublicationIdentityMismatch {
                     digest: *expected_digest,
-                });
+                }
+                .into());
             }
             Ok(Publication::Created)
         }
@@ -706,7 +757,8 @@ fn stage_and_publish_inner(
             "atomically publish content-addressed blob",
             destination,
             source,
-        )),
+        )
+        .into()),
     }
 }
 
@@ -727,6 +779,14 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    struct FailingReader;
+
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("source read failed"))
+        }
+    }
+
     #[test]
     fn exact_reader_copy_rejects_short_and_surplus_streams()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -734,7 +794,14 @@ mod tests {
 
         let exact_path = fixture.path().join("exact.bin");
         let mut exact_file = File::create(&exact_path)?;
-        copy_exact(&mut Cursor::new(b"exact"), &mut exact_file, &exact_path, 5)?;
+        let exact_digest = Sha256Digest::from_bytes(Sha256::digest(b"exact").into());
+        copy_exact(
+            &mut Cursor::new(b"exact"),
+            &mut exact_file,
+            &exact_path,
+            5,
+            &exact_digest,
+        )?;
         drop(exact_file);
         assert_eq!(fs::read(&exact_path)?, b"exact");
 
@@ -746,9 +813,9 @@ mod tests {
                 &mut short_file,
                 &short_path,
                 6,
+                &exact_digest,
             ),
-            Err(MaterializationStoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::UnexpectedEof
+            Err(ReaderPublicationError::SourceLengthMismatch)
         ));
 
         let surplus_path = fixture.path().join("surplus.bin");
@@ -759,9 +826,36 @@ mod tests {
                 &mut surplus_file,
                 &surplus_path,
                 6,
+                &Sha256Digest::from_bytes(Sha256::digest(b"surplu").into()),
             ),
-            Err(MaterializationStoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::InvalidData
+            Err(ReaderPublicationError::SourceLengthMismatch)
+        ));
+
+        let mismatch_path = fixture.path().join("mismatch.bin");
+        let mut mismatch_file = File::create(&mismatch_path)?;
+        assert!(matches!(
+            copy_exact(
+                &mut Cursor::new(b"other"),
+                &mut mismatch_file,
+                &mismatch_path,
+                5,
+                &exact_digest,
+            ),
+            Err(ReaderPublicationError::SourceDigestMismatch)
+        ));
+
+        let failed_path = fixture.path().join("failed.bin");
+        let mut failed_file = File::create(&failed_path)?;
+        assert!(matches!(
+            copy_exact(
+                &mut FailingReader,
+                &mut failed_file,
+                &failed_path,
+                1,
+                &exact_digest,
+            ),
+            Err(ReaderPublicationError::SourceRead(source))
+                if source.kind() == std::io::ErrorKind::Other
         ));
         Ok(())
     }

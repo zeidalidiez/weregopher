@@ -43,8 +43,8 @@ pub use planning::{
     TransformPlan, TransformPlanError, plan_static_import_rewrite,
 };
 pub use snapshot::{
-    PackageSnapshotError, PackageSnapshotLease, PackageSnapshotLeaseLimits,
-    PackageSnapshotWriteLimits,
+    PackageSnapshotError, PackageSnapshotFileReader, PackageSnapshotLease,
+    PackageSnapshotLeaseLimits, PackageSnapshotWriteLimits,
 };
 pub use source_map::{EmittedSourceMap, SourceMapError, SourceMapLimits, emit_source_map};
 pub use store::{

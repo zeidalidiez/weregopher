@@ -52,5 +52,5 @@ Successful validation returns an opaque, non-serializable `StructurallyValidated
 
 - Certification profiles can be stored, signed, reviewed, and approved by exact digest without allowing evidence producers to redefine the suite.
 - Equivalent workflow insertion orders produce the same canonical profile identity.
-- Bounded referenced-artifact byte verification is specified by [ADR 0030](0030-bounded-certification-artifact-verification.md); trusted profile-registry resolution, target applicability, signature policy, semantic report validation, certification-class assignment, and publication remain later boundaries.
+- Bounded referenced-artifact byte verification is specified by [ADR 0030](0030-bounded-certification-artifact-verification.md), and [ADR 0031](0031-generation-aware-local-certification-policy.md) adds exact target applicability and class assignment through a generation-aware local trust root. Registry resolution, signature policy, semantic report validation, durable policy persistence, and publication remain later boundaries.
 - Concrete disposable-state probes and application-specific profile documents remain future work.

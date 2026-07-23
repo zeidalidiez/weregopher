@@ -6,20 +6,272 @@ use sha2::{Digest as _, Sha256};
 use weregopher_domain::{
     CERTIFICATION_FIXED_CHECK_COUNT, CertificationArtifactDigest, CertificationArtifactKind,
     CertificationArtifactRef, CertificationCheckAssessment, CertificationCheckStatus,
-    CertificationChecks, CertificationEvidence, CertificationExpectedStatus, CertificationProfile,
-    CertificationProfileChecks, CertificationProfileClass, CertificationTarget,
+    CertificationChecks, CertificationClass, CertificationEvidence, CertificationEvidenceDigest,
+    CertificationExpectedStatus, CertificationProfile, CertificationProfileChecks,
+    CertificationProfileClass, CertificationProfileDigest, CertificationTarget,
     CompatibilityAnalysisDigest, ExecutableDigest, ExecutionArtifactSourceDigest,
     ExecutionContractDigest, ExecutionResolutionEvidenceDigest, FeatureId, Sha256Digest,
     StructurallyValidatedCertificationEvidence,
 };
 use weregopher_transform::{
     CertificationArtifactVerificationError, CertificationArtifactVerificationLimits,
+    CertificationPolicyError, CertificationPolicyRevisionDigest,
+    CertificationPolicyRevocationDigest, LocalCertificationPolicy, LocalCertificationPolicyStore,
     MAX_CERTIFICATION_ARTIFACT_BYTES, MAX_CERTIFICATION_ARTIFACT_REFERENCES,
-    MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES, verify_certification_artifacts,
+    MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES, assign_local_certification,
+    verify_certification_artifacts,
 };
 
 const FIXED_BYTES: &[u8] = b"fixed-proof";
 const WORKFLOW_BYTES: &[u8] = b"workflow-proof";
+
+#[test]
+fn exact_verified_artifacts_receive_a_current_local_certification_class()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x50)?;
+    let verified = verify_certification_artifacts(
+        proof,
+        &artifacts,
+        CertificationArtifactVerificationLimits::new(64, 128)?,
+    )?;
+    let store = LocalCertificationPolicyStore::new(policy);
+
+    let certified = assign_local_certification(verified, &store)?;
+
+    assert_eq!(
+        certified.current_class()?,
+        CertificationClass::ContractVerified
+    );
+    assert_eq!(certified.policy_generation(), 1);
+    assert_eq!(certified.verified_artifacts().artifacts(), &artifacts);
+    certified.verify_current_policy()?;
+    let debug = format!("{certified:?}");
+    assert!(debug.contains("ContractVerified"));
+    assert!(!debug.contains("fixed-proof"));
+    assert!(!debug.contains("workflow-proof"));
+    Ok(())
+}
+
+#[test]
+fn local_certification_fails_closed_after_replacement_revocation_or_store_loss()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x50)?;
+    let store = LocalCertificationPolicyStore::new(policy.clone());
+    let certified = assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &store,
+    )?;
+    store.replace_policy(policy)?;
+    assert!(matches!(
+        certified.current_class(),
+        Err(CertificationPolicyError::PolicyChanged)
+    ));
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x51)?;
+    let store = LocalCertificationPolicyStore::new(policy);
+    let certified = assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &store,
+    )?;
+    store.revoke(CertificationPolicyRevocationDigest::new(digest(0x60)))?;
+    assert!(matches!(
+        certified.current_class(),
+        Err(CertificationPolicyError::PolicyRevoked)
+    ));
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    assert!(matches!(
+        assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &store,
+        ),
+        Err(CertificationPolicyError::PolicyRevoked)
+    ));
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x52)?;
+    let store = LocalCertificationPolicyStore::new(policy);
+    let certified = assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &store,
+    )?;
+    drop(store);
+    assert!(matches!(
+        certified.current_class(),
+        Err(CertificationPolicyError::PolicyStoreUnavailable)
+    ));
+    Ok(())
+}
+
+#[test]
+fn local_certification_requires_exact_target_profile_evidence_and_class_pins()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = LocalCertificationPolicy::new(
+        different_target(),
+        *proof.evidence().profile_digest(),
+        proof.evidence().canonical_document_digest()?,
+        CertificationClass::ContractVerified,
+        CertificationPolicyRevisionDigest::new(digest(0x50)),
+    )?;
+    assert!(matches!(
+        assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &LocalCertificationPolicyStore::new(policy),
+        ),
+        Err(CertificationPolicyError::TargetMismatch)
+    ));
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = LocalCertificationPolicy::new(
+        proof.evidence().target().clone(),
+        CertificationProfileDigest::new(digest(0x70)),
+        proof.evidence().canonical_document_digest()?,
+        CertificationClass::ContractVerified,
+        CertificationPolicyRevisionDigest::new(digest(0x51)),
+    )?;
+    assert!(matches!(
+        assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &LocalCertificationPolicyStore::new(policy),
+        ),
+        Err(CertificationPolicyError::ProfileDigestMismatch)
+    ));
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = LocalCertificationPolicy::new(
+        proof.evidence().target().clone(),
+        *proof.evidence().profile_digest(),
+        CertificationEvidenceDigest::new(digest(0x71)),
+        CertificationClass::ContractVerified,
+        CertificationPolicyRevisionDigest::new(digest(0x52)),
+    )?;
+    assert!(matches!(
+        assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &LocalCertificationPolicyStore::new(policy),
+        ),
+        Err(CertificationPolicyError::EvidenceDigestMismatch)
+    ));
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ExactCertified, 0x53)?;
+    assert!(matches!(
+        assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &LocalCertificationPolicyStore::new(policy),
+        ),
+        Err(CertificationPolicyError::ClassMismatch)
+    ));
+    Ok(())
+}
+
+#[test]
+fn blocked_and_provisional_classes_cannot_be_assigned_by_local_policy()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (proof, _, _) = fixture()?;
+    let target = proof.evidence().target().clone();
+    let profile_digest = *proof.evidence().profile_digest();
+    let evidence_digest = proof.evidence().canonical_document_digest()?;
+    for class in [CertificationClass::Blocked, CertificationClass::Provisional] {
+        assert!(matches!(
+            LocalCertificationPolicy::new(
+                target.clone(),
+                profile_digest,
+                evidence_digest,
+                class,
+                CertificationPolicyRevisionDigest::new(digest(0x72)),
+            ),
+            Err(CertificationPolicyError::UnassignableClass)
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn every_profile_class_maps_only_to_its_matching_trusted_class()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (declared, trusted, revision) in [
+        (
+            CertificationProfileClass::StructuralVerified,
+            CertificationClass::StructuralVerified,
+            0x80,
+        ),
+        (
+            CertificationProfileClass::SmokeVerified,
+            CertificationClass::SmokeVerified,
+            0x81,
+        ),
+        (
+            CertificationProfileClass::ContractVerified,
+            CertificationClass::ContractVerified,
+            0x82,
+        ),
+        (
+            CertificationProfileClass::ExactCertified,
+            CertificationClass::ExactCertified,
+            0x83,
+        ),
+    ] {
+        let (proof, fixed, workflow) = fixture_for_profile_class(declared)?;
+        let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+        let policy = local_policy_for(&proof, trusted, revision)?;
+        let store = LocalCertificationPolicyStore::new(policy);
+        let certified = assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &store,
+        )?;
+        assert_eq!(certified.current_class()?, trusted);
+    }
+    Ok(())
+}
 
 #[test]
 fn exact_referenced_artifacts_are_verified_and_retained() -> Result<(), Box<dyn std::error::Error>>
@@ -206,9 +458,22 @@ fn fixture() -> Result<
     ),
     Box<dyn std::error::Error>,
 > {
+    fixture_for_profile_class(CertificationProfileClass::ContractVerified)
+}
+
+fn fixture_for_profile_class(
+    profile_class: CertificationProfileClass,
+) -> Result<
+    (
+        StructurallyValidatedCertificationEvidence,
+        CertificationArtifactRef,
+        CertificationArtifactRef,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let workflow_id = FeatureId::new("workflow.chat")?;
     let profile = CertificationProfile::new(
-        CertificationProfileClass::ContractVerified,
+        profile_class,
         profile_checks(CertificationExpectedStatus::Passed),
         BTreeSet::from([workflow_id.clone()]),
     )?;
@@ -254,6 +519,30 @@ fn target() -> CertificationTarget {
         ExecutionArtifactSourceDigest::new(digest(0x13)),
         ExecutableDigest::new(digest(0x14)),
     )
+}
+
+fn different_target() -> CertificationTarget {
+    CertificationTarget::new(
+        CompatibilityAnalysisDigest::new(digest(0x20)),
+        ExecutionContractDigest::new(digest(0x21)),
+        ExecutionResolutionEvidenceDigest::new(digest(0x22)),
+        ExecutionArtifactSourceDigest::new(digest(0x23)),
+        ExecutableDigest::new(digest(0x24)),
+    )
+}
+
+fn local_policy_for(
+    proof: &StructurallyValidatedCertificationEvidence,
+    approved_class: CertificationClass,
+    revision_byte: u8,
+) -> Result<LocalCertificationPolicy, Box<dyn std::error::Error>> {
+    Ok(LocalCertificationPolicy::new(
+        proof.evidence().target().clone(),
+        *proof.evidence().profile_digest(),
+        proof.evidence().canonical_document_digest()?,
+        approved_class,
+        CertificationPolicyRevisionDigest::new(digest(revision_byte)),
+    )?)
 }
 
 fn checks(assessment: CertificationCheckAssessment) -> CertificationChecks {

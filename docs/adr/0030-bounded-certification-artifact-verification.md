@@ -45,6 +45,6 @@ The returned proof is non-serializable. Its debug representation reports only ta
 
 ## Consequences
 
-- Later certification policy can require an opaque byte-conformance proof instead of trusting digest references alone.
+- The generation-aware local policy resolver in [ADR 0031](0031-generation-aware-local-certification-policy.md) requires this opaque byte-conformance proof instead of trusting digest references alone.
 - Shared evidence remains deduplicated while exact artifact-kind bindings are preserved.
-- Concrete probe execution, artifact persistence, semantic report validation, trusted runner identity, profile approval, target applicability, class assignment, signatures, and publication remain later boundaries.
+- Concrete probe execution, artifact persistence, semantic report validation, trusted runner identity, registry signatures, durable policy persistence, and publication remain later boundaries.

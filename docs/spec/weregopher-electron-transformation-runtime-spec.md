@@ -6563,10 +6563,23 @@ probe semantics, authenticate a producer, approve target applicability, or assig
 
 The document derives only `incomplete`, `blocked`, or `complete`. It does not carry a producer-
 selected certification scope or serialize a certification class, trust mode, publication status,
-or authority bit. Mapping structurally validated evidence to one of the classes above still
-requires trusted approval of the exact profile digest, target applicability, and decision policy.
-Concrete certification probes, profile-registry trust, signatures, class assignment, and
-publication remain separate layers.
+or authority bit. The generation-aware local resolver described by
+[ADR 0031](../adr/0031-generation-aware-local-certification-policy.md) is the first boundary that
+may assign a trusted `CertificationClass`. Its trusted in-memory policy pins the complete target,
+canonical profile digest, canonical evidence digest, explicitly approved class, and role-specific
+policy revision. Resolution consumes exact artifact-byte verification, requires complete evidence,
+recomputes both canonical document identities, and converts profile intent to the trusted class
+vocabulary only when every pin matches. `blocked` is represented by revocation and `provisional`
+is not assignable at this exact verified-evidence boundary.
+
+The resulting opaque decision retains the structural proof and exact borrowed byte map, is neither
+cloneable nor serializable, and remains conditional on the issuing policy generation. Replacement,
+revocation, policy-store loss, or synchronization failure makes current-class access fail closed.
+This currentness check is point-in-time; future publication must hold policy currentness through its
+own commit point. Local class assignment does not validate artifact semantics, authenticate a runner,
+publish a result, authorize transformation or execution, or establish registry/signature trust.
+Concrete certification probes, semantic report parsing, trusted runner identity, registry signatures,
+durable policy persistence, publication, and the disposable-state runner remain separate layers.
 
 ## 35.6 Stable adapter gates
 

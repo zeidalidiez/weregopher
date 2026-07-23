@@ -1,12 +1,15 @@
-//! Semantic-transform planning, deterministic in-memory emission, and artifact verification.
+//! Semantic-transform planning, deterministic emission, artifact verification, and local
+//! certification-policy resolution.
 //!
 //! Planning validates exact static module matches and emits in-memory edits. Emission applies one
 //! exact plan to digest-matched source bytes without filesystem access. Artifact verification
 //! establishes byte-for-digest conformance, and materialization planning emits closed relative
 //! content-addressed intent. Separate Windows-only managed-store and package-snapshot boundaries can
 //! publish exact verified bytes outside a vendor installation and retain reverified file and
-//! directory identities for a later consumer. None of these boundaries authenticates adapter
-//! signatures, prevents unrestricted same-user mutation, authorizes execution, or authorizes launch.
+//! directory identities for a later consumer. A generation-aware local policy may conditionally
+//! assign a trusted certification class to exact verified certification artifacts. None of these
+//! boundaries authenticates adapter signatures, prevents unrestricted same-user mutation, authorizes
+//! execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
 
@@ -20,6 +23,7 @@ use weregopher_domain::{
 
 mod bundle;
 mod certification_artifacts;
+mod certification_policy;
 mod emission;
 #[cfg(windows)]
 mod execution_authorization;
@@ -40,6 +44,11 @@ pub use certification_artifacts::{
     MAX_CERTIFICATION_ARTIFACT_BYTES, MAX_CERTIFICATION_ARTIFACT_REFERENCES,
     MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES, VerifiedCertificationArtifacts,
     verify_certification_artifacts,
+};
+pub use certification_policy::{
+    CertificationPolicyError, CertificationPolicyRevisionDigest,
+    CertificationPolicyRevocationDigest, LocalCertificationPolicy, LocalCertificationPolicyStore,
+    LocallyCertifiedArtifacts, assign_local_certification,
 };
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,

@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "CertificationExpectedStatus": {
+      "description": "Exact status required for one fixed check by an immutable certification profile.",
+      "oneOf": [
+        {
+          "const": "passed",
+          "description": "The check must pass.",
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "The check must prove that it does not apply.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationProfileChecks": {
+      "additionalProperties": false,
+      "description": "Exact expected status of every fixed check in one immutable profile.",
+      "properties": {
+        "declared_exceptions": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Declared-exception expectation."
+        },
+        "entry_point_resolution": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Entry-point resolution expectation."
+        },
+        "helper_lifecycle": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Helper-lifecycle expectation."
+        },
+        "module_graph": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Module-graph expectation."
+        },
+        "native_dependencies": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Native-dependency expectation."
+        },
+        "package_identity": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Package identity expectation."
+        },
+        "preload_handshake": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Preload-handshake expectation."
+        },
+        "renderer_bootstrap": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Renderer-bootstrap expectation."
+        },
+        "resource_scenario": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Resource-scenario expectation."
+        },
+        "runtime_bootstrap": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Runtime-bootstrap expectation."
+        },
+        "security_contract": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Security-contract expectation."
+        },
+        "state_safety": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "State-safety expectation."
+        },
+        "transform_matches": {
+          "$ref": "#/$defs/CertificationExpectedStatus",
+          "description": "Transform-match expectation."
+        }
+      },
+      "required": [
+        "package_identity",
+        "entry_point_resolution",
+        "transform_matches",
+        "module_graph",
+        "native_dependencies",
+        "runtime_bootstrap",
+        "renderer_bootstrap",
+        "preload_handshake",
+        "state_safety",
+        "helper_lifecycle",
+        "security_contract",
+        "resource_scenario",
+        "declared_exceptions"
+      ],
+      "type": "object"
+    },
+    "CertificationProfileClass": {
+      "description": "Certification class declared by an immutable profile before any trust decision.\n\nA declaration must not convert directly into the shared trusted class vocabulary:\n\n```compile_fail\nuse weregopher_domain::{CertificationClass, CertificationProfileClass};\n\nlet declared = CertificationProfileClass::ExactCertified;\nlet trusted: CertificationClass = declared.as_certification_class();\n# let _ = trusted;\n```",
+      "oneOf": [
+        {
+          "const": "structural_verified",
+          "description": "Structural package, transform, and dependency verification.",
+          "type": "string"
+        },
+        {
+          "const": "smoke_verified",
+          "description": "Fixed disposable-state launch and safety smoke verification.",
+          "type": "string"
+        },
+        {
+          "const": "contract_verified",
+          "description": "Family-contract and mandatory-workflow verification.",
+          "type": "string"
+        },
+        {
+          "const": "exact_certified",
+          "description": "Exact-build, complete-profile certification.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationProfileFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "FeatureId": {
+      "description": "A durable application-workflow or compatibility-feature identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical immutable certification-profile definition.",
+  "properties": {
+    "checks": {
+      "$ref": "#/$defs/CertificationProfileChecks"
+    },
+    "class": {
+      "$ref": "#/$defs/CertificationProfileClass"
+    },
+    "format_version": {
+      "$ref": "#/$defs/CertificationProfileFormatVersion"
+    },
+    "workflows": {
+      "items": {
+        "$ref": "#/$defs/FeatureId"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "format_version",
+    "class",
+    "checks",
+    "workflows"
+  ],
+  "title": "CertificationProfile",
+  "type": "object",
+  "x-weregopher-maxDocumentBytes": 131072
+}

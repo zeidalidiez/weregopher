@@ -6512,7 +6512,7 @@ Probes run in a disposable profile/snapshot where state mutation is possible.
 - unsupported native dependency;
 - security/parity failure beyond policy.
 
-### Implemented certification-evidence boundary
+### Implemented certification-evidence and profile boundary
 
 The implemented certification input boundary is the format-`"1"` `CertificationEvidence`
 contract described by [ADR 0028](../adr/0028-bounded-non-authorizing-certification-evidence.md).
@@ -6531,11 +6531,27 @@ evidence. The canonical parser rejects inputs larger than 4 MiB before deseriali
 closed on unsupported versions, unknown fields, duplicate keys/references, contradictory status
 and evidence, invalid identifiers, and collection overflow.
 
+The format-`"1"` `CertificationProfile` contract described by
+[ADR 0029](../adr/0029-canonical-certification-profiles.md) content-addresses the declared
+successful class, exact expected status for all thirteen fixed dimensions, and an exact set of at
+most 128 mandatory workflows. Fixed expectations admit only `passed` or `not_applicable`; every
+mandatory workflow must pass. Profile classes are role-distinct from trusted `CertificationClass`
+values and exclude `provisional` and `blocked`. The canonical parser enforces a 128 KiB ceiling and
+fails closed on unsupported versions, unknown fields, duplicate or invalid workflow identifiers,
+and collection overflow.
+
+Structural validation consumes one evidence document with the exact canonical profile named by
+its digest. Every fixed status must match, the workflow key sets must be equal, and every mandatory
+workflow must be `passed`. The resulting proof is opaque and non-serializable. It proves only this
+structural binding: it does not authenticate the profile, validate referenced artifact bytes,
+approve target applicability, or assign a trusted certification class.
+
 The document derives only `incomplete`, `blocked`, or `complete`. It does not carry a producer-
 selected certification scope or serialize a certification class, trust mode, publication status,
-or authority bit. Mapping complete evidence to one of the classes above requires separately
-trusted resolution of the exact profile digest and decision policy. Concrete certification probes,
-profile-registry trust, signatures, class assignment, and publication remain separate layers.
+or authority bit. Mapping structurally validated evidence to one of the classes above still
+requires trusted approval of the exact profile digest, target applicability, and decision policy.
+Concrete certification probes, profile-registry trust, signatures, class assignment, and
+publication remain separate layers.
 
 ## 35.6 Stable adapter gates
 

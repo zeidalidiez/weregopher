@@ -24,6 +24,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "candidate-profile.schema.json",
         "certification-class.schema.json",
         "certification-evidence.schema.json",
+        "certification-profile.schema.json",
         "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
         "execution-resolution-evidence.schema.json",
@@ -145,6 +146,84 @@ fn certification_evidence_schema_is_exact_bounded_and_non_authorizing()
         "certification_class",
         "publication_status",
         "trust_mode",
+        "transformation_authorized",
+        "execution_authorized",
+        "certified",
+    ] {
+        assert!(document["properties"].get(forbidden).is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn certification_profile_schema_is_exact_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("certification-profile.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &["format_version", "class", "checks", "workflows"],
+    )?;
+    assert_eq!(
+        document["$defs"]["CertificationProfileFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES
+    );
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["CertificationProfileClass"])?,
+        [
+            "structural_verified",
+            "smoke_verified",
+            "contract_verified",
+            "exact_certified"
+        ]
+    );
+    assert_eq!(document["properties"]["workflows"]["maxItems"], 128);
+    assert_eq!(document["properties"]["workflows"]["uniqueItems"], true);
+    assert_eq!(
+        document["properties"]["workflows"]["items"]["$ref"],
+        "#/$defs/FeatureId"
+    );
+
+    let checks = &document["$defs"]["CertificationProfileChecks"];
+    assert_eq!(checks["additionalProperties"], false);
+    assert_required_properties(
+        checks,
+        &[
+            "package_identity",
+            "entry_point_resolution",
+            "transform_matches",
+            "module_graph",
+            "native_dependencies",
+            "runtime_bootstrap",
+            "renderer_bootstrap",
+            "preload_handshake",
+            "state_safety",
+            "helper_lifecycle",
+            "security_contract",
+            "resource_scenario",
+            "declared_exceptions",
+        ],
+    )?;
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["CertificationExpectedStatus"])?,
+        ["passed", "not_applicable"]
+    );
+
+    for forbidden in [
+        "profile_digest",
+        "target",
+        "publication_status",
+        "trust_mode",
+        "permissions",
         "transformation_authorized",
         "execution_authorized",
         "certified",

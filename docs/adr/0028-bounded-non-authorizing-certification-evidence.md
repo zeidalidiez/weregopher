@@ -63,5 +63,5 @@ The evidence contract contains no publication status, trust mode, timestamps, mu
 
 - Certification evidence can now be content-addressed, persisted, compared, and independently audited without manufacturing authority.
 - Different probe orders serialize identically.
-- Exact profile resolution and trusted class assignment remain explicit later boundaries.
+- Canonical profile definition and structural profile/evidence binding are specified by [ADR 0029](0029-canonical-certification-profiles.md); trusted profile approval and class assignment remain explicit later boundaries.
 - The concrete disposable-state certification runner, artifact retention, profile registry, signatures, trust policy, and publication workflow remain future work.

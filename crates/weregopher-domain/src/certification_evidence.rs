@@ -10,6 +10,7 @@ use serde::{
     Deserialize, Deserializer, Serialize,
     de::{Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor},
 };
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use crate::{
@@ -19,12 +20,16 @@ use crate::{
 
 /// Current serialized certification-evidence contract version.
 pub const CERTIFICATION_EVIDENCE_FORMAT_VERSION: &str = "1";
+/// Current serialized certification-profile contract version.
+pub const CERTIFICATION_PROFILE_FORMAT_VERSION: &str = "1";
 /// Maximum immutable evidence references retained for one certification check.
 pub const MAX_CERTIFICATION_EVIDENCE_REFS: usize = 64;
 /// Maximum application workflow checks retained in one certification document.
 pub const MAX_CERTIFICATION_WORKFLOWS: usize = 128;
 /// Maximum accepted serialized certification document size.
 pub const MAX_CERTIFICATION_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
+/// Maximum accepted serialized certification-profile size.
+pub const MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES: usize = 128 * 1024;
 
 macro_rules! certification_digest_role {
     ($(#[$meta:meta])* $name:ident) => {
@@ -100,6 +105,12 @@ enum CertificationEvidenceFormatVersion {
     V1,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
+enum CertificationProfileFormatVersion {
+    #[serde(rename = "1")]
+    V1,
+}
+
 /// Fail-closed aggregate of fixed and workflow certification checks.
 #[derive(
     Clone, Copy, Debug, Eq, Hash, JsonSchema, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
@@ -112,6 +123,88 @@ pub enum CertificationEvidenceDisposition {
     Blocked,
     /// Every configured check passed or was proven not applicable.
     Complete,
+}
+
+/// Certification class declared by an immutable profile before any trust decision.
+///
+/// A declaration must not convert directly into the shared trusted class vocabulary:
+///
+/// ```compile_fail
+/// use weregopher_domain::{CertificationClass, CertificationProfileClass};
+///
+/// let declared = CertificationProfileClass::ExactCertified;
+/// let trusted: CertificationClass = declared.as_certification_class();
+/// # let _ = trusted;
+/// ```
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, JsonSchema, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificationProfileClass {
+    /// Structural package, transform, and dependency verification.
+    StructuralVerified,
+    /// Fixed disposable-state launch and safety smoke verification.
+    SmokeVerified,
+    /// Family-contract and mandatory-workflow verification.
+    ContractVerified,
+    /// Exact-build, complete-profile certification.
+    ExactCertified,
+}
+
+/// Exact status required for one fixed check by an immutable certification profile.
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, JsonSchema, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificationExpectedStatus {
+    /// The check must pass.
+    Passed,
+    /// The check must prove that it does not apply.
+    NotApplicable,
+}
+
+impl CertificationExpectedStatus {
+    const fn matches(self, actual: CertificationCheckStatus) -> bool {
+        matches!(
+            (self, actual),
+            (Self::Passed, CertificationCheckStatus::Passed)
+                | (Self::NotApplicable, CertificationCheckStatus::NotApplicable)
+        )
+    }
+}
+
+/// Stable identifier for one fixed certification check dimension.
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, JsonSchema, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificationCheckDimension {
+    /// Package identity.
+    PackageIdentity,
+    /// Entry-point resolution.
+    EntryPointResolution,
+    /// Transform matches.
+    TransformMatches,
+    /// Module graph.
+    ModuleGraph,
+    /// Native dependencies.
+    NativeDependencies,
+    /// Runtime bootstrap.
+    RuntimeBootstrap,
+    /// Renderer bootstrap.
+    RendererBootstrap,
+    /// Preload handshake.
+    PreloadHandshake,
+    /// State safety.
+    StateSafety,
+    /// Helper lifecycle.
+    HelperLifecycle,
+    /// Security contract.
+    SecurityContract,
+    /// Resource scenario.
+    ResourceScenario,
+    /// Declared exceptions.
+    DeclaredExceptions,
 }
 
 /// Outcome of one certification check.
@@ -196,6 +289,9 @@ pub enum CertificationContractError {
     /// The document declared more application workflows than the contract permits.
     #[error("certification evidence exceeds the workflow-assessment limit")]
     TooManyWorkflowAssessments,
+    /// The profile declared more mandatory workflows than the contract permits.
+    #[error("certification profile exceeds the mandatory-workflow limit")]
+    TooManyProfileWorkflows,
 }
 
 /// Error parsing a byte-bounded certification document.
@@ -401,6 +497,258 @@ impl CertificationChecks {
             &self.resource_scenario,
             &self.declared_exceptions,
         ]
+    }
+}
+
+/// Exact expected status of every fixed check in one immutable profile.
+#[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CertificationProfileChecks {
+    /// Package identity expectation.
+    pub package_identity: CertificationExpectedStatus,
+    /// Entry-point resolution expectation.
+    pub entry_point_resolution: CertificationExpectedStatus,
+    /// Transform-match expectation.
+    pub transform_matches: CertificationExpectedStatus,
+    /// Module-graph expectation.
+    pub module_graph: CertificationExpectedStatus,
+    /// Native-dependency expectation.
+    pub native_dependencies: CertificationExpectedStatus,
+    /// Runtime-bootstrap expectation.
+    pub runtime_bootstrap: CertificationExpectedStatus,
+    /// Renderer-bootstrap expectation.
+    pub renderer_bootstrap: CertificationExpectedStatus,
+    /// Preload-handshake expectation.
+    pub preload_handshake: CertificationExpectedStatus,
+    /// State-safety expectation.
+    pub state_safety: CertificationExpectedStatus,
+    /// Helper-lifecycle expectation.
+    pub helper_lifecycle: CertificationExpectedStatus,
+    /// Security-contract expectation.
+    pub security_contract: CertificationExpectedStatus,
+    /// Resource-scenario expectation.
+    pub resource_scenario: CertificationExpectedStatus,
+    /// Declared-exception expectation.
+    pub declared_exceptions: CertificationExpectedStatus,
+}
+
+impl CertificationProfileChecks {
+    fn expectations(&self) -> [(CertificationCheckDimension, CertificationExpectedStatus); 13] {
+        [
+            (
+                CertificationCheckDimension::PackageIdentity,
+                self.package_identity,
+            ),
+            (
+                CertificationCheckDimension::EntryPointResolution,
+                self.entry_point_resolution,
+            ),
+            (
+                CertificationCheckDimension::TransformMatches,
+                self.transform_matches,
+            ),
+            (CertificationCheckDimension::ModuleGraph, self.module_graph),
+            (
+                CertificationCheckDimension::NativeDependencies,
+                self.native_dependencies,
+            ),
+            (
+                CertificationCheckDimension::RuntimeBootstrap,
+                self.runtime_bootstrap,
+            ),
+            (
+                CertificationCheckDimension::RendererBootstrap,
+                self.renderer_bootstrap,
+            ),
+            (
+                CertificationCheckDimension::PreloadHandshake,
+                self.preload_handshake,
+            ),
+            (CertificationCheckDimension::StateSafety, self.state_safety),
+            (
+                CertificationCheckDimension::HelperLifecycle,
+                self.helper_lifecycle,
+            ),
+            (
+                CertificationCheckDimension::SecurityContract,
+                self.security_contract,
+            ),
+            (
+                CertificationCheckDimension::ResourceScenario,
+                self.resource_scenario,
+            ),
+            (
+                CertificationCheckDimension::DeclaredExceptions,
+                self.declared_exceptions,
+            ),
+        ]
+    }
+}
+
+/// Canonical immutable certification-profile definition.
+#[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CertificationProfile {
+    format_version: CertificationProfileFormatVersion,
+    class: CertificationProfileClass,
+    checks: CertificationProfileChecks,
+    #[schemars(length(max = 128))]
+    workflows: BTreeSet<FeatureId>,
+}
+
+impl<'de> Deserialize<'de> for CertificationProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let UncheckedCertificationProfile {
+            format_version: CertificationProfileFormatVersion::V1,
+            class,
+            checks,
+            workflows,
+        } = UncheckedCertificationProfile::deserialize(deserializer)?;
+        Self::new(class, checks, workflows).map_err(D::Error::custom)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UncheckedCertificationProfile {
+    format_version: CertificationProfileFormatVersion,
+    class: CertificationProfileClass,
+    checks: CertificationProfileChecks,
+    #[serde(deserialize_with = "deserialize_certification_profile_workflows")]
+    workflows: BTreeSet<FeatureId>,
+}
+
+fn deserialize_certification_profile_workflows<'de, D>(
+    deserializer: D,
+) -> Result<BTreeSet<FeatureId>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct ProfileWorkflowsVisitor;
+
+    impl<'de> Visitor<'de> for ProfileWorkflowsVisitor {
+        type Value = BTreeSet<FeatureId>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a bounded unique sequence of certification workflow identifiers")
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            if sequence
+                .size_hint()
+                .is_some_and(|length| length > MAX_CERTIFICATION_WORKFLOWS)
+            {
+                return Err(A::Error::custom(
+                    CertificationContractError::TooManyProfileWorkflows,
+                ));
+            }
+            let mut workflows = BTreeSet::new();
+            for _ in 0..MAX_CERTIFICATION_WORKFLOWS {
+                let Some(feature) = sequence.next_element()? else {
+                    return Ok(workflows);
+                };
+                if !workflows.insert(feature) {
+                    return Err(A::Error::custom(
+                        "certification profile contains duplicate workflow identifiers",
+                    ));
+                }
+            }
+            if sequence.next_element::<IgnoredAny>()?.is_some() {
+                return Err(A::Error::custom(
+                    CertificationContractError::TooManyProfileWorkflows,
+                ));
+            }
+            Ok(workflows)
+        }
+    }
+
+    deserializer.deserialize_seq(ProfileWorkflowsVisitor)
+}
+
+impl CertificationProfile {
+    /// Constructs one exact, bounded certification profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CertificationContractError::TooManyProfileWorkflows`] when the mandatory set
+    /// exceeds the fixed bound.
+    pub fn new(
+        class: CertificationProfileClass,
+        checks: CertificationProfileChecks,
+        workflows: BTreeSet<FeatureId>,
+    ) -> Result<Self, CertificationContractError> {
+        if workflows.len() > MAX_CERTIFICATION_WORKFLOWS {
+            return Err(CertificationContractError::TooManyProfileWorkflows);
+        }
+        Ok(Self {
+            format_version: CertificationProfileFormatVersion::V1,
+            class,
+            checks,
+            workflows,
+        })
+    }
+
+    /// Parses one profile only after enforcing its non-configurable byte ceiling.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CertificationDocumentError`] for oversized or invalid profile bytes.
+    pub fn from_json_slice(bytes: &[u8]) -> Result<Self, CertificationDocumentError> {
+        if bytes.len() > MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES {
+            return Err(CertificationDocumentError::DocumentTooLarge);
+        }
+        serde_json::from_slice(bytes).map_err(CertificationDocumentError::InvalidJson)
+    }
+
+    /// Returns deterministic canonical JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns the serializer error if the in-memory profile cannot be encoded.
+    pub fn canonical_json_bytes(&self) -> serde_json::Result<Vec<u8>> {
+        serde_json::to_vec(self)
+    }
+
+    /// Returns the SHA-256 identity of canonical profile bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns the serializer error if canonical bytes cannot be produced.
+    pub fn canonical_document_digest(&self) -> serde_json::Result<CertificationProfileDigest> {
+        let bytes = self.canonical_json_bytes()?;
+        Ok(CertificationProfileDigest::new(Sha256Digest::from_bytes(
+            Sha256::digest(bytes).into(),
+        )))
+    }
+
+    /// Returns the exact format version.
+    #[must_use]
+    pub const fn format_version(&self) -> &'static str {
+        CERTIFICATION_PROFILE_FORMAT_VERSION
+    }
+
+    /// Returns the class declared by this not-yet-trusted profile.
+    #[must_use]
+    pub const fn class(&self) -> CertificationProfileClass {
+        self.class
+    }
+
+    /// Returns fixed check expectations.
+    #[must_use]
+    pub const fn checks(&self) -> &CertificationProfileChecks {
+        &self.checks
+    }
+
+    /// Returns the exact mandatory workflow set.
+    #[must_use]
+    pub const fn workflows(&self) -> &BTreeSet<FeatureId> {
+        &self.workflows
     }
 }
 
@@ -680,5 +1028,118 @@ impl CertificationEvidence {
             return CertificationEvidenceDisposition::Incomplete;
         }
         CertificationEvidenceDisposition::Complete
+    }
+
+    /// Consumes evidence with the exact profile whose digest and requirements it claims.
+    ///
+    /// This is structural validation only. The returned proof does not establish that the profile
+    /// digest, declared class, evidence artifacts, or producer are trusted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CertificationProfileValidationError`] when the profile digest, fixed check
+    /// expectations, mandatory workflow scope, or workflow statuses differ.
+    pub fn validate_against_profile(
+        self,
+        profile: CertificationProfile,
+    ) -> Result<StructurallyValidatedCertificationEvidence, CertificationProfileValidationError>
+    {
+        let profile_digest = profile
+            .canonical_document_digest()
+            .map_err(CertificationProfileValidationError::ProfileDigestUnavailable)?;
+        if self.profile_digest != profile_digest {
+            return Err(CertificationProfileValidationError::ProfileDigestMismatch);
+        }
+
+        for ((dimension, expected), actual) in profile
+            .checks
+            .expectations()
+            .into_iter()
+            .zip(self.checks.assessments())
+        {
+            if !expected.matches(actual.status()) {
+                return Err(CertificationProfileValidationError::CheckStatusMismatch {
+                    dimension,
+                    expected,
+                    actual: actual.status(),
+                });
+            }
+        }
+
+        if self.workflows.len() != profile.workflows.len()
+            || !self.workflows.keys().eq(profile.workflows.iter())
+        {
+            return Err(CertificationProfileValidationError::WorkflowScopeMismatch);
+        }
+        for (feature, assessment) in &self.workflows {
+            if assessment.status() != CertificationCheckStatus::Passed {
+                return Err(
+                    CertificationProfileValidationError::WorkflowStatusMismatch {
+                        feature: feature.clone(),
+                        actual: assessment.status(),
+                    },
+                );
+            }
+        }
+
+        Ok(StructurallyValidatedCertificationEvidence {
+            profile,
+            evidence: self,
+        })
+    }
+}
+
+/// Failure to bind certification evidence to its exact immutable profile.
+#[derive(Debug, Error)]
+pub enum CertificationProfileValidationError {
+    /// Canonical profile bytes could not be produced for hashing.
+    #[error("certification profile digest is unavailable")]
+    ProfileDigestUnavailable(#[source] serde_json::Error),
+    /// Evidence referenced a different profile identity.
+    #[error("certification evidence profile digest does not match the supplied profile")]
+    ProfileDigestMismatch,
+    /// A fixed check did not satisfy the profile's exact expectation.
+    #[error("certification fixed-check status does not match the profile")]
+    CheckStatusMismatch {
+        /// Mismatched fixed dimension.
+        dimension: CertificationCheckDimension,
+        /// Exact profile expectation.
+        expected: CertificationExpectedStatus,
+        /// Actual evidence status.
+        actual: CertificationCheckStatus,
+    },
+    /// Evidence and profile declared different workflow key sets.
+    #[error("certification workflow scope does not match the profile")]
+    WorkflowScopeMismatch,
+    /// One mandatory profile workflow did not pass.
+    #[error("mandatory certification workflow did not pass")]
+    WorkflowStatusMismatch {
+        /// Exact mandatory workflow.
+        feature: FeatureId,
+        /// Actual evidence status.
+        actual: CertificationCheckStatus,
+    },
+}
+
+/// Opaque proof that evidence is structurally bound to one exact immutable profile.
+///
+/// This type is deliberately non-serializable and does not authenticate the profile or evidence.
+#[must_use = "structural certification validation does not itself grant trust"]
+pub struct StructurallyValidatedCertificationEvidence {
+    profile: CertificationProfile,
+    evidence: CertificationEvidence,
+}
+
+impl StructurallyValidatedCertificationEvidence {
+    /// Returns the exact structurally bound profile.
+    #[must_use]
+    pub const fn profile(&self) -> &CertificationProfile {
+        &self.profile
+    }
+
+    /// Returns the exact structurally bound evidence.
+    #[must_use]
+    pub const fn evidence(&self) -> &CertificationEvidence {
+        &self.evidence
     }
 }

@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
   "bins/weregopher",
+  "crates/weregopher-adapter-discord",
+  "crates/weregopher-asar",
   "crates/weregopher-discovery",
   "crates/weregopher-domain",
   "crates/weregopher-fingerprint",

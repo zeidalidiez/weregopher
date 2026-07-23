@@ -325,6 +325,22 @@ fn update_canonical_digest_text(hasher: &mut Sha256, digest: &Sha256Digest) {
     hasher.update(hex::encode(digest.as_bytes()).as_bytes());
 }
 
+/// Role-named content identities used to construct one generated execution-artifact binding.
+///
+/// This constructor input is not independently serialized. Named fields prevent same-type digest
+/// arguments from being silently transposed while preserving the canonical binding transport.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionArtifactDigests {
+    /// Exact signed static target-contract identity.
+    pub execution_contract_digest: Sha256Digest,
+    /// Exact package-tree or managed-manifest identity containing the executable.
+    pub artifact_source_digest: Sha256Digest,
+    /// Exact executable byte identity.
+    pub executable_digest: Sha256Digest,
+    /// Exact generated resolution-evidence identity.
+    pub resolution_evidence_digest: Sha256Digest,
+}
+
 /// Generated evidence binding one static execution target to exact resolved artifacts.
 ///
 /// The resolution-evidence artifact is expected to describe the resolved executable path, signer or
@@ -344,19 +360,15 @@ pub struct ExecutionArtifactBinding {
 }
 
 impl ExecutionArtifactBinding {
-    /// Constructs one content-addressed generated execution-artifact binding.
+    /// Constructs one content-addressed generated execution-artifact binding from role-named
+    /// digests, preventing positional digest transposition at the call site.
     #[must_use]
-    pub const fn new(
-        execution_contract_digest: Sha256Digest,
-        artifact_source_digest: Sha256Digest,
-        executable_digest: Sha256Digest,
-        resolution_evidence_digest: Sha256Digest,
-    ) -> Self {
+    pub const fn new(digests: ExecutionArtifactDigests) -> Self {
         Self {
-            execution_contract: execution_contract_digest,
-            artifact_source: artifact_source_digest,
-            executable: executable_digest,
-            resolution_evidence: resolution_evidence_digest,
+            execution_contract: digests.execution_contract_digest,
+            artifact_source: digests.artifact_source_digest,
+            executable: digests.executable_digest,
+            resolution_evidence: digests.resolution_evidence_digest,
         }
     }
 
@@ -396,19 +408,12 @@ pub struct ExecutionAuthorityBinding {
 }
 
 impl ExecutionAuthorityBinding {
-    /// Constructs the exact adapter and execution-authority identities.
-    #[must_use]
-    pub const fn new(
-        family: ApplicationFamilyId,
-        adapter_id: AdapterId,
-        adapter_content_digest: Sha256Digest,
-        adapter_execution_authority_digest: Sha256Digest,
-    ) -> Self {
+    fn from_authority(authority: &AdapterExecutionAuthority) -> Self {
         Self {
-            family,
-            adapter_id,
-            adapter_content_digest,
-            adapter_execution_authority_digest,
+            family: authority.family.clone(),
+            adapter_id: authority.adapter_id.clone(),
+            adapter_content_digest: authority.adapter_content_digest,
+            adapter_execution_authority_digest: authority.canonical_document_digest(),
         }
     }
 
@@ -437,6 +442,19 @@ impl ExecutionAuthorityBinding {
     }
 }
 
+/// Role-named immutable environment identities used to construct and validate one execution overlay.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionOverlayContext {
+    /// Exact source build-fingerprint identity.
+    pub source_build_fingerprint_digest: Sha256Digest,
+    /// Exact package-tree identity.
+    pub package_tree_merkle: Sha256Digest,
+    /// Exact execution-environment descriptor identity.
+    pub execution_environment_digest: Sha256Digest,
+    /// Exact build-descriptor identity.
+    pub build_descriptor_digest: Sha256Digest,
+}
+
 /// Immutable identities binding generated execution evidence to one exact environment.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -450,20 +468,17 @@ pub struct ExecutionOverlayBinding {
 
 impl ExecutionOverlayBinding {
     /// Constructs exact immutable identities for one generated execution overlay.
+    ///
+    /// Adapter and authority digests are derived from the supplied authority object rather than
+    /// accepted as independently positioned arguments.
     #[must_use]
-    pub const fn new(
-        source_build_fingerprint_digest: Sha256Digest,
-        package_tree_merkle: Sha256Digest,
-        execution_environment_digest: Sha256Digest,
-        authority: ExecutionAuthorityBinding,
-        build_descriptor_digest: Sha256Digest,
-    ) -> Self {
+    pub fn new(context: ExecutionOverlayContext, authority: &AdapterExecutionAuthority) -> Self {
         Self {
-            source_build_fingerprint_digest,
-            package_tree_merkle,
-            execution_environment_digest,
-            authority,
-            build_descriptor_digest,
+            source_build_fingerprint_digest: context.source_build_fingerprint_digest,
+            package_tree_merkle: context.package_tree_merkle,
+            execution_environment_digest: context.execution_environment_digest,
+            authority: ExecutionAuthorityBinding::from_authority(authority),
+            build_descriptor_digest: context.build_descriptor_digest,
         }
     }
 
@@ -672,22 +687,19 @@ impl GeneratedExecutionOverlay {
     pub fn validate_against<'overlay, 'authority>(
         &'overlay self,
         authority: &'authority AdapterExecutionAuthority,
-        source_build_fingerprint_digest: Sha256Digest,
-        package_tree_merkle: Sha256Digest,
-        execution_environment_digest: Sha256Digest,
-        build_descriptor_digest: Sha256Digest,
+        context: ExecutionOverlayContext,
     ) -> Result<StructurallyValidatedExecutionOverlay<'overlay, 'authority>, ExecutionContractError>
     {
-        if self.binding.source_build_fingerprint_digest != source_build_fingerprint_digest {
+        if self.binding.source_build_fingerprint_digest != context.source_build_fingerprint_digest {
             return Err(ExecutionContractError::SourceBuildMismatch);
         }
-        if self.binding.package_tree_merkle != package_tree_merkle {
+        if self.binding.package_tree_merkle != context.package_tree_merkle {
             return Err(ExecutionContractError::PackageTreeMismatch);
         }
-        if self.binding.execution_environment_digest != execution_environment_digest {
+        if self.binding.execution_environment_digest != context.execution_environment_digest {
             return Err(ExecutionContractError::ExecutionEnvironmentMismatch);
         }
-        if self.binding.build_descriptor_digest != build_descriptor_digest {
+        if self.binding.build_descriptor_digest != context.build_descriptor_digest {
             return Err(ExecutionContractError::BuildDescriptorMismatch);
         }
         if self.binding.authority.adapter_id != authority.adapter_id

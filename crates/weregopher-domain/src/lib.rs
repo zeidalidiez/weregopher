@@ -34,10 +34,11 @@ pub use discovery::{
 };
 pub use execution::{
     AdapterExecutionAuthority, AuthorizedExecutionTargetRef, EXECUTION_REBINDING_FORMAT_VERSION,
-    ExecutionArchitecture, ExecutionArtifactBinding, ExecutionArtifactSource,
-    ExecutionAuthorityBinding, ExecutionContractError, ExecutionOverlayBinding, ExecutionPlatform,
-    ExecutionTargetKind, GeneratedExecutionOverlay, MAX_AUTHORIZED_EXECUTION_TARGETS,
-    MAX_GENERATED_EXECUTION_BINDINGS, StructurallyValidatedExecutionOverlay,
+    ExecutionArchitecture, ExecutionArtifactBinding, ExecutionArtifactDigests,
+    ExecutionArtifactSource, ExecutionAuthorityBinding, ExecutionContractError,
+    ExecutionOverlayBinding, ExecutionOverlayContext, ExecutionPlatform, ExecutionTargetKind,
+    GeneratedExecutionOverlay, MAX_AUTHORIZED_EXECUTION_TARGETS, MAX_GENERATED_EXECUTION_BINDINGS,
+    StructurallyValidatedExecutionOverlay,
 };
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,

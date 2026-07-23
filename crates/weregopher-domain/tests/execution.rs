@@ -6,11 +6,31 @@ use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use weregopher_domain::{
     AdapterExecutionAuthority, AdapterId, ApplicationFamilyId, AuthorizedExecutionTargetRef,
-    EXECUTION_REBINDING_FORMAT_VERSION, ExecutionArtifactBinding, ExecutionArtifactSource,
-    ExecutionAuthorityBinding, ExecutionContractError, ExecutionOverlayBinding, ExecutionTargetId,
-    ExecutionTargetKind, GeneratedExecutionOverlay, MAX_AUTHORIZED_EXECUTION_TARGETS,
-    MAX_GENERATED_EXECUTION_BINDINGS, Sha256Digest,
+    EXECUTION_REBINDING_FORMAT_VERSION, ExecutionArtifactBinding, ExecutionArtifactDigests,
+    ExecutionArtifactSource, ExecutionContractError, ExecutionOverlayBinding,
+    ExecutionOverlayContext, ExecutionTargetId, ExecutionTargetKind, GeneratedExecutionOverlay,
+    MAX_AUTHORIZED_EXECUTION_TARGETS, MAX_GENERATED_EXECUTION_BINDINGS, Sha256Digest,
 };
+
+#[test]
+fn execution_binding_construction_uses_role_named_digest_contexts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let authority = authority("helper.allowed", digest(0x31))?;
+    let context = execution_context();
+    let artifact = ExecutionArtifactBinding::new(ExecutionArtifactDigests {
+        execution_contract_digest: digest(0x31),
+        artifact_source_digest: digest(0x42),
+        executable_digest: digest(0x45),
+        resolution_evidence_digest: digest(0x46),
+    });
+    let overlay = GeneratedExecutionOverlay::windows_x64(
+        ExecutionOverlayBinding::new(context, &authority),
+        BTreeMap::from([(ExecutionTargetId::new("helper.allowed")?, artifact)]),
+    )?;
+
+    overlay.validate_against(&authority, context)?;
+    Ok(())
+}
 
 #[test]
 fn exact_execution_binding_is_structurally_valid() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,24 +52,18 @@ fn exact_execution_binding_is_structurally_valid() -> Result<(), Box<dyn std::er
             ),
         )]),
     )?;
-    let authority_digest = authority.canonical_document_digest();
     let package_tree_merkle = digest(0x21);
+    let context = ExecutionOverlayContext {
+        source_build_fingerprint_digest: digest(0x20),
+        package_tree_merkle,
+        execution_environment_digest: digest(0x22),
+        build_descriptor_digest: digest(0x23),
+    };
     let overlay = GeneratedExecutionOverlay::windows_x64(
-        ExecutionOverlayBinding::new(
-            digest(0x20),
-            package_tree_merkle,
-            digest(0x22),
-            ExecutionAuthorityBinding::new(
-                family,
-                adapter_id,
-                adapter_content_digest,
-                authority_digest,
-            ),
-            digest(0x23),
-        ),
+        ExecutionOverlayBinding::new(context, &authority),
         BTreeMap::from([(
             target_id.clone(),
-            ExecutionArtifactBinding::new(
+            artifact_binding(
                 contract_digest,
                 package_tree_merkle,
                 digest(0x24),
@@ -58,13 +72,7 @@ fn exact_execution_binding_is_structurally_valid() -> Result<(), Box<dyn std::er
         )]),
     )?;
 
-    let validated = overlay.validate_against(
-        &authority,
-        digest(0x20),
-        package_tree_merkle,
-        digest(0x22),
-        digest(0x23),
-    )?;
+    let validated = overlay.validate_against(&authority, context)?;
     assert_eq!(validated.overlay(), &overlay);
     assert_eq!(validated.authority(), &authority);
     assert_eq!(
@@ -99,25 +107,13 @@ fn generated_execution_overlay_cannot_expand_static_authority()
     let authority = authority("helper.allowed", digest(0x31))?;
     let unknown = overlay("helper.generated", digest(0x31), digest(0x42))?;
     assert_eq!(
-        unknown.validate_against(
-            &authority,
-            digest(0x40),
-            digest(0x42),
-            digest(0x43),
-            digest(0x44),
-        ),
+        unknown.validate_against(&authority, execution_context()),
         Err(ExecutionContractError::UnknownExecutionTarget)
     );
 
     let substituted = overlay("helper.allowed", digest(0xff), digest(0x42))?;
     assert_eq!(
-        substituted.validate_against(
-            &authority,
-            digest(0x40),
-            digest(0x42),
-            digest(0x43),
-            digest(0x44),
-        ),
+        substituted.validate_against(&authority, execution_context()),
         Err(ExecutionContractError::ExecutionContractDigestMismatch)
     );
     Ok(())
@@ -130,13 +126,7 @@ fn package_snapshot_target_must_bind_the_overlay_package_tree()
     let overlay = overlay("helper.allowed", digest(0x31), digest(0xfe))?;
 
     assert_eq!(
-        overlay.validate_against(
-            &authority,
-            digest(0x40),
-            digest(0x42),
-            digest(0x43),
-            digest(0x44),
-        ),
+        overlay.validate_against(&authority, execution_context()),
         Err(ExecutionContractError::PackageSnapshotDigestMismatch)
     );
     Ok(())
@@ -163,37 +153,21 @@ fn managed_artifact_target_can_bind_a_distinct_materialization_manifest()
             ),
         )]),
     )?;
+    let context = ExecutionOverlayContext {
+        source_build_fingerprint_digest: digest(0x63),
+        package_tree_merkle: digest(0x64),
+        execution_environment_digest: digest(0x65),
+        build_descriptor_digest: digest(0x66),
+    };
     let overlay = GeneratedExecutionOverlay::windows_x64(
-        ExecutionOverlayBinding::new(
-            digest(0x63),
-            digest(0x64),
-            digest(0x65),
-            ExecutionAuthorityBinding::new(
-                family,
-                adapter_id,
-                adapter_content_digest,
-                authority.canonical_document_digest(),
-            ),
-            digest(0x66),
-        ),
+        ExecutionOverlayBinding::new(context, &authority),
         BTreeMap::from([(
             target_id,
-            ExecutionArtifactBinding::new(
-                contract_digest,
-                digest(0x67),
-                digest(0x68),
-                digest(0x69),
-            ),
+            artifact_binding(contract_digest, digest(0x67), digest(0x68), digest(0x69)),
         )]),
     )?;
 
-    overlay.validate_against(
-        &authority,
-        digest(0x63),
-        digest(0x64),
-        digest(0x65),
-        digest(0x66),
-    )?;
+    overlay.validate_against(&authority, context)?;
     Ok(())
 }
 
@@ -234,7 +208,15 @@ fn execution_overlay_is_bound_to_every_external_context_identity()
         ),
     ] {
         assert_eq!(
-            overlay.validate_against(&authority, source, package, environment, descriptor),
+            overlay.validate_against(
+                &authority,
+                ExecutionOverlayContext {
+                    source_build_fingerprint_digest: source,
+                    package_tree_merkle: package,
+                    execution_environment_digest: environment,
+                    build_descriptor_digest: descriptor,
+                },
+            ),
             Err(expected)
         );
     }
@@ -259,25 +241,13 @@ fn execution_overlay_must_reference_the_exact_authority_object()
         )]),
     )?;
     assert_eq!(
-        overlay.validate_against(
-            &wrong_family,
-            digest(0x40),
-            digest(0x42),
-            digest(0x43),
-            digest(0x44),
-        ),
+        overlay.validate_against(&wrong_family, execution_context()),
         Err(ExecutionContractError::AuthorityIdentityMismatch)
     );
 
     let substituted_contract = authority("helper.allowed", digest(0xff))?;
     assert_eq!(
-        overlay.validate_against(
-            &substituted_contract,
-            digest(0x40),
-            digest(0x42),
-            digest(0x43),
-            digest(0x44),
-        ),
+        overlay.validate_against(&substituted_contract, execution_context()),
         Err(ExecutionContractError::AuthorityDigestMismatch)
     );
     Ok(())
@@ -316,20 +286,16 @@ fn execution_contracts_enforce_nonempty_bounded_maps() -> Result<(), Box<dyn std
         Err(ExecutionContractError::TooManyExecutionTargets)
     );
 
+    let overlay_authority = authority("helper.fixture", digest(0x87))?;
+    let overlay_context = ExecutionOverlayContext {
+        source_build_fingerprint_digest: digest(0x84),
+        package_tree_merkle: digest(0x85),
+        execution_environment_digest: digest(0x86),
+        build_descriptor_digest: digest(0x89),
+    };
     assert_eq!(
         GeneratedExecutionOverlay::windows_x64(
-            ExecutionOverlayBinding::new(
-                digest(0x84),
-                digest(0x85),
-                digest(0x86),
-                ExecutionAuthorityBinding::new(
-                    ApplicationFamilyId::new("openai.chatgpt.windows")?,
-                    AdapterId::new("openai.desktop")?,
-                    digest(0x87),
-                    digest(0x88),
-                ),
-                digest(0x89),
-            ),
+            ExecutionOverlayBinding::new(overlay_context, &overlay_authority),
             BTreeMap::new(),
         ),
         Err(ExecutionContractError::EmptyExecutionOverlay)
@@ -338,29 +304,13 @@ fn execution_contracts_enforce_nonempty_bounded_maps() -> Result<(), Box<dyn std
         .map(|index| {
             Ok((
                 ExecutionTargetId::new(format!("helper.target-{index}"))?,
-                ExecutionArtifactBinding::new(
-                    digest(0x8a),
-                    digest(0x8b),
-                    digest(0x8c),
-                    digest(0x8d),
-                ),
+                artifact_binding(digest(0x8a), digest(0x8b), digest(0x8c), digest(0x8d)),
             ))
         })
         .collect::<Result<BTreeMap<_, _>, Box<dyn std::error::Error>>>()?;
     assert_eq!(
         GeneratedExecutionOverlay::windows_x64(
-            ExecutionOverlayBinding::new(
-                digest(0x84),
-                digest(0x85),
-                digest(0x86),
-                ExecutionAuthorityBinding::new(
-                    ApplicationFamilyId::new("openai.chatgpt.windows")?,
-                    AdapterId::new("openai.desktop")?,
-                    digest(0x87),
-                    digest(0x88),
-                ),
-                digest(0x89),
-            ),
+            ExecutionOverlayBinding::new(overlay_context, &overlay_authority),
             bindings,
         ),
         Err(ExecutionContractError::TooManyExecutionBindings)
@@ -419,7 +369,7 @@ fn generated_execution_binding_map_is_bounded_and_duplicate_strict()
 -> Result<(), Box<dyn std::error::Error>> {
     let seed = overlay("helper.seed", digest(0xa1), digest(0x42))?;
     let mut document = serde_json::to_value(&seed)?;
-    let generated = serde_json::to_value(ExecutionArtifactBinding::new(
+    let generated = serde_json::to_value(artifact_binding(
         digest(0xa2),
         digest(0xa3),
         digest(0xa4),
@@ -461,11 +411,119 @@ fn generated_execution_binding_map_is_bounded_and_duplicate_strict()
 }
 
 #[test]
+fn streamed_authority_parser_ignores_the_first_malformed_excess_value()
+-> Result<(), Box<dyn std::error::Error>> {
+    let target = serde_json::to_string(&AuthorizedExecutionTargetRef::new(
+        ExecutionTargetKind::VendorHelper,
+        ExecutionArtifactSource::PackageSnapshot,
+        digest(0xb0),
+    ))?;
+    let targets = (0..MAX_AUTHORIZED_EXECUTION_TARGETS)
+        .map(|index| format!(r#""helper.target-{index:03}":{target}"#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let digest = serde_json::to_string(&digest(0xb1))?;
+    let exact = format!(
+        r#"{{"format_version":"1","adapter_id":"openai.desktop","family":"openai.chatgpt.windows","adapter_content_digest":{digest},"targets":{{{targets}}}}}"#
+    );
+    assert_eq!(
+        serde_json::from_str::<AdapterExecutionAuthority>(&exact)?
+            .targets()
+            .len(),
+        MAX_AUTHORIZED_EXECUTION_TARGETS
+    );
+
+    let excess = format!(
+        r#"{{"format_version":"1","adapter_id":"openai.desktop","family":"openai.chatgpt.windows","adapter_content_digest":{digest},"targets":{{{targets},"zzzz.excess":{{"invalid":["payload"]}}}}}}"#
+    );
+    let Err(error) = serde_json::from_str::<AdapterExecutionAuthority>(&excess) else {
+        return Err("streamed authority parser accepted an excess target".into());
+    };
+    assert!(
+        error.to_string().contains("target limit"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn streamed_overlay_parser_ignores_the_first_malformed_excess_value()
+-> Result<(), Box<dyn std::error::Error>> {
+    let seed = overlay("helper.seed", digest(0xb2), digest(0x42))?;
+    let serialized = serde_json::to_string(&seed)?;
+    let binding = serde_json::to_string(
+        seed.bindings()
+            .get(&ExecutionTargetId::new("helper.seed")?)
+            .ok_or("expected seed binding")?,
+    )?;
+    let single = format!(r#""bindings":{{"helper.seed":{binding}}}"#);
+    let bindings = (0..MAX_GENERATED_EXECUTION_BINDINGS)
+        .map(|index| format!(r#""helper.target-{index:03}":{binding}"#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let exact = serialized.replacen(&single, &format!(r#""bindings":{{{bindings}}}"#), 1);
+    assert_ne!(exact, serialized);
+    assert_eq!(
+        serde_json::from_str::<GeneratedExecutionOverlay>(&exact)?
+            .bindings()
+            .len(),
+        MAX_GENERATED_EXECUTION_BINDINGS
+    );
+
+    let excess_fragment =
+        format!(r#""bindings":{{{bindings},"zzzz.excess":{{"invalid":["payload"]}}}}"#);
+    let excess = serialized.replacen(&single, &excess_fragment, 1);
+    let Err(error) = serde_json::from_str::<GeneratedExecutionOverlay>(&excess) else {
+        return Err("streamed overlay parser accepted an excess binding".into());
+    };
+    assert!(
+        error.to_string().contains("binding limit"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn execution_overlay_rejects_independent_adapter_identity_replay()
+-> Result<(), Box<dyn std::error::Error>> {
+    let overlay = overlay("helper.allowed", digest(0x31), digest(0x42))?;
+    for authority in [
+        AdapterExecutionAuthority::new(
+            AdapterId::new("microsoft.vscode")?,
+            ApplicationFamilyId::new("openai.chatgpt.windows")?,
+            digest(0x32),
+            authority_targets("helper.allowed", digest(0x31))?,
+        )?,
+        AdapterExecutionAuthority::new(
+            AdapterId::new("openai.desktop")?,
+            ApplicationFamilyId::new("openai.chatgpt.windows")?,
+            digest(0xff),
+            authority_targets("helper.allowed", digest(0x31))?,
+        )?,
+    ] {
+        assert_eq!(
+            overlay.validate_against(&authority, execution_context()),
+            Err(ExecutionContractError::AuthorityIdentityMismatch)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn execution_overlay_transport_is_strict_and_lexically_versioned()
 -> Result<(), Box<dyn std::error::Error>> {
     let authority = authority("helper.seed", digest(0x91))?;
     let authority_document = serde_json::to_value(&authority)?;
-    for version in [json!(1), json!(1.0), json!(null), json!("2")] {
+    for version in [
+        json!(1),
+        json!(1.0),
+        json!(null),
+        json!(true),
+        json!([]),
+        json!({}),
+        json!(""),
+        json!("2"),
+    ] {
         let mut invalid = authority_document.clone();
         invalid["format_version"] = version;
         assert!(serde_json::from_value::<AdapterExecutionAuthority>(invalid).is_err());
@@ -495,7 +553,16 @@ fn execution_overlay_transport_is_strict_and_lexically_versioned()
 
     let overlay = overlay("helper.seed", digest(0xa1), digest(0x42))?;
     let document = serde_json::to_value(&overlay)?;
-    for version in [json!(1), json!(1.0), json!(null), json!("2")] {
+    for version in [
+        json!(1),
+        json!(1.0),
+        json!(null),
+        json!(true),
+        json!([]),
+        json!({}),
+        json!(""),
+        json!("2"),
+    ] {
         let mut invalid = document.clone();
         invalid["format_version"] = version;
         assert!(serde_json::from_value::<GeneratedExecutionOverlay>(invalid).is_err());
@@ -565,27 +632,19 @@ fn execution_contract_maps_accept_the_exact_serialized_limits()
         .map(|index| {
             Ok((
                 ExecutionTargetId::new(format!("helper.target-{index:03}"))?,
-                ExecutionArtifactBinding::new(
-                    digest(0xc3),
-                    digest(0xc4),
-                    digest(0xc5),
-                    digest(0xc6),
-                ),
+                artifact_binding(digest(0xc3), digest(0xc4), digest(0xc5), digest(0xc6)),
             ))
         })
         .collect::<Result<BTreeMap<_, _>, Box<dyn std::error::Error>>>()?;
     let generated = GeneratedExecutionOverlay::windows_x64(
         ExecutionOverlayBinding::new(
-            digest(0xc7),
-            digest(0xc8),
-            digest(0xc9),
-            ExecutionAuthorityBinding::new(
-                ApplicationFamilyId::new("openai.chatgpt.windows")?,
-                AdapterId::new("openai.desktop")?,
-                digest(0xca),
-                digest(0xcb),
-            ),
-            digest(0xcc),
+            ExecutionOverlayContext {
+                source_build_fingerprint_digest: digest(0xc7),
+                package_tree_merkle: digest(0xc8),
+                execution_environment_digest: digest(0xc9),
+                build_descriptor_digest: digest(0xcc),
+            },
+            &authority,
         ),
         bindings,
     )?;
@@ -663,26 +722,24 @@ fn authority_digest_and_serialization_are_insertion_order_independent()
 #[test]
 fn generated_execution_serialization_is_insertion_order_independent()
 -> Result<(), Box<dyn std::error::Error>> {
+    let authority = authority("helper.alpha", digest(0xd7))?;
     let binding = ExecutionOverlayBinding::new(
-        digest(0xd1),
-        digest(0xd2),
-        digest(0xd3),
-        ExecutionAuthorityBinding::new(
-            ApplicationFamilyId::new("openai.chatgpt.windows")?,
-            AdapterId::new("openai.desktop")?,
-            digest(0xd4),
-            digest(0xd5),
-        ),
-        digest(0xd6),
+        ExecutionOverlayContext {
+            source_build_fingerprint_digest: digest(0xd1),
+            package_tree_merkle: digest(0xd2),
+            execution_environment_digest: digest(0xd3),
+            build_descriptor_digest: digest(0xd6),
+        },
+        &authority,
     );
     let entries = [
         (
             ExecutionTargetId::new("helper.alpha")?,
-            ExecutionArtifactBinding::new(digest(0xd7), digest(0xd8), digest(0xd9), digest(0xda)),
+            artifact_binding(digest(0xd7), digest(0xd8), digest(0xd9), digest(0xda)),
         ),
         (
             ExecutionTargetId::new("runtime.main")?,
-            ExecutionArtifactBinding::new(digest(0xdb), digest(0xdc), digest(0xdd), digest(0xde)),
+            artifact_binding(digest(0xdb), digest(0xdc), digest(0xdd), digest(0xde)),
         ),
     ];
     let first = GeneratedExecutionOverlay::windows_x64(binding.clone(), entries.clone().into())?;
@@ -700,15 +757,22 @@ fn authority(
         AdapterId::new("openai.desktop")?,
         ApplicationFamilyId::new("openai.chatgpt.windows")?,
         digest(0x32),
-        BTreeMap::from([(
-            ExecutionTargetId::new(target_id)?,
-            AuthorizedExecutionTargetRef::new(
-                ExecutionTargetKind::VendorHelper,
-                ExecutionArtifactSource::PackageSnapshot,
-                contract_digest,
-            ),
-        )]),
+        authority_targets(target_id, contract_digest)?,
     )?)
+}
+
+fn authority_targets(
+    target_id: &str,
+    contract_digest: Sha256Digest,
+) -> Result<BTreeMap<ExecutionTargetId, AuthorizedExecutionTargetRef>, Box<dyn std::error::Error>> {
+    Ok(BTreeMap::from([(
+        ExecutionTargetId::new(target_id)?,
+        AuthorizedExecutionTargetRef::new(
+            ExecutionTargetKind::VendorHelper,
+            ExecutionArtifactSource::PackageSnapshot,
+            contract_digest,
+        ),
+    )]))
 }
 
 fn overlay(
@@ -718,21 +782,10 @@ fn overlay(
 ) -> Result<GeneratedExecutionOverlay, Box<dyn std::error::Error>> {
     let authority = authority("helper.allowed", digest(0x31))?;
     Ok(GeneratedExecutionOverlay::windows_x64(
-        ExecutionOverlayBinding::new(
-            digest(0x40),
-            digest(0x42),
-            digest(0x43),
-            ExecutionAuthorityBinding::new(
-                ApplicationFamilyId::new("openai.chatgpt.windows")?,
-                AdapterId::new("openai.desktop")?,
-                digest(0x32),
-                authority.canonical_document_digest(),
-            ),
-            digest(0x44),
-        ),
+        ExecutionOverlayBinding::new(execution_context(), &authority),
         BTreeMap::from([(
             ExecutionTargetId::new(target_id)?,
-            ExecutionArtifactBinding::new(
+            artifact_binding(
                 contract_digest,
                 artifact_source_digest,
                 digest(0x45),
@@ -744,4 +797,27 @@ fn overlay(
 
 fn digest(byte: u8) -> Sha256Digest {
     Sha256Digest::from_bytes([byte; 32])
+}
+
+fn artifact_binding(
+    execution_contract_digest: Sha256Digest,
+    artifact_source_digest: Sha256Digest,
+    executable_digest: Sha256Digest,
+    resolution_evidence_digest: Sha256Digest,
+) -> ExecutionArtifactBinding {
+    ExecutionArtifactBinding::new(ExecutionArtifactDigests {
+        execution_contract_digest,
+        artifact_source_digest,
+        executable_digest,
+        resolution_evidence_digest,
+    })
+}
+
+fn execution_context() -> ExecutionOverlayContext {
+    ExecutionOverlayContext {
+        source_build_fingerprint_digest: digest(0x40),
+        package_tree_merkle: digest(0x42),
+        execution_environment_digest: digest(0x43),
+        build_descriptor_digest: digest(0x44),
+    }
 }

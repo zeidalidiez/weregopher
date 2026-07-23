@@ -96,6 +96,8 @@ fn assert_execution_authority_schema(
         .as_object()
         .ok_or("execution authority must constrain target identifiers")?;
     assert_eq!(target_schemas.len(), 1);
+    assert!(target_schemas.contains_key(stable_identifier_pattern()));
+    assert_eq!(targets["additionalProperties"], false);
     assert_eq!(
         target_schemas
             .values()
@@ -128,15 +130,31 @@ fn assert_execution_authority_schema(
         "#/$defs/Sha256Digest"
     );
     assert_eq!(
+        authority["properties"]["adapter_id"]["$ref"],
+        "#/$defs/AdapterId"
+    );
+    assert_eq!(
+        authority["properties"]["family"]["$ref"],
+        "#/$defs/ApplicationFamilyId"
+    );
+    assert_eq!(
         target["properties"]["execution_contract_digest"]["$ref"],
         "#/$defs/Sha256Digest"
     );
+    for forbidden in execution_authority_forbidden_fields() {
+        assert!(authority["properties"].get(forbidden).is_none());
+        assert!(target["properties"].get(forbidden).is_none());
+    }
     Ok(())
 }
 
 fn assert_generated_execution_overlay_schema(
     overlay: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        overlay["$defs"]["ExecutionRebindingFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
     assert_required_properties(
         overlay,
         &[
@@ -162,6 +180,8 @@ fn assert_generated_execution_overlay_schema(
         .as_object()
         .ok_or("execution overlay must constrain target identifiers")?;
     assert_eq!(binding_schemas.len(), 1);
+    assert!(binding_schemas.contains_key(stable_identifier_pattern()));
+    assert_eq!(bindings["additionalProperties"], false);
     assert_eq!(
         binding_schemas
             .values()
@@ -170,6 +190,10 @@ fn assert_generated_execution_overlay_schema(
         "#/$defs/ExecutionArtifactBinding"
     );
     assert_eq!(overlay["additionalProperties"], false);
+    assert_eq!(
+        overlay["properties"]["binding"]["$ref"],
+        "#/$defs/ExecutionOverlayBinding"
+    );
     for definition in [
         "ExecutionArtifactBinding",
         "ExecutionAuthorityBinding",
@@ -198,13 +222,69 @@ fn assert_generated_execution_overlay_schema(
             "#/$defs/Sha256Digest"
         );
     }
-    for forbidden in [
-        "arguments",
-        "capabilities",
-        "execution_authorized",
-        "launch_authorized",
-        "security_exceptions",
+    assert_execution_overlay_context_schema(overlay)?;
+    assert_execution_overlay_is_non_authorizing(overlay);
+    Ok(())
+}
+
+fn assert_execution_overlay_context_schema(
+    overlay: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let authority = &overlay["$defs"]["ExecutionAuthorityBinding"];
+    assert_required_properties(
+        authority,
+        &[
+            "family",
+            "adapter_id",
+            "adapter_content_digest",
+            "adapter_execution_authority_digest",
+        ],
+    )?;
+    assert_eq!(
+        authority["properties"]["family"]["$ref"],
+        "#/$defs/ApplicationFamilyId"
+    );
+    assert_eq!(
+        authority["properties"]["adapter_id"]["$ref"],
+        "#/$defs/AdapterId"
+    );
+    for field in [
+        "adapter_content_digest",
+        "adapter_execution_authority_digest",
     ] {
+        assert_eq!(
+            authority["properties"][field]["$ref"],
+            "#/$defs/Sha256Digest"
+        );
+    }
+    let context = &overlay["$defs"]["ExecutionOverlayBinding"];
+    assert_required_properties(
+        context,
+        &[
+            "source_build_fingerprint_digest",
+            "package_tree_merkle",
+            "execution_environment_digest",
+            "authority",
+            "build_descriptor_digest",
+        ],
+    )?;
+    assert_eq!(
+        context["properties"]["authority"]["$ref"],
+        "#/$defs/ExecutionAuthorityBinding"
+    );
+    for field in [
+        "source_build_fingerprint_digest",
+        "package_tree_merkle",
+        "execution_environment_digest",
+        "build_descriptor_digest",
+    ] {
+        assert_eq!(context["properties"][field]["$ref"], "#/$defs/Sha256Digest");
+    }
+    Ok(())
+}
+
+fn assert_execution_overlay_is_non_authorizing(overlay: &serde_json::Value) {
+    for forbidden in execution_authority_forbidden_fields() {
         for properties in [
             &overlay["properties"],
             &overlay["$defs"]["ExecutionArtifactBinding"]["properties"],
@@ -214,7 +294,25 @@ fn assert_generated_execution_overlay_schema(
             assert!(properties.get(forbidden).is_none());
         }
     }
-    Ok(())
+}
+
+fn stable_identifier_pattern() -> &'static str {
+    r"^(?!.*\.\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$"
+}
+
+fn execution_authority_forbidden_fields() -> [&'static str; 10] {
+    [
+        "arguments",
+        "capabilities",
+        "execution_authorized",
+        "launch_authorized",
+        "native_content",
+        "privileged_operations",
+        "replacement_module",
+        "security_exceptions",
+        "state_migrations",
+        "user_consent",
+    ]
 }
 
 fn assert_required_properties(

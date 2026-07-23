@@ -43,10 +43,10 @@ pub use execution::{
     StructurallyValidatedExecutionOverlay,
 };
 pub use execution_digest::{
-    ArtifactTrustEvidenceDigest, CapabilityPolicyDigest, CompatibilityAnalysisDigest,
-    ExecutableDigest, ExecutionArtifactSourceDigest, ExecutionContractDigest,
-    ExecutionResolutionEvidenceDigest, ProvenanceEvidenceDigest, StatePolicyDigest,
-    UserPolicyDigest,
+    ArtifactTrustEvidenceDigest, AuthorizationContextDigest, CapabilityPolicyDigest,
+    CompatibilityAnalysisDigest, ExecutableDigest, ExecutionArtifactSourceDigest,
+    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, ProvenanceEvidenceDigest,
+    StatePolicyDigest, UserPolicyDigest,
 };
 pub use execution_target::{
     EXECUTION_RESOLUTION_FORMAT_VERSION, EXECUTION_TARGET_CONTRACT_FORMAT_VERSION,

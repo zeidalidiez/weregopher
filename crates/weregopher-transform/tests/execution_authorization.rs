@@ -8,17 +8,17 @@ use sha2::{Digest as _, Sha256};
 use tempfile::tempdir;
 use weregopher_domain::{
     AdapterExecutionAuthority, AdapterId, AdapterTransformAuthority, ApplicationFamilyId,
-    AuthorizedExecutionTargetRef, AuthorizedTransformRuleRef, CompatibilityAnalysis,
-    CompatibilityDimensions, CompatibilityEvidenceKind, CompatibilityEvidenceRef,
-    CompatibilityTarget, DimensionAssessment, DimensionStatus, EffectiveSecurityPosture,
-    ExecutionArgument, ExecutionArtifactBinding, ExecutionArtifactDigests,
-    ExecutionArtifactLocator, ExecutionDependencyPolicy, ExecutionLaunchPolicy,
-    ExecutionOverlayBinding, ExecutionOverlayContext, ExecutionPolicyRequirements,
-    ExecutionResolutionDigests, ExecutionResolutionEvidence, ExecutionResourceLimits,
-    ExecutionStateMode, ExecutionTargetContract, ExecutionTargetId, ExecutionTargetKind,
-    GeneratedExecutionOverlay, GeneratedTransformOverlay, RequiredSecurityPosture, Sha256Digest,
-    SourceUnitId, SourceUnitRef, TransformOverlayBinding, TransformRebinding, TransformRuleId,
-    TrustMode,
+    AuthorizationContextDigest, AuthorizedExecutionTargetRef, AuthorizedTransformRuleRef,
+    CompatibilityAnalysis, CompatibilityDimensions, CompatibilityEvidenceKind,
+    CompatibilityEvidenceRef, CompatibilityTarget, DimensionAssessment, DimensionStatus,
+    EffectiveSecurityPosture, ExecutionArgument, ExecutionArtifactBinding,
+    ExecutionArtifactDigests, ExecutionArtifactLocator, ExecutionDependencyPolicy,
+    ExecutionLaunchPolicy, ExecutionOverlayBinding, ExecutionOverlayContext,
+    ExecutionPolicyRequirements, ExecutionResolutionDigests, ExecutionResolutionEvidence,
+    ExecutionResourceLimits, ExecutionStateMode, ExecutionTargetContract, ExecutionTargetId,
+    ExecutionTargetKind, GeneratedExecutionOverlay, GeneratedTransformOverlay,
+    RequiredSecurityPosture, Sha256Digest, SourceUnitId, SourceUnitRef, TransformOverlayBinding,
+    TransformRebinding, TransformRuleId, TrustMode,
 };
 use weregopher_fingerprint::{PackageTreeObservationLimits, observe_package_tree};
 use weregopher_transform::{
@@ -140,7 +140,8 @@ fn one_shot_authorization_is_consumed_into_a_job_owned_launch()
     with_authorized_test_binary(
         "authorized_launch_child_helper",
         |authorization, _policy| {
-            let context_digest = authorization.authorization_context_digest();
+            let context_digest: AuthorizationContextDigest =
+                authorization.authorization_context_digest();
             let launch_policy = authorization.launch_policy().clone();
             let process = launch_authorized_execution(authorization)?;
             assert!(process.id() != 0);

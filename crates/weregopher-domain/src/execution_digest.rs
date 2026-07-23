@@ -101,3 +101,7 @@ execution_digest_role!(
     /// Current user-policy or consent identity.
     UserPolicyDigest
 );
+execution_digest_role!(
+    /// Complete live execution-authorization decision identity.
+    AuthorizationContextDigest
+);

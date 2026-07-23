@@ -16,15 +16,16 @@ use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use weregopher_domain::{
     AdapterId, AnalysisDisposition, ApplicationFamilyId, ArtifactTrustEvidenceDigest,
-    CapabilityPolicyDigest, CompatibilityAnalysis, CompatibilityAnalysisDigest,
-    EffectiveSecurityPosture, ExecutableDigest, ExecutionArgument, ExecutionArtifactLocator,
-    ExecutionArtifactSource, ExecutionArtifactSourceDigest, ExecutionConsolePolicy,
-    ExecutionContractDigest, ExecutionDependencyPolicy, ExecutionEnvironmentPolicy,
-    ExecutionInheritedHandlePolicy, ExecutionLaunchPolicy, ExecutionResolutionEvidence,
-    ExecutionResolutionEvidenceDigest, ExecutionResourceLimits, ExecutionStateMode,
-    ExecutionTargetContract, ExecutionTargetId, ExecutionWorkingDirectoryPolicy,
-    GeneratedExecutionOverlay, MAX_EXECUTION_ARGUMENTS, ProvenanceEvidenceDigest, Sha256Digest,
-    StatePolicyDigest, StructurallyValidatedExecutionOverlay, TrustMode, UserPolicyDigest,
+    AuthorizationContextDigest, CapabilityPolicyDigest, CompatibilityAnalysis,
+    CompatibilityAnalysisDigest, EffectiveSecurityPosture, ExecutableDigest, ExecutionArgument,
+    ExecutionArtifactLocator, ExecutionArtifactSource, ExecutionArtifactSourceDigest,
+    ExecutionConsolePolicy, ExecutionContractDigest, ExecutionDependencyPolicy,
+    ExecutionEnvironmentPolicy, ExecutionInheritedHandlePolicy, ExecutionLaunchPolicy,
+    ExecutionResolutionEvidence, ExecutionResolutionEvidenceDigest, ExecutionResourceLimits,
+    ExecutionStateMode, ExecutionTargetContract, ExecutionTargetId,
+    ExecutionWorkingDirectoryPolicy, GeneratedExecutionOverlay, MAX_EXECUTION_ARGUMENTS,
+    ProvenanceEvidenceDigest, Sha256Digest, StatePolicyDigest,
+    StructurallyValidatedExecutionOverlay, TrustMode, UserPolicyDigest,
 };
 use weregopher_windows::{
     JobLimits, KillOnCloseJob, LockedExecutable, OwnedJobProcess, PreparedProcessLaunch,
@@ -495,7 +496,7 @@ pub struct AuthorizedExecution<'lease, 'store> {
     trust_mode: TrustMode,
     effective_security_posture: EffectiveSecurityPosture,
     launch_policy: ExecutionLaunchPolicy,
-    authorization_context_digest: Sha256Digest,
+    authorization_context_digest: AuthorizationContextDigest,
     policy_store: Weak<RwLock<ExecutionPolicyState>>,
     policy_generation: u64,
     prepared_launch: PreparedAuthorizedLaunch,
@@ -582,7 +583,7 @@ impl AuthorizedExecution<'_, '_> {
 
     /// Returns the decision identity binding every authenticated and retained input.
     #[must_use]
-    pub const fn authorization_context_digest(&self) -> Sha256Digest {
+    pub const fn authorization_context_digest(&self) -> AuthorizationContextDigest {
         self.authorization_context_digest
     }
 
@@ -630,7 +631,7 @@ pub struct SupervisedExecution<'lease, 'store> {
     trust_mode: TrustMode,
     effective_security_posture: EffectiveSecurityPosture,
     launch_policy: ExecutionLaunchPolicy,
-    authorization_context_digest: Sha256Digest,
+    authorization_context_digest: AuthorizationContextDigest,
     retained_source: RetainedExecutionLease<'lease, 'store>,
     policy_store: Weak<RwLock<ExecutionPolicyState>>,
     policy_generation: u64,
@@ -691,7 +692,7 @@ impl SupervisedExecution<'_, '_> {
 
     /// Returns the decision identity bound to this process tree.
     #[must_use]
-    pub const fn authorization_context_digest(&self) -> Sha256Digest {
+    pub const fn authorization_context_digest(&self) -> AuthorizationContextDigest {
         self.authorization_context_digest
     }
 
@@ -889,11 +890,11 @@ pub fn authorize_execution<'lease, 'store>(
         &bindings.target_id,
         &AuthorizationContextDigests {
             authority_document: bindings.authority_digest,
-            target_contract: bindings.contract_digest.into_sha256(),
-            resolution_evidence: bindings.resolution_digest.into_sha256(),
-            artifact_source: artifact_source_digest,
-            executable: executable_digest,
-            compatibility_analysis: compatibility_digest.into_sha256(),
+            target_contract: bindings.contract_digest,
+            resolution_evidence: bindings.resolution_digest,
+            artifact_source: artifact_source_digest.into(),
+            executable: executable_digest.into(),
+            compatibility_analysis: compatibility_digest,
             policy_evidence: evidence_digests,
         },
         policy,
@@ -1223,11 +1224,11 @@ fn verify_policy_generation(
 #[derive(Clone, Copy)]
 struct AuthorizationContextDigests {
     authority_document: Sha256Digest,
-    target_contract: Sha256Digest,
-    resolution_evidence: Sha256Digest,
-    artifact_source: Sha256Digest,
-    executable: Sha256Digest,
-    compatibility_analysis: Sha256Digest,
+    target_contract: ExecutionContractDigest,
+    resolution_evidence: ExecutionResolutionEvidenceDigest,
+    artifact_source: ExecutionArtifactSourceDigest,
+    executable: ExecutableDigest,
+    compatibility_analysis: CompatibilityAnalysisDigest,
     policy_evidence: PolicyEvidenceDigests,
 }
 
@@ -1236,7 +1237,7 @@ fn authorization_context_digest(
     digests: &AuthorizationContextDigests,
     policy: &LocalExecutionPolicy,
     generation: u64,
-) -> Result<Sha256Digest, ExecutionAuthorizationError> {
+) -> Result<AuthorizationContextDigest, ExecutionAuthorizationError> {
     let target_length = u64::try_from(target_id.as_str().len())
         .map_err(|_| ExecutionAuthorizationError::AuthorizationContextEncodingFailed)?;
     let mut hasher = Sha256::new();
@@ -1249,11 +1250,15 @@ fn authorization_context_digest(
         policy.context.package_tree_merkle,
         policy.context.execution_environment_digest,
         policy.context.build_descriptor_digest,
-        digests.target_contract,
-        digests.resolution_evidence,
-        digests.artifact_source,
-        digests.executable,
-        digests.compatibility_analysis,
+    ] {
+        hasher.update(value.as_bytes());
+    }
+    for value in [
+        digests.target_contract.as_sha256(),
+        digests.resolution_evidence.as_sha256(),
+        digests.artifact_source.as_sha256(),
+        digests.executable.as_sha256(),
+        digests.compatibility_analysis.as_sha256(),
     ] {
         hasher.update(value.as_bytes());
     }
@@ -1268,7 +1273,7 @@ fn authorization_context_digest(
         TrustMode::Developer => 2,
         TrustMode::ForensicOverride => 3,
     }]);
-    Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
+    Ok(Sha256Digest::from_bytes(hasher.finalize().into()).into())
 }
 
 /// Failure constructing policy state or issuing/rechecking a live execution authorization.

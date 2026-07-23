@@ -7,6 +7,7 @@
 mod build;
 mod candidate;
 mod certification;
+mod certification_evidence;
 mod compatibility;
 mod digest;
 mod discovery;
@@ -23,6 +24,14 @@ pub use candidate::{
     CandidateChannelHint, CandidateProfile, CandidateTarget, initial_candidate_profiles,
 };
 pub use certification::{CertificationClass, PublicationStatus, TrustMode};
+pub use certification_evidence::{
+    CERTIFICATION_EVIDENCE_FORMAT_VERSION, CertificationArtifactDigest, CertificationArtifactKind,
+    CertificationArtifactRef, CertificationCheckAssessment, CertificationCheckStatus,
+    CertificationChecks, CertificationContractError, CertificationDocumentError,
+    CertificationEvidence, CertificationEvidenceDisposition, CertificationProfileDigest,
+    CertificationTarget, MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
+    MAX_CERTIFICATION_WORKFLOWS,
+};
 pub use compatibility::{
     AnalysisDisposition, COMPATIBILITY_ANALYSIS_FORMAT_VERSION, CompatibilityAnalysis,
     CompatibilityArchitecture, CompatibilityContractError, CompatibilityDimensions,

@@ -1,0 +1,334 @@
+{
+  "$defs": {
+    "CertificationArtifactDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Immutable identity of one certification probe, trace, fixture result, or report artifact."
+    },
+    "CertificationArtifactKind": {
+      "description": "Kind of immutable artifact supporting one certification check.",
+      "oneOf": [
+        {
+          "const": "package_identity",
+          "description": "Package identity, signature, or exact package-layout evidence.",
+          "type": "string"
+        },
+        {
+          "const": "static_analysis",
+          "description": "Deterministic static-analysis evidence.",
+          "type": "string"
+        },
+        {
+          "const": "runtime_probe",
+          "description": "Main-runtime launch or bootstrap probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "renderer_probe",
+          "description": "Renderer or preload probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "state_probe",
+          "description": "State safety or migration-dry-run evidence.",
+          "type": "string"
+        },
+        {
+          "const": "security_probe",
+          "description": "Security-contract probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "workflow_probe",
+          "description": "Application workflow evidence.",
+          "type": "string"
+        },
+        {
+          "const": "resource_probe",
+          "description": "Resource and process-tree scenario evidence.",
+          "type": "string"
+        },
+        {
+          "const": "helper_probe",
+          "description": "Vendor-helper lifecycle evidence.",
+          "type": "string"
+        },
+        {
+          "const": "exception_verification",
+          "description": "Verification of a declared exception or known gap.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed immutable artifact supporting one certification check.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/CertificationArtifactDigest",
+          "description": "Role-specific content identity of the evidence artifact."
+        },
+        "kind": {
+          "$ref": "#/$defs/CertificationArtifactKind",
+          "description": "Evidence category."
+        }
+      },
+      "required": [
+        "kind",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "CertificationCheckAssessment": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not_run"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "description": "One certification check's status and immutable supporting evidence.",
+      "properties": {
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/CertificationArtifactRef"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "$ref": "#/$defs/CertificationCheckStatus"
+        }
+      },
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "CertificationCheckStatus": {
+      "description": "Outcome of one certification check.",
+      "oneOf": [
+        {
+          "const": "not_run",
+          "description": "The configured profile did not run or resolve this check.",
+          "type": "string"
+        },
+        {
+          "const": "passed",
+          "description": "The declared requirement passed.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "The declared requirement failed.",
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "The exact profile proves this check does not apply.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationChecks": {
+      "additionalProperties": false,
+      "description": "Fixed mandatory check dimensions for one certification profile.",
+      "properties": {
+        "declared_exceptions": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Verification of every exception declared by the exact profile."
+        },
+        "entry_point_resolution": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Main entry-point resolution."
+        },
+        "helper_lifecycle": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Vendor-helper launch, exit, and cleanup."
+        },
+        "module_graph": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Main module-graph load."
+        },
+        "native_dependencies": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Native dependency recognition and strategy."
+        },
+        "package_identity": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Package identity, signature, and expected package layout."
+        },
+        "preload_handshake": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Preload and bridge handshake."
+        },
+        "renderer_bootstrap": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Renderer backend bootstrap."
+        },
+        "resource_scenario": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Process-tree and resource-limit scenarios."
+        },
+        "runtime_bootstrap": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Main-runtime bootstrap."
+        },
+        "security_contract": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Critical security-contract regression probes."
+        },
+        "state_safety": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "State read, migration dry run, and rollback safety."
+        },
+        "transform_matches": {
+          "$ref": "#/$defs/CertificationCheckAssessment",
+          "description": "Deterministic transform match cardinality and output identity."
+        }
+      },
+      "required": [
+        "package_identity",
+        "entry_point_resolution",
+        "transform_matches",
+        "module_graph",
+        "native_dependencies",
+        "runtime_bootstrap",
+        "renderer_bootstrap",
+        "preload_handshake",
+        "state_safety",
+        "helper_lifecycle",
+        "security_contract",
+        "resource_scenario",
+        "declared_exceptions"
+      ],
+      "type": "object"
+    },
+    "CertificationEvidenceFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "CertificationProfileDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Immutable identity of the exact certification profile and mandatory-suite definition."
+    },
+    "CertificationTarget": {
+      "additionalProperties": false,
+      "description": "Exact immutable inputs against which certification evidence was produced.\n\nRole-specific identities prevent transposing semantically distinct hashes:\n\n```compile_fail\nuse weregopher_domain::{\n    CertificationTarget, CompatibilityAnalysisDigest, ExecutableDigest,\n    ExecutionArtifactSourceDigest, ExecutionContractDigest,\n    ExecutionResolutionEvidenceDigest, Sha256Digest,\n};\nlet raw = Sha256Digest::from_bytes([0x11; 32]);\nlet compatibility = CompatibilityAnalysisDigest::new(raw);\nlet contract = ExecutionContractDigest::new(raw);\nlet resolution = ExecutionResolutionEvidenceDigest::new(raw);\nlet source = ExecutionArtifactSourceDigest::new(raw);\nlet executable = ExecutableDigest::new(raw);\nlet _ = CertificationTarget::new(\n    contract,\n    compatibility,\n    resolution,\n    source,\n    executable,\n);\n```",
+      "properties": {
+        "artifact_source_digest": {
+          "$ref": "#/$defs/ExecutionArtifactSourceDigest"
+        },
+        "compatibility_analysis_digest": {
+          "$ref": "#/$defs/CompatibilityAnalysisDigest"
+        },
+        "executable_digest": {
+          "$ref": "#/$defs/ExecutableDigest"
+        },
+        "execution_contract_digest": {
+          "$ref": "#/$defs/ExecutionContractDigest"
+        },
+        "execution_resolution_evidence_digest": {
+          "$ref": "#/$defs/ExecutionResolutionEvidenceDigest"
+        }
+      },
+      "required": [
+        "compatibility_analysis_digest",
+        "execution_contract_digest",
+        "execution_resolution_evidence_digest",
+        "artifact_source_digest",
+        "executable_digest"
+      ],
+      "type": "object"
+    },
+    "CompatibilityAnalysisDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Complete compatibility-analysis identity."
+    },
+    "ExecutableDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Exact executable byte identity."
+    },
+    "ExecutionArtifactSourceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Package-tree or managed-manifest identity containing an executable."
+    },
+    "ExecutionContractDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical static execution-target contract identity."
+    },
+    "ExecutionResolutionEvidenceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical generated execution-resolution evidence identity."
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical certification evidence for one exact target and one exact profile.",
+  "properties": {
+    "checks": {
+      "$ref": "#/$defs/CertificationChecks"
+    },
+    "format_version": {
+      "$ref": "#/$defs/CertificationEvidenceFormatVersion"
+    },
+    "profile_digest": {
+      "$ref": "#/$defs/CertificationProfileDigest"
+    },
+    "target": {
+      "$ref": "#/$defs/CertificationTarget"
+    },
+    "workflows": {
+      "additionalProperties": false,
+      "maxProperties": 128,
+      "patternProperties": {
+        "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$": {
+          "$ref": "#/$defs/CertificationCheckAssessment"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "format_version",
+    "target",
+    "profile_digest",
+    "checks",
+    "workflows"
+  ],
+  "title": "CertificationEvidence",
+  "type": "object",
+  "x-weregopher-maxDocumentBytes": 4194304
+}

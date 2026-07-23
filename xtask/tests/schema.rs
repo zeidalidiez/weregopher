@@ -23,6 +23,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "candidate-installation-evidence.schema.json",
         "candidate-profile.schema.json",
         "certification-class.schema.json",
+        "certification-evidence.schema.json",
         "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
         "execution-resolution-evidence.schema.json",
@@ -48,6 +49,107 @@ fn schema_generation_is_complete_deterministic_and_checkable()
             document["$schema"],
             serde_json::json!("https://json-schema.org/draft/2020-12/schema")
         );
+    }
+    Ok(())
+}
+
+#[test]
+fn certification_evidence_schema_is_exact_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("certification-evidence.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &[
+            "format_version",
+            "target",
+            "profile_digest",
+            "checks",
+            "workflows",
+        ],
+    )?;
+    assert_eq!(
+        document["$defs"]["CertificationEvidenceFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_CERTIFICATION_DOCUMENT_BYTES
+    );
+    assert_eq!(document["properties"]["workflows"]["maxProperties"], 128);
+
+    let target = &document["$defs"]["CertificationTarget"];
+    assert_eq!(target["additionalProperties"], false);
+    for (field, role) in [
+        (
+            "compatibility_analysis_digest",
+            "CompatibilityAnalysisDigest",
+        ),
+        ("execution_contract_digest", "ExecutionContractDigest"),
+        (
+            "execution_resolution_evidence_digest",
+            "ExecutionResolutionEvidenceDigest",
+        ),
+        ("artifact_source_digest", "ExecutionArtifactSourceDigest"),
+        ("executable_digest", "ExecutableDigest"),
+    ] {
+        assert_eq!(
+            target["properties"][field]["$ref"],
+            format!("#/$defs/{role}")
+        );
+        assert_eq!(document["$defs"][role]["$ref"], "#/$defs/Sha256Digest");
+    }
+    assert_eq!(
+        document["properties"]["profile_digest"]["$ref"],
+        "#/$defs/CertificationProfileDigest"
+    );
+    assert_eq!(
+        document["$defs"]["CertificationProfileDigest"]["$ref"],
+        "#/$defs/Sha256Digest"
+    );
+
+    let assessment = &document["$defs"]["CertificationCheckAssessment"];
+    assert_eq!(assessment["additionalProperties"], false);
+    assert_eq!(assessment["properties"]["evidence"]["maxItems"], 64);
+    assert_eq!(assessment["properties"]["evidence"]["uniqueItems"], true);
+    assert!(assessment["allOf"].is_array());
+
+    let checks = &document["$defs"]["CertificationChecks"];
+    assert_eq!(checks["additionalProperties"], false);
+    assert_required_properties(
+        checks,
+        &[
+            "package_identity",
+            "entry_point_resolution",
+            "transform_matches",
+            "module_graph",
+            "native_dependencies",
+            "runtime_bootstrap",
+            "renderer_bootstrap",
+            "preload_handshake",
+            "state_safety",
+            "helper_lifecycle",
+            "security_contract",
+            "resource_scenario",
+            "declared_exceptions",
+        ],
+    )?;
+
+    for forbidden in [
+        "scope",
+        "certification_class",
+        "publication_status",
+        "trust_mode",
+        "transformation_authorized",
+        "execution_authorized",
+        "certified",
+    ] {
+        assert!(document["properties"].get(forbidden).is_none());
     }
     Ok(())
 }

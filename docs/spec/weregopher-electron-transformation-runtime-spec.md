@@ -6512,6 +6512,31 @@ Probes run in a disposable profile/snapshot where state mutation is possible.
 - unsupported native dependency;
 - security/parity failure beyond policy.
 
+### Implemented certification-evidence boundary
+
+The implemented certification input boundary is the format-`"1"` `CertificationEvidence`
+contract described by [ADR 0028](../adr/0028-bounded-non-authorizing-certification-evidence.md).
+It binds one exact compatibility-analysis identity, static execution-contract identity,
+generated execution-resolution identity, artifact-source identity, executable identity, and
+certification-profile identity. These role-specific identities cannot be transposed in Rust even
+though they retain canonical SHA-256 wire compatibility.
+
+The evidence document fixes thirteen mandatory dimensions: package identity, entry-point
+resolution, transform matches, module graph, native dependencies, runtime bootstrap, renderer
+bootstrap, preload handshake, state safety, helper lifecycle, security contract, resource
+scenario, and declared exceptions. It additionally admits at most 128 `FeatureId` workflow
+checks. Each check retains at most 64 unique, canonically ordered immutable evidence references.
+`passed`, `failed`, and `not_applicable` checks require evidence; `not_run` checks must not contain
+evidence. The canonical parser rejects inputs larger than 4 MiB before deserialization and fails
+closed on unsupported versions, unknown fields, duplicate keys/references, contradictory status
+and evidence, invalid identifiers, and collection overflow.
+
+The document derives only `incomplete`, `blocked`, or `complete`. It does not carry a producer-
+selected certification scope or serialize a certification class, trust mode, publication status,
+or authority bit. Mapping complete evidence to one of the classes above requires separately
+trusted resolution of the exact profile digest and decision policy. Concrete certification probes,
+profile-registry trust, signatures, class assignment, and publication remain separate layers.
+
 ## 35.6 Stable adapter gates
 
 A stable family adapter may have exceptions, but must satisfy:

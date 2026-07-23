@@ -20,6 +20,8 @@ use weregopher_domain::{
 
 mod bundle;
 mod emission;
+#[cfg(windows)]
+mod execution_authorization;
 mod materialization;
 mod planning;
 mod snapshot;
@@ -33,6 +35,13 @@ pub use bundle::{
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,
     TransformEmissionError, TransformEmissionLimits, emit_match_evidence, emit_transformed_source,
+};
+#[cfg(windows)]
+pub use execution_authorization::{
+    AuthorizedExecution, ExecutionAuthorityPins, ExecutionAuthorizationError,
+    ExecutionAuthorizationLimits, ExecutionAuthorizationRequest, ExecutionContextPins,
+    ExecutionPolicyEvidence, ExecutionTargetPins, LocalExecutionPolicy, LocalExecutionPolicyStore,
+    RetainedExecutionArtifact, authorize_execution,
 };
 pub use materialization::{
     MaterializationManifest, MaterializationManifestError, MaterializationManifestLimits,

@@ -1712,6 +1712,24 @@ they do not authenticate authority, authorize execution or launch, freeze later 
 close an ordinary directory namespace. See
 [ADR-0022](../adr/0022-identity-bound-retained-executable-capabilities.md).
 
+The initial Windows live authorizer uses an explicitly trusted local policy store for one exact
+target. Its role-named pins cover authority, source/build/environment context, target and resolution
+documents, trust and provenance evidence, resolved compatibility/capability/state/user policy,
+security posture, state mode, and policy revision. Evidence bytes MUST be hashed under nonzero
+per-document and aggregate limits. Compatibility MUST be complete even when an incomplete analysis
+is itself exactly pinned. Package and managed executables MUST match both the declared locator and
+the retained source/executable identities, and their retained views MUST be revalidated immediately
+before issuance. Policy replacement or revocation MUST monotonically invalidate outstanding values.
+
+The resulting authorization capability MUST be opaque, non-cloneable, non-serializable, retain the
+exact executable and its complete launch policy, and bind the issuing policy generation. Local and
+developer trust are the only implemented initial modes; developer mode MUST use disposable state.
+Registry and forensic modes MUST fail closed until their independent authentication and approval
+engines exist. Issuance is still not launch: a later one-shot consumer MUST hold policy currentness,
+repeat retained-view validation, establish containment, create suspended, assign, and resume in that
+order. See
+[ADR-0024](../adr/0024-revocation-current-local-live-execution-authorization.md).
+
 Execution authorization, Job Object ownership, suspended process creation, process resume, runtime
 supervision, security posture, efficiency, and certification remain distinct decisions and evidence
 boundaries. The canonical format-v1 Rust contracts and generated schemas are specified by

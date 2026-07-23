@@ -6594,11 +6594,22 @@ profile, evidence, artifact set, trusted class, policy revision/generation, arti
 aggregate verified bytes. Replacement or revocation after preparation but before commit fails closed;
 exact duplicate receipts converge and distinct store growth is hard bounded at 4,096 entries.
 
+The format-`"1"` certification-runner identity described by
+[ADR 0033](../adr/0033-bounded-canonical-certification-runner-identity.md) provides the next
+non-authorizing identity layer. Its closed Windows x64 manifest commits with role-distinct digests
+to the exact runner image, host image/build descriptor, host patch set, Electron runtime,
+language-runtime set, toolchain set, host agent, verifier, probe-asset set, source revision, and
+approved exception-provenance set. The authoritative parsers enforce a 32 KiB ceiling before
+deserialization, and compact format-v1 bytes plus their SHA-256 identity are frozen by a golden
+vector. Aggregate fields identify external canonical descriptors; a later trusted verifier must
+retrieve, validate, and authenticate those descriptor bytes before relying on them.
+
 Local class assignment and local-only receipt publication do not validate artifact semantics,
 authenticate a runner, authorize transformation or execution, or establish durable registry,
 signature, or remote-revocation trust. Concrete certification probes, semantic report parsing,
-trusted runner identity, authenticated registry publication, durable policy/receipt persistence, and
-the disposable-state runner remain separate layers.
+runner authentication and run attestation, authenticated registry publication, durable policy/receipt
+persistence, and the disposable-state runner remain separate layers. Parsing or hashing a runner
+identity does not prove that a run occurred, establish freshness, or bind any report to that runner.
 
 ## 35.6 Stable adapter gates
 

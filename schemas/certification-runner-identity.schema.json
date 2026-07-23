@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "CertificationElectronRuntimeDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the exact Electron runtime descriptor and bytes."
+    },
+    "CertificationExceptionProvenanceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the complete approved exception-provenance set, including the canonical empty set."
+    },
+    "CertificationHostAgentDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the exact host-agent implementation."
+    },
+    "CertificationHostImageDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the immutable host operating-system image and build descriptor."
+    },
+    "CertificationHostPatchSetDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the exact host patch-set descriptor."
+    },
+    "CertificationLanguageRuntimeSetDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the complete exact language-runtime version and artifact set."
+    },
+    "CertificationProbeAssetSetDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the complete exact probe-asset set."
+    },
+    "CertificationRunnerArchitecture": {
+      "description": "Architecture fixed by certification-runner identity format version 1.",
+      "oneOf": [
+        {
+          "const": "x86_64",
+          "description": "AMD64/x86-64.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationRunnerEnvironmentIdentity": {
+      "additionalProperties": false,
+      "description": "Exact platform and executable environment of a certification runner.",
+      "properties": {
+        "architecture": {
+          "$ref": "#/$defs/CertificationRunnerArchitecture"
+        },
+        "electron_runtime_digest": {
+          "$ref": "#/$defs/CertificationElectronRuntimeDigest"
+        },
+        "host_image_digest": {
+          "$ref": "#/$defs/CertificationHostImageDigest"
+        },
+        "host_patch_set_digest": {
+          "$ref": "#/$defs/CertificationHostPatchSetDigest"
+        },
+        "language_runtime_set_digest": {
+          "$ref": "#/$defs/CertificationLanguageRuntimeSetDigest"
+        },
+        "platform": {
+          "$ref": "#/$defs/CertificationRunnerPlatform"
+        },
+        "runner_image_digest": {
+          "$ref": "#/$defs/CertificationRunnerImageDigest"
+        }
+      },
+      "required": [
+        "platform",
+        "architecture",
+        "runner_image_digest",
+        "host_image_digest",
+        "host_patch_set_digest",
+        "electron_runtime_digest",
+        "language_runtime_set_digest"
+      ],
+      "type": "object"
+    },
+    "CertificationRunnerIdentityFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "CertificationRunnerImageDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the immutable runner image or executable closure."
+    },
+    "CertificationRunnerPlatform": {
+      "description": "Platform fixed by certification-runner identity format version 1.",
+      "oneOf": [
+        {
+          "const": "windows",
+          "description": "Microsoft Windows.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationRunnerProvenanceIdentity": {
+      "additionalProperties": false,
+      "description": "Exact source and exception provenance of a certification runner.",
+      "properties": {
+        "exception_provenance_digest": {
+          "$ref": "#/$defs/CertificationExceptionProvenanceDigest"
+        },
+        "source_revision_digest": {
+          "$ref": "#/$defs/CertificationSourceRevisionDigest"
+        }
+      },
+      "required": [
+        "source_revision_digest",
+        "exception_provenance_digest"
+      ],
+      "type": "object"
+    },
+    "CertificationRunnerToolingIdentity": {
+      "additionalProperties": false,
+      "description": "Exact tool and probe environment of a certification runner.",
+      "properties": {
+        "host_agent_digest": {
+          "$ref": "#/$defs/CertificationHostAgentDigest"
+        },
+        "probe_asset_set_digest": {
+          "$ref": "#/$defs/CertificationProbeAssetSetDigest"
+        },
+        "toolchain_set_digest": {
+          "$ref": "#/$defs/CertificationToolchainSetDigest"
+        },
+        "verifier_digest": {
+          "$ref": "#/$defs/CertificationVerifierDigest"
+        }
+      },
+      "required": [
+        "toolchain_set_digest",
+        "host_agent_digest",
+        "verifier_digest",
+        "probe_asset_set_digest"
+      ],
+      "type": "object"
+    },
+    "CertificationSourceRevisionDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the exact certification source revision."
+    },
+    "CertificationToolchainSetDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the complete exact compiler/toolchain version and artifact set."
+    },
+    "CertificationVerifierDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the exact evidence verifier implementation."
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical non-authorizing identity of every immutable certification-runner input.\n\nEvery aggregate digest names a separately canonical descriptor that includes exact versions and\nartifact identities for that role. This document alone does not authenticate a producer, prove\nthat a run occurred, bind evidence to a run, establish freshness, or assign certification trust.\n\nGeneric deserialization is deliberately unavailable so hostile bytes cannot bypass the document\nceiling:\n\n```compile_fail\nfn require_deserialize<T: for<'de> serde::Deserialize<'de>>() {}\nrequire_deserialize::<weregopher_domain::CertificationRunnerIdentity>();\n```",
+  "properties": {
+    "environment": {
+      "$ref": "#/$defs/CertificationRunnerEnvironmentIdentity"
+    },
+    "format_version": {
+      "$ref": "#/$defs/CertificationRunnerIdentityFormatVersion"
+    },
+    "provenance": {
+      "$ref": "#/$defs/CertificationRunnerProvenanceIdentity"
+    },
+    "tooling": {
+      "$ref": "#/$defs/CertificationRunnerToolingIdentity"
+    }
+  },
+  "required": [
+    "format_version",
+    "environment",
+    "tooling",
+    "provenance"
+  ],
+  "title": "CertificationRunnerIdentity",
+  "type": "object",
+  "x-weregopher-maxDocumentBytes": 32768
+}

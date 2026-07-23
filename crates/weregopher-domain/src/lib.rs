@@ -8,6 +8,7 @@ mod build;
 mod candidate;
 mod certification;
 mod certification_evidence;
+mod certification_runner;
 mod compatibility;
 mod digest;
 mod discovery;
@@ -35,6 +36,18 @@ pub use certification_evidence::{
     CertificationProfileValidationError, CertificationTarget, MAX_CERTIFICATION_DOCUMENT_BYTES,
     MAX_CERTIFICATION_EVIDENCE_REFS, MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES,
     MAX_CERTIFICATION_WORKFLOWS, StructurallyValidatedCertificationEvidence,
+};
+pub use certification_runner::{
+    CERTIFICATION_RUNNER_IDENTITY_FORMAT_VERSION, CertificationElectronRuntimeDigest,
+    CertificationExceptionProvenanceDigest, CertificationHostAgentDigest,
+    CertificationHostImageDigest, CertificationHostPatchSetDigest,
+    CertificationLanguageRuntimeSetDigest, CertificationProbeAssetSetDigest,
+    CertificationRunnerArchitecture, CertificationRunnerDocumentError,
+    CertificationRunnerEnvironmentIdentity, CertificationRunnerIdentity,
+    CertificationRunnerIdentityDigest, CertificationRunnerImageDigest, CertificationRunnerPlatform,
+    CertificationRunnerProvenanceIdentity, CertificationRunnerToolingIdentity,
+    CertificationSourceRevisionDigest, CertificationToolchainSetDigest,
+    CertificationVerifierDigest, MAX_CERTIFICATION_RUNNER_IDENTITY_DOCUMENT_BYTES,
 };
 pub use compatibility::{
     AnalysisDisposition, COMPATIBILITY_ANALYSIS_FORMAT_VERSION, CompatibilityAnalysis,

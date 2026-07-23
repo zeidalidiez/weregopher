@@ -25,6 +25,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "certification-class.schema.json",
         "certification-evidence.schema.json",
         "certification-profile.schema.json",
+        "certification-runner-identity.schema.json",
         "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
         "execution-resolution-evidence.schema.json",
@@ -224,6 +225,102 @@ fn certification_profile_schema_is_exact_bounded_and_non_authorizing()
         "publication_status",
         "trust_mode",
         "permissions",
+        "transformation_authorized",
+        "execution_authorized",
+        "certified",
+    ] {
+        assert!(document["properties"].get(forbidden).is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn certification_runner_identity_schema_is_exact_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("certification-runner-identity.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &["format_version", "environment", "tooling", "provenance"],
+    )?;
+    assert_eq!(
+        document["$defs"]["CertificationRunnerIdentityFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_CERTIFICATION_RUNNER_IDENTITY_DOCUMENT_BYTES
+    );
+
+    let environment = &document["$defs"]["CertificationRunnerEnvironmentIdentity"];
+    assert_eq!(environment["additionalProperties"], false);
+    assert_required_properties(
+        environment,
+        &[
+            "platform",
+            "architecture",
+            "runner_image_digest",
+            "host_image_digest",
+            "host_patch_set_digest",
+            "electron_runtime_digest",
+            "language_runtime_set_digest",
+        ],
+    )?;
+    let tooling = &document["$defs"]["CertificationRunnerToolingIdentity"];
+    assert_eq!(tooling["additionalProperties"], false);
+    assert_required_properties(
+        tooling,
+        &[
+            "toolchain_set_digest",
+            "host_agent_digest",
+            "verifier_digest",
+            "probe_asset_set_digest",
+        ],
+    )?;
+    let provenance = &document["$defs"]["CertificationRunnerProvenanceIdentity"];
+    assert_eq!(provenance["additionalProperties"], false);
+    assert_required_properties(
+        provenance,
+        &["source_revision_digest", "exception_provenance_digest"],
+    )?;
+
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["CertificationRunnerPlatform"])?,
+        ["windows"]
+    );
+    assert_eq!(
+        schema_string_constants(&document["$defs"]["CertificationRunnerArchitecture"])?,
+        ["x86_64"]
+    );
+    for role in [
+        "CertificationRunnerImageDigest",
+        "CertificationHostImageDigest",
+        "CertificationHostPatchSetDigest",
+        "CertificationElectronRuntimeDigest",
+        "CertificationLanguageRuntimeSetDigest",
+        "CertificationToolchainSetDigest",
+        "CertificationHostAgentDigest",
+        "CertificationVerifierDigest",
+        "CertificationProbeAssetSetDigest",
+        "CertificationSourceRevisionDigest",
+        "CertificationExceptionProvenanceDigest",
+    ] {
+        assert_eq!(document["$defs"][role]["$ref"], "#/$defs/Sha256Digest");
+    }
+
+    for forbidden in [
+        "certification_class",
+        "publication_status",
+        "trust_mode",
+        "runner_authenticated",
+        "evidence_authenticated",
         "transformation_authorized",
         "execution_authorized",
         "certified",

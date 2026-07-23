@@ -15,6 +15,8 @@ use std::{
 use std::collections::BTreeSet;
 
 use thiserror::Error;
+#[cfg(windows)]
+use weregopher_domain::ExecutionPackagePath;
 use weregopher_domain::Sha256Digest;
 use weregopher_fingerprint::{
     PackageTreeManifest, PackageTreeObservation, PackageTreeObservationError,
@@ -180,6 +182,10 @@ impl PackageSnapshotExecutable<'_, '_> {
 
 #[cfg(windows)]
 impl<'lease, 'store> PackageSnapshotExecutable<'lease, 'store> {
+    pub(crate) const fn locked(&self) -> &LockedExecutable {
+        &self.locked
+    }
+
     pub(crate) fn into_launch_parts(
         self,
     ) -> (&'lease PackageSnapshotLease<'store>, LockedExecutable) {
@@ -595,32 +601,11 @@ fn validate_manifest(
 
 #[cfg(windows)]
 fn validate_windows_snapshot_path(normalized_path: &str) -> Result<(), PackageSnapshotError> {
-    for component in normalized_path.split('/') {
-        let stem = component
-            .split_once('.')
-            .map_or(component, |(stem, _extension)| stem)
-            .trim_end_matches([' ', '.']);
-        let uppercase = stem.to_ascii_uppercase();
-        let reserved = matches!(uppercase.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-            || uppercase.strip_prefix("COM").is_some_and(|suffix| {
-                matches!(
-                    suffix,
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-                )
-            })
-            || uppercase.strip_prefix("LPT").is_some_and(|suffix| {
-                matches!(
-                    suffix,
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-                )
-            });
-        if component.ends_with([' ', '.']) || reserved {
-            return Err(PackageSnapshotError::UnsafeWindowsPath {
-                normalized_path: normalized_path.to_owned(),
-            });
-        }
-    }
-    Ok(())
+    ExecutionPackagePath::new(normalized_path)
+        .map(|_validated| ())
+        .map_err(|_source| PackageSnapshotError::UnsafeWindowsPath {
+            normalized_path: normalized_path.to_owned(),
+        })
 }
 
 #[cfg(windows)]

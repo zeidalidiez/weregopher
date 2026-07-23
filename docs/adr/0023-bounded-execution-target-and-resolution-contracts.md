@@ -1,9 +1,12 @@
 # ADR 0023: Bounded execution target and resolution contracts
 
-- Status: Accepted
+- Status: Superseded by [ADR 0026](0026-execution-contract-v2-and-pre-authorized-launch-plans.md)
 - Date: 2026-07-23
 
 ## Context
+
+> This ADR records the original format-version-1 decision. ADR 0026 replaces its target and
+> resolution wire contracts after adversarial review; version 1 is no longer accepted.
 
 Static execution authority identifies each target contract only by digest, while generated execution overlays identify resolution evidence only by digest. Live authorization cannot safely interpret opaque bytes or infer command-line, environment, state, capability, compatibility, user-policy, resource, artifact-locator, trust-evidence, or provenance semantics from those digest labels alone.
 

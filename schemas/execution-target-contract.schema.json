@@ -1,29 +1,19 @@
 {
   "$defs": {
-    "EffectiveSecurityPosture": {
-      "description": "The enforcement mechanism that actually constrains an executable component.",
-      "oneOf": [
-        {
-          "const": "broker_mediated",
-          "description": "Relevant host effects cross an enforcing Weregopher broker.",
-          "type": "string"
-        },
-        {
-          "const": "os_contained",
-          "description": "Independently tested operating-system controls constrain direct host access.",
-          "type": "string"
-        },
-        {
-          "const": "vendor_equivalent_full_trust",
-          "description": "The component can exercise the current Windows user's ordinary authority.",
-          "type": "string"
-        }
-      ]
+    "CapabilityPolicyDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Capability-policy identity."
+    },
+    "ExecutableDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Exact executable byte identity."
     },
     "ExecutionArgument": {
       "description": "One bounded fixed command-line argument.",
       "maxLength": 8192,
-      "type": "string"
+      "pattern": "^[^\\u0000]*$",
+      "type": "string",
+      "x-weregopher-maxUtf8Bytes": 8192
     },
     "ExecutionArtifactLocator": {
       "description": "Exact artifact locator interpreted only within the source declared by one target contract.",
@@ -37,10 +27,8 @@
               "type": "string"
             },
             "normalized_path": {
-              "description": "Canonical forward-slash package-relative path.",
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
+              "$ref": "#/$defs/ExecutionPackagePath",
+              "description": "Canonical forward-slash package-relative path."
             }
           },
           "required": [
@@ -58,7 +46,7 @@
               "type": "string"
             },
             "digest": {
-              "$ref": "#/$defs/Sha256Digest",
+              "$ref": "#/$defs/ExecutableDigest",
               "description": "Content identity of the executable blob."
             }
           },
@@ -71,7 +59,7 @@
       ]
     },
     "ExecutionConsolePolicy": {
-      "description": "Fixed console policy for execution-target format version 1.",
+      "description": "Fixed console policy for execution-target format version 2.",
       "oneOf": [
         {
           "const": "none",
@@ -80,8 +68,23 @@
         }
       ]
     },
+    "ExecutionDependencyPolicy": {
+      "description": "Required loader dependency-namespace behavior for one execution target.",
+      "oneOf": [
+        {
+          "const": "vendor_default_ambient",
+          "description": "Permit unsealed ambient Windows loader resolution from the executable directory and system.\n\nThis mode does not claim that package-relative DLLs or resources form a closed immutable set,\nor that a relocated executable preserves its original package-relative dependency behavior.",
+          "type": "string"
+        },
+        {
+          "const": "manifest_closed",
+          "description": "Require every load-bearing dependency to come from an immutable manifest-closed namespace.",
+          "type": "string"
+        }
+      ]
+    },
     "ExecutionEnvironmentPolicy": {
-      "description": "Fixed empty-environment policy for execution-target format version 1.",
+      "description": "Fixed empty-environment policy for execution-target format version 2.",
       "oneOf": [
         {
           "const": "empty",
@@ -91,7 +94,7 @@
       ]
     },
     "ExecutionInheritedHandlePolicy": {
-      "description": "Fixed inherited-handle policy for execution-target format version 1.",
+      "description": "Fixed inherited-handle policy for execution-target format version 2.",
       "oneOf": [
         {
           "const": "none",
@@ -109,10 +112,14 @@
             "$ref": "#/$defs/ExecutionArgument"
           },
           "maxItems": 64,
-          "type": "array"
+          "type": "array",
+          "x-weregopher-maxAggregateUtf8Bytes": 16384
         },
         "console": {
           "$ref": "#/$defs/ExecutionConsolePolicy"
+        },
+        "dependency_policy": {
+          "$ref": "#/$defs/ExecutionDependencyPolicy"
         },
         "environment": {
           "$ref": "#/$defs/ExecutionEnvironmentPolicy"
@@ -120,14 +127,14 @@
         "inherited_handles": {
           "$ref": "#/$defs/ExecutionInheritedHandlePolicy"
         },
-        "policy_digests": {
-          "$ref": "#/$defs/ExecutionPolicyDigests"
+        "policy_requirements": {
+          "$ref": "#/$defs/ExecutionPolicyRequirements"
+        },
+        "required_security_posture": {
+          "$ref": "#/$defs/RequiredSecurityPosture"
         },
         "resource_limits": {
           "$ref": "#/$defs/ExecutionResourceLimits"
-        },
-        "security_posture": {
-          "$ref": "#/$defs/EffectiveSecurityPosture"
         },
         "state_mode": {
           "$ref": "#/$defs/ExecutionStateMode"
@@ -142,45 +149,46 @@
         "inherited_handles",
         "console",
         "working_directory",
-        "security_posture",
+        "dependency_policy",
+        "required_security_posture",
         "state_mode",
         "resource_limits",
-        "policy_digests"
+        "policy_requirements"
       ],
       "type": "object"
     },
-    "ExecutionPolicyDigests": {
+    "ExecutionPackagePath": {
+      "description": "Canonical package-relative Windows path. Rust validation also rejects DOS device aliases in every component.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[<>:\"\\\\|?*\\u0000-\\u001f])(?!.*[. ](?:/|$)).+$",
+      "type": "string",
+      "x-weregopher-maxPathComponents": 256,
+      "x-weregopher-maxUtf8Bytes": 4096,
+      "x-weregopher-windowsDeviceAliasesRejected": true
+    },
+    "ExecutionPolicyRequirements": {
       "additionalProperties": false,
-      "description": "Role-named policy artifact identities referenced by one exact launch policy.",
+      "description": "Durable policy requirements referenced by one exact static launch policy.",
       "properties": {
         "capability_policy_digest": {
-          "$ref": "#/$defs/Sha256Digest",
-          "description": "Resolved capability-manifest/policy identity."
-        },
-        "compatibility_analysis_digest": {
-          "$ref": "#/$defs/Sha256Digest",
-          "description": "Complete compatibility-analysis document identity."
+          "$ref": "#/$defs/CapabilityPolicyDigest",
+          "description": "Capability policy identity whose exact authority the static adapter requires."
         },
         "state_policy_digest": {
-          "$ref": "#/$defs/Sha256Digest",
-          "description": "Resolved state policy identity."
-        },
-        "user_policy_digest": {
-          "$ref": "#/$defs/Sha256Digest",
-          "description": "Current user-policy/consent identity."
+          "$ref": "#/$defs/StatePolicyDigest",
+          "description": "State policy identity whose exact namespace rules the static adapter requires."
         }
       },
       "required": [
-        "compatibility_analysis_digest",
         "capability_policy_digest",
-        "state_policy_digest",
-        "user_policy_digest"
+        "state_policy_digest"
       ],
       "type": "object"
     },
     "ExecutionResourceLimits": {
       "additionalProperties": false,
-      "description": "Exact bounded Job Object and process-memory requirements for one target.",
+      "description": "Nonzero Windows Job limits. Rust validation additionally requires process_memory_limit_bytes <= job_memory_limit_bytes.",
       "properties": {
         "active_process_limit": {
           "format": "uint32",
@@ -206,7 +214,8 @@
         "process_memory_limit_bytes",
         "job_memory_limit_bytes"
       ],
-      "type": "object"
+      "type": "object",
+      "x-weregopher-processMemoryAtMostJobMemory": true
     },
     "ExecutionStateMode": {
       "description": "State namespace selected by one exact execution target contract.",
@@ -220,12 +229,17 @@
           "const": "production",
           "description": "A separately approved production-state policy is required.",
           "type": "string"
+        },
+        {
+          "const": "vendor_default",
+          "description": "The target intentionally uses the vendor's ambient process-default state behavior.\n\nThis mode provides no state isolation or retained namespace capability. It exists so the\ninitial full-trust process primitive does not misrepresent ambient state as disposable or\nproduction-state mediation.",
+          "type": "string"
         }
       ]
     },
     "ExecutionTargetContractFormatVersion": {
       "enum": [
-        "1"
+        "2"
       ],
       "type": "string"
     },
@@ -262,11 +276,31 @@
       ]
     },
     "ExecutionWorkingDirectoryPolicy": {
-      "description": "Fixed current-directory policy for execution-target format version 1.",
+      "description": "Fixed current-directory policy for execution-target format version 2.",
       "oneOf": [
         {
           "const": "executable_parent",
           "description": "Use the retained executable's direct parent directory.",
+          "type": "string"
+        }
+      ]
+    },
+    "RequiredSecurityPosture": {
+      "description": "Minimum security mechanism required by one static execution target.\n\nThis is a durable requirement, not evidence that a launcher actually established the posture.",
+      "oneOf": [
+        {
+          "const": "vendor_equivalent_full_trust",
+          "description": "The complete vendor-equivalent application executes as an unrestricted same-user process.",
+          "type": "string"
+        },
+        {
+          "const": "broker_mediated",
+          "description": "Privileged effects require mediation by a separately authenticated broker policy.",
+          "type": "string"
+        },
+        {
+          "const": "os_contained",
+          "description": "A separately tested operating-system containment mechanism is required.",
           "type": "string"
         }
       ]
@@ -277,6 +311,10 @@
       "minLength": 71,
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
+    },
+    "StatePolicyDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "State-policy identity."
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -307,5 +345,6 @@
     "launch_policy"
   ],
   "title": "ExecutionTargetContract",
-  "type": "object"
+  "type": "object",
+  "x-weregopher-maxDocumentBytes": 262144
 }

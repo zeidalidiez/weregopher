@@ -13,7 +13,10 @@ use serde::{
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
-use crate::{AdapterId, ApplicationFamilyId, ExecutionTargetId, Sha256Digest};
+use crate::{
+    AdapterId, ApplicationFamilyId, ExecutableDigest, ExecutionArtifactSourceDigest,
+    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, ExecutionTargetId, Sha256Digest,
+};
 
 /// Current serialized execution-rebinding contract version.
 pub const EXECUTION_REBINDING_FORMAT_VERSION: &str = "1";
@@ -78,7 +81,7 @@ pub enum ExecutionArtifactSource {
 pub struct AuthorizedExecutionTargetRef {
     kind: ExecutionTargetKind,
     artifact_source: ExecutionArtifactSource,
-    execution_contract_digest: Sha256Digest,
+    execution_contract_digest: ExecutionContractDigest,
 }
 
 impl AuthorizedExecutionTargetRef {
@@ -87,7 +90,7 @@ impl AuthorizedExecutionTargetRef {
     pub const fn new(
         kind: ExecutionTargetKind,
         artifact_source: ExecutionArtifactSource,
-        execution_contract_digest: Sha256Digest,
+        execution_contract_digest: ExecutionContractDigest,
     ) -> Self {
         Self {
             kind,
@@ -110,7 +113,7 @@ impl AuthorizedExecutionTargetRef {
 
     /// Returns the exact static target-contract identity.
     #[must_use]
-    pub const fn execution_contract_digest(&self) -> &Sha256Digest {
+    pub const fn execution_contract_digest(&self) -> &ExecutionContractDigest {
         &self.execution_contract_digest
     }
 }
@@ -296,7 +299,7 @@ impl AdapterExecutionAuthority {
             hasher.update(b"\",\"artifact_source\":\"");
             hasher.update(execution_artifact_source_text(target.artifact_source).as_bytes());
             hasher.update(b"\",\"execution_contract_digest\":\"");
-            update_canonical_digest_text(&mut hasher, &target.execution_contract_digest);
+            update_canonical_digest_text(&mut hasher, target.execution_contract_digest.as_sha256());
             hasher.update(b"\"}");
         }
         hasher.update(b"}}");
@@ -327,18 +330,35 @@ fn update_canonical_digest_text(hasher: &mut Sha256, digest: &Sha256Digest) {
 
 /// Role-named content identities used to construct one generated execution-artifact binding.
 ///
-/// This constructor input is not independently serialized. Named fields prevent same-type digest
+/// This constructor input is not independently serialized. Role-distinct fields prevent digest
 /// arguments from being silently transposed while preserving the canonical binding transport.
+///
+/// ```compile_fail
+/// use weregopher_domain::{
+///     ExecutableDigest, ExecutionArtifactDigests, ExecutionArtifactSourceDigest,
+///     ExecutionContractDigest, ExecutionResolutionEvidenceDigest, Sha256Digest,
+/// };
+///
+/// let raw = Sha256Digest::from_bytes([7; 32]);
+/// let source = ExecutionArtifactSourceDigest::new(raw);
+/// let executable = ExecutableDigest::new(raw);
+/// let _ = ExecutionArtifactDigests {
+///     execution_contract_digest: ExecutionContractDigest::new(raw),
+///     artifact_source_digest: executable,
+///     executable_digest: source,
+///     resolution_evidence_digest: ExecutionResolutionEvidenceDigest::new(raw),
+/// };
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionArtifactDigests {
     /// Exact signed static target-contract identity.
-    pub execution_contract_digest: Sha256Digest,
+    pub execution_contract_digest: ExecutionContractDigest,
     /// Exact package-tree or managed-manifest identity containing the executable.
-    pub artifact_source_digest: Sha256Digest,
+    pub artifact_source_digest: ExecutionArtifactSourceDigest,
     /// Exact executable byte identity.
-    pub executable_digest: Sha256Digest,
+    pub executable_digest: ExecutableDigest,
     /// Exact generated resolution-evidence identity.
-    pub resolution_evidence_digest: Sha256Digest,
+    pub resolution_evidence_digest: ExecutionResolutionEvidenceDigest,
 }
 
 /// Generated evidence binding one static execution target to exact resolved artifacts.
@@ -350,13 +370,13 @@ pub struct ExecutionArtifactDigests {
 #[serde(deny_unknown_fields)]
 pub struct ExecutionArtifactBinding {
     #[serde(rename = "execution_contract_digest")]
-    execution_contract: Sha256Digest,
+    execution_contract: ExecutionContractDigest,
     #[serde(rename = "artifact_source_digest")]
-    artifact_source: Sha256Digest,
+    artifact_source: ExecutionArtifactSourceDigest,
     #[serde(rename = "executable_digest")]
-    executable: Sha256Digest,
+    executable: ExecutableDigest,
     #[serde(rename = "resolution_evidence_digest")]
-    resolution_evidence: Sha256Digest,
+    resolution_evidence: ExecutionResolutionEvidenceDigest,
 }
 
 impl ExecutionArtifactBinding {
@@ -374,25 +394,25 @@ impl ExecutionArtifactBinding {
 
     /// Returns the exact signed static target-contract identity.
     #[must_use]
-    pub const fn execution_contract_digest(&self) -> &Sha256Digest {
+    pub const fn execution_contract_digest(&self) -> &ExecutionContractDigest {
         &self.execution_contract
     }
 
     /// Returns the exact package-tree or managed-manifest identity containing the executable.
     #[must_use]
-    pub const fn artifact_source_digest(&self) -> &Sha256Digest {
+    pub const fn artifact_source_digest(&self) -> &ExecutionArtifactSourceDigest {
         &self.artifact_source
     }
 
     /// Returns the exact executable byte identity.
     #[must_use]
-    pub const fn executable_digest(&self) -> &Sha256Digest {
+    pub const fn executable_digest(&self) -> &ExecutableDigest {
         &self.executable
     }
 
     /// Returns the exact generated resolution-evidence identity.
     #[must_use]
-    pub const fn resolution_evidence_digest(&self) -> &Sha256Digest {
+    pub const fn resolution_evidence_digest(&self) -> &ExecutionResolutionEvidenceDigest {
         &self.resolution_evidence
     }
 }
@@ -722,7 +742,7 @@ impl GeneratedExecutionOverlay {
                 return Err(ExecutionContractError::ExecutionContractDigestMismatch);
             }
             if authorized.artifact_source == ExecutionArtifactSource::PackageSnapshot
-                && binding.artifact_source != self.binding.package_tree_merkle
+                && binding.artifact_source.as_sha256() != &self.binding.package_tree_merkle
             {
                 return Err(ExecutionContractError::PackageSnapshotDigestMismatch);
             }

@@ -2,9 +2,15 @@
 //!
 //! These content-addressed contracts are inputs to live authorization. Parsing and hashing them does
 //! not authenticate an adapter, establish current revocation state, retain an executable, or authorize
-//! process launch. Callers parsing hostile bytes must impose an outer byte/read limit before Serde.
+//! process launch. Hostile bytes must enter through the bounded `from_json_*` APIs; generic Serde
+//! deserialization is provided for composition only and assumes its caller already bounded transport
+//! bytes.
 
-use std::{borrow::Cow, fmt};
+use std::{
+    borrow::Cow,
+    fmt,
+    io::{self, Read},
+};
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{
@@ -15,14 +21,16 @@ use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use crate::{
-    EffectiveSecurityPosture, ExecutionArtifactSource, ExecutionTargetId, ExecutionTargetKind,
-    Sha256Digest,
+    ArtifactTrustEvidenceDigest, CapabilityPolicyDigest, EffectiveSecurityPosture,
+    ExecutableDigest, ExecutionArtifactSource, ExecutionArtifactSourceDigest,
+    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, ExecutionTargetId,
+    ExecutionTargetKind, ProvenanceEvidenceDigest, Sha256Digest, StatePolicyDigest,
 };
 
 /// Current serialized execution-target contract version.
-pub const EXECUTION_TARGET_CONTRACT_FORMAT_VERSION: &str = "1";
+pub const EXECUTION_TARGET_CONTRACT_FORMAT_VERSION: &str = "2";
 /// Current serialized execution-resolution evidence version.
-pub const EXECUTION_RESOLUTION_FORMAT_VERSION: &str = "1";
+pub const EXECUTION_RESOLUTION_FORMAT_VERSION: &str = "2";
 /// Maximum fixed arguments in one execution launch policy.
 pub const MAX_EXECUTION_ARGUMENTS: usize = 64;
 /// Maximum UTF-8 bytes in one fixed execution argument.
@@ -33,17 +41,21 @@ pub const MAX_EXECUTION_ARGUMENT_AGGREGATE_BYTES: usize = 16 * 1024;
 pub const MAX_EXECUTION_PACKAGE_PATH_BYTES: usize = 4 * 1024;
 /// Maximum components in one normalized package-relative executable path.
 pub const MAX_EXECUTION_PACKAGE_PATH_COMPONENTS: usize = 256;
+/// Maximum serialized bytes accepted by the bounded target-contract parser.
+pub const MAX_EXECUTION_TARGET_DOCUMENT_BYTES: usize = 256 * 1024;
+/// Maximum serialized bytes accepted by the bounded resolution-evidence parser.
+pub const MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 enum ExecutionTargetContractFormatVersion {
-    #[serde(rename = "1")]
-    V1,
+    #[serde(rename = "2")]
+    V2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 enum ExecutionResolutionFormatVersion {
-    #[serde(rename = "1")]
-    V1,
+    #[serde(rename = "2")]
+    V2,
 }
 
 /// One bounded fixed command-line argument from a static execution target contract.
@@ -64,7 +76,9 @@ impl JsonSchema for ExecutionArgument {
         json_schema!({
             "description": "One bounded fixed command-line argument.",
             "type": "string",
-            "maxLength": 8192
+            "maxLength": 8192,
+            "pattern": "^[^\\u0000]*$",
+            "x-weregopher-maxUtf8Bytes": 8192
         })
     }
 }
@@ -117,6 +131,67 @@ impl From<ExecutionArgument> for String {
     }
 }
 
+/// Canonical, bounded package-relative Windows executable path.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ExecutionPackagePath(String);
+
+impl ExecutionPackagePath {
+    /// Constructs one path after canonical Windows component validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionTargetContractError::InvalidPackagePath`] for an empty, oversized,
+    /// ambiguous, device-aliased, absolute-like, or non-canonical path.
+    pub fn new(value: impl Into<String>) -> Result<Self, ExecutionTargetContractError> {
+        Self::try_from(value.into())
+    }
+
+    /// Returns the canonical forward-slash path.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl JsonSchema for ExecutionPackagePath {
+    fn schema_name() -> Cow<'static, str> {
+        "ExecutionPackagePath".into()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        concat!(module_path!(), "::ExecutionPackagePath").into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "Canonical package-relative Windows path. Rust validation also rejects DOS device aliases in every component.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[<>:\"\\\\|?*\\u0000-\\u001f])(?!.*[. ](?:/|$)).+$",
+            "x-weregopher-maxUtf8Bytes": 4096,
+            "x-weregopher-maxPathComponents": 256,
+            "x-weregopher-windowsDeviceAliasesRejected": true
+        })
+    }
+}
+
+impl TryFrom<String> for ExecutionPackagePath {
+    type Error = ExecutionTargetContractError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        validate_package_path(&value)?;
+        Ok(Self(value))
+    }
+}
+
+impl From<ExecutionPackagePath> for String {
+    fn from(value: ExecutionPackagePath) -> Self {
+        value.0
+    }
+}
+
 /// Exact artifact locator interpreted only within the source declared by one target contract.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(
@@ -128,13 +203,12 @@ pub enum ExecutionArtifactLocator {
     /// Exact manifest-allowlisted package-relative path.
     PackageSnapshot {
         /// Canonical forward-slash package-relative path.
-        #[schemars(length(min = 1, max = 4096))]
-        normalized_path: String,
+        normalized_path: ExecutionPackagePath,
     },
     /// Exact blob in a retained managed-artifact manifest.
     ManagedArtifact {
         /// Content identity of the executable blob.
-        digest: Sha256Digest,
+        digest: ExecutableDigest,
     },
 }
 
@@ -145,8 +219,12 @@ pub enum ExecutionArtifactLocator {
     deny_unknown_fields
 )]
 enum ExecutionArtifactLocatorTransport {
-    PackageSnapshot { normalized_path: String },
-    ManagedArtifact { digest: Sha256Digest },
+    PackageSnapshot {
+        normalized_path: ExecutionPackagePath,
+    },
+    ManagedArtifact {
+        digest: ExecutableDigest,
+    },
 }
 
 impl<'de> Deserialize<'de> for ExecutionArtifactLocator {
@@ -156,7 +234,7 @@ impl<'de> Deserialize<'de> for ExecutionArtifactLocator {
     {
         match ExecutionArtifactLocatorTransport::deserialize(deserializer)? {
             ExecutionArtifactLocatorTransport::PackageSnapshot { normalized_path } => {
-                Self::package_snapshot(normalized_path).map_err(D::Error::custom)
+                Ok(Self::PackageSnapshot { normalized_path })
             }
             ExecutionArtifactLocatorTransport::ManagedArtifact { digest } => {
                 Ok(Self::managed_artifact(digest))
@@ -175,14 +253,13 @@ impl ExecutionArtifactLocator {
     pub fn package_snapshot(
         normalized_path: impl Into<String>,
     ) -> Result<Self, ExecutionTargetContractError> {
-        let normalized_path = normalized_path.into();
-        validate_package_path(&normalized_path)?;
+        let normalized_path = ExecutionPackagePath::try_from(normalized_path.into())?;
         Ok(Self::PackageSnapshot { normalized_path })
     }
 
     /// Constructs one exact managed-artifact digest locator.
     #[must_use]
-    pub const fn managed_artifact(digest: Sha256Digest) -> Self {
+    pub const fn managed_artifact(digest: ExecutableDigest) -> Self {
         Self::ManagedArtifact { digest }
     }
 
@@ -199,14 +276,14 @@ impl ExecutionArtifactLocator {
     #[must_use]
     pub fn package_path(&self) -> Option<&str> {
         match self {
-            Self::PackageSnapshot { normalized_path } => Some(normalized_path),
+            Self::PackageSnapshot { normalized_path } => Some(&normalized_path.0),
             Self::ManagedArtifact { .. } => None,
         }
     }
 
     /// Returns the managed executable digest when this is a managed-artifact locator.
     #[must_use]
-    pub const fn managed_digest(&self) -> Option<&Sha256Digest> {
+    pub const fn managed_digest(&self) -> Option<&ExecutableDigest> {
         match self {
             Self::ManagedArtifact { digest } => Some(digest),
             Self::PackageSnapshot { .. } => None,
@@ -218,7 +295,7 @@ fn validate_package_path(path: &str) -> Result<(), ExecutionTargetContractError>
     if path.is_empty() || path.len() > MAX_EXECUTION_PACKAGE_PATH_BYTES {
         return Err(ExecutionTargetContractError::InvalidPackagePath);
     }
-    if path.contains(['\\', '\0', ':']) || path.starts_with('/') || path.ends_with('/') {
+    if path.starts_with('/') || path.ends_with('/') {
         return Err(ExecutionTargetContractError::InvalidPackagePath);
     }
     let mut component_count = 0_usize;
@@ -230,6 +307,8 @@ fn validate_package_path(path: &str) -> Result<(), ExecutionTargetContractError>
             || component == "."
             || component == ".."
             || component.ends_with(['.', ' '])
+            || component.chars().any(is_invalid_windows_path_character)
+            || is_reserved_windows_component(component)
         {
             return Err(ExecutionTargetContractError::InvalidPackagePath);
         }
@@ -240,6 +319,32 @@ fn validate_package_path(path: &str) -> Result<(), ExecutionTargetContractError>
     Ok(())
 }
 
+fn is_invalid_windows_path_character(character: char) -> bool {
+    character <= '\u{001f}' || matches!(character, '<' | '>' | ':' | '"' | '\\' | '|' | '?' | '*')
+}
+
+fn is_reserved_windows_component(component: &str) -> bool {
+    let stem = component
+        .split_once('.')
+        .map_or(component, |(stem, _extension)| stem)
+        .trim_end_matches([' ', '.']);
+    let uppercase = stem.to_ascii_uppercase();
+    if matches!(
+        uppercase.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" | "CLOCK$"
+    ) {
+        return true;
+    }
+    ["COM", "LPT"].iter().any(|prefix| {
+        uppercase.strip_prefix(prefix).is_some_and(|suffix| {
+            matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+    })
+}
+
 /// State namespace selected by one exact execution target contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -248,9 +353,46 @@ pub enum ExecutionStateMode {
     Disposable,
     /// A separately approved production-state policy is required.
     Production,
+    /// The target intentionally uses the vendor's ambient process-default state behavior.
+    ///
+    /// This mode provides no state isolation or retained namespace capability. It exists so the
+    /// initial full-trust process primitive does not misrepresent ambient state as disposable or
+    /// production-state mediation.
+    VendorDefault,
 }
 
-/// Fixed empty-environment policy for execution-target format version 1.
+/// Minimum security mechanism required by one static execution target.
+///
+/// This is a durable requirement, not evidence that a launcher actually established the posture.
+#[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequiredSecurityPosture {
+    /// The complete vendor-equivalent application executes as an unrestricted same-user process.
+    VendorEquivalentFullTrust,
+    /// Privileged effects require mediation by a separately authenticated broker policy.
+    BrokerMediated,
+    /// A separately tested operating-system containment mechanism is required.
+    OsContained,
+}
+
+impl RequiredSecurityPosture {
+    /// Reports whether live mechanism evidence establishes exactly this required posture.
+    #[must_use]
+    pub const fn is_satisfied_by(self, effective: EffectiveSecurityPosture) -> bool {
+        matches!(
+            (self, effective),
+            (
+                Self::VendorEquivalentFullTrust,
+                EffectiveSecurityPosture::VendorEquivalentFullTrust
+            ) | (
+                Self::BrokerMediated,
+                EffectiveSecurityPosture::BrokerMediated
+            ) | (Self::OsContained, EffectiveSecurityPosture::OsContained)
+        )
+    }
+}
+
+/// Fixed empty-environment policy for execution-target format version 2.
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionEnvironmentPolicy {
@@ -258,7 +400,7 @@ pub enum ExecutionEnvironmentPolicy {
     Empty,
 }
 
-/// Fixed inherited-handle policy for execution-target format version 1.
+/// Fixed inherited-handle policy for execution-target format version 2.
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionInheritedHandlePolicy {
@@ -266,7 +408,7 @@ pub enum ExecutionInheritedHandlePolicy {
     None,
 }
 
-/// Fixed console policy for execution-target format version 1.
+/// Fixed console policy for execution-target format version 2.
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionConsolePolicy {
@@ -274,7 +416,7 @@ pub enum ExecutionConsolePolicy {
     None,
 }
 
-/// Fixed current-directory policy for execution-target format version 1.
+/// Fixed current-directory policy for execution-target format version 2.
 #[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionWorkingDirectoryPolicy {
@@ -282,16 +424,70 @@ pub enum ExecutionWorkingDirectoryPolicy {
     ExecutableParent,
 }
 
+/// Required loader dependency-namespace behavior for one execution target.
+#[derive(Clone, Copy, Debug, Eq, Hash, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionDependencyPolicy {
+    /// Permit unsealed ambient Windows loader resolution from the executable directory and system.
+    ///
+    /// This mode does not claim that package-relative DLLs or resources form a closed immutable set,
+    /// or that a relocated executable preserves its original package-relative dependency behavior.
+    VendorDefaultAmbient,
+    /// Require every load-bearing dependency to come from an immutable manifest-closed namespace.
+    ManifestClosed,
+}
+
 /// Exact bounded Job Object and process-memory requirements for one target.
-#[derive(Clone, Copy, Debug, Eq, JsonSchema, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionResourceLimits {
-    #[schemars(range(min = 1))]
     active_process_limit: u32,
-    #[schemars(range(min = 1))]
     process_memory_limit_bytes: u64,
-    #[schemars(range(min = 1))]
     job_memory_limit_bytes: u64,
+}
+
+impl JsonSchema for ExecutionResourceLimits {
+    fn schema_name() -> Cow<'static, str> {
+        "ExecutionResourceLimits".into()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        concat!(module_path!(), "::ExecutionResourceLimits").into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "Nonzero Windows Job limits. Rust validation additionally requires process_memory_limit_bytes <= job_memory_limit_bytes.",
+            "type": "object",
+            "properties": {
+                "active_process_limit": {
+                    "type": "integer",
+                    "format": "uint32",
+                    "minimum": 1,
+                    "maximum": 4_294_967_295_u64
+                },
+                "process_memory_limit_bytes": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 1,
+                    "maximum": 18_446_744_073_709_551_615_u64
+                },
+                "job_memory_limit_bytes": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 1,
+                    "maximum": 18_446_744_073_709_551_615_u64
+                }
+            },
+            "required": [
+                "active_process_limit",
+                "process_memory_limit_bytes",
+                "job_memory_limit_bytes"
+            ],
+            "additionalProperties": false,
+            "x-weregopher-processMemoryAtMostJobMemory": true
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -364,18 +560,14 @@ impl ExecutionResourceLimits {
     }
 }
 
-/// Role-named policy artifact identities referenced by one exact launch policy.
+/// Durable policy requirements referenced by one exact static launch policy.
 #[derive(Clone, Copy, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExecutionPolicyDigests {
-    /// Complete compatibility-analysis document identity.
-    pub compatibility_analysis_digest: Sha256Digest,
-    /// Resolved capability-manifest/policy identity.
-    pub capability_policy_digest: Sha256Digest,
-    /// Resolved state policy identity.
-    pub state_policy_digest: Sha256Digest,
-    /// Current user-policy/consent identity.
-    pub user_policy_digest: Sha256Digest,
+pub struct ExecutionPolicyRequirements {
+    /// Capability policy identity whose exact authority the static adapter requires.
+    pub capability_policy_digest: CapabilityPolicyDigest,
+    /// State policy identity whose exact namespace rules the static adapter requires.
+    pub state_policy_digest: StatePolicyDigest,
 }
 
 /// Fixed bounded launch and policy requirements from one static target contract.
@@ -388,10 +580,11 @@ pub struct ExecutionLaunchPolicy {
     inherited_handles: ExecutionInheritedHandlePolicy,
     console: ExecutionConsolePolicy,
     working_directory: ExecutionWorkingDirectoryPolicy,
-    security_posture: EffectiveSecurityPosture,
+    dependency_policy: ExecutionDependencyPolicy,
+    required_security_posture: RequiredSecurityPosture,
     state_mode: ExecutionStateMode,
     resource_limits: ExecutionResourceLimits,
-    policy_digests: ExecutionPolicyDigests,
+    policy_requirements: ExecutionPolicyRequirements,
 }
 
 impl fmt::Debug for ExecutionLaunchPolicy {
@@ -404,10 +597,11 @@ impl fmt::Debug for ExecutionLaunchPolicy {
             .field("inherited_handles", &self.inherited_handles)
             .field("console", &self.console)
             .field("working_directory", &self.working_directory)
-            .field("security_posture", &self.security_posture)
+            .field("dependency_policy", &self.dependency_policy)
+            .field("required_security_posture", &self.required_security_posture)
             .field("state_mode", &self.state_mode)
             .field("resource_limits", &self.resource_limits)
-            .field("policy_digests", &self.policy_digests)
+            .field("policy_requirements", &self.policy_requirements)
             .finish_non_exhaustive()
     }
 }
@@ -421,10 +615,11 @@ struct ExecutionLaunchPolicyTransport {
     inherited_handles: ExecutionInheritedHandlePolicy,
     console: ExecutionConsolePolicy,
     working_directory: ExecutionWorkingDirectoryPolicy,
-    security_posture: EffectiveSecurityPosture,
+    dependency_policy: ExecutionDependencyPolicy,
+    required_security_posture: RequiredSecurityPosture,
     state_mode: ExecutionStateMode,
     resource_limits: ExecutionResourceLimits,
-    policy_digests: ExecutionPolicyDigests,
+    policy_requirements: ExecutionPolicyRequirements,
 }
 
 fn deserialize_execution_arguments<'de, D>(
@@ -481,10 +676,11 @@ impl<'de> Deserialize<'de> for ExecutionLaunchPolicy {
         let transport = ExecutionLaunchPolicyTransport::deserialize(deserializer)?;
         let policy = Self::new(
             transport.arguments,
-            transport.security_posture,
+            transport.dependency_policy,
+            transport.required_security_posture,
             transport.state_mode,
             transport.resource_limits,
-            transport.policy_digests,
+            transport.policy_requirements,
         )
         .map_err(D::Error::custom)?;
         if policy.environment != transport.environment
@@ -501,9 +697,9 @@ impl<'de> Deserialize<'de> for ExecutionLaunchPolicy {
 }
 
 impl ExecutionLaunchPolicy {
-    /// Constructs one format-v1 fixed launch policy.
+    /// Constructs one format-v2 fixed launch policy.
     ///
-    /// Format version 1 always uses an empty environment, inherits no handles, creates no console,
+    /// Format version 2 always uses an empty environment, inherits no handles, creates no console,
     /// and uses the retained executable's parent as current directory.
     ///
     /// # Errors
@@ -512,10 +708,11 @@ impl ExecutionLaunchPolicy {
     /// bounds.
     pub fn new(
         arguments: Vec<ExecutionArgument>,
-        security_posture: EffectiveSecurityPosture,
+        dependency_policy: ExecutionDependencyPolicy,
+        required_security_posture: RequiredSecurityPosture,
         state_mode: ExecutionStateMode,
         resource_limits: ExecutionResourceLimits,
-        policy_digests: ExecutionPolicyDigests,
+        policy_requirements: ExecutionPolicyRequirements,
     ) -> Result<Self, ExecutionTargetContractError> {
         if arguments.len() > MAX_EXECUTION_ARGUMENTS {
             return Err(ExecutionTargetContractError::TooManyArguments);
@@ -535,10 +732,11 @@ impl ExecutionLaunchPolicy {
             inherited_handles: ExecutionInheritedHandlePolicy::None,
             console: ExecutionConsolePolicy::None,
             working_directory: ExecutionWorkingDirectoryPolicy::ExecutableParent,
-            security_posture,
+            dependency_policy,
+            required_security_posture,
             state_mode,
             resource_limits,
-            policy_digests,
+            policy_requirements,
         })
     }
 
@@ -578,10 +776,16 @@ impl ExecutionLaunchPolicy {
         self.working_directory
     }
 
-    /// Returns the declared effective security posture.
+    /// Returns the required loader dependency-namespace behavior.
     #[must_use]
-    pub const fn security_posture(&self) -> EffectiveSecurityPosture {
-        self.security_posture
+    pub const fn dependency_policy(&self) -> ExecutionDependencyPolicy {
+        self.dependency_policy
+    }
+
+    /// Returns the static minimum security mechanism requirement.
+    #[must_use]
+    pub const fn required_security_posture(&self) -> RequiredSecurityPosture {
+        self.required_security_posture
     }
 
     /// Returns the state namespace mode.
@@ -596,10 +800,10 @@ impl ExecutionLaunchPolicy {
         self.resource_limits
     }
 
-    /// Returns exact external policy evidence identities.
+    /// Returns exact durable policy requirements.
     #[must_use]
-    pub const fn policy_digests(&self) -> &ExecutionPolicyDigests {
-        &self.policy_digests
+    pub const fn policy_requirements(&self) -> &ExecutionPolicyRequirements {
+        &self.policy_requirements
     }
 }
 
@@ -631,7 +835,7 @@ impl<'de> Deserialize<'de> for ExecutionTargetContract {
     {
         let transport = ExecutionTargetContractTransport::deserialize(deserializer)?;
         match transport.format_version {
-            ExecutionTargetContractFormatVersion::V1 => Ok(Self::new(
+            ExecutionTargetContractFormatVersion::V2 => Ok(Self::new(
                 transport.target_id,
                 transport.kind,
                 transport.artifact_locator,
@@ -642,7 +846,7 @@ impl<'de> Deserialize<'de> for ExecutionTargetContract {
 }
 
 impl ExecutionTargetContract {
-    /// Constructs one validated format-v1 execution target contract.
+    /// Constructs one validated format-v2 execution target contract.
     #[must_use]
     pub const fn new(
         target_id: ExecutionTargetId,
@@ -651,7 +855,7 @@ impl ExecutionTargetContract {
         launch_policy: ExecutionLaunchPolicy,
     ) -> Self {
         Self {
-            format_version: ExecutionTargetContractFormatVersion::V1,
+            format_version: ExecutionTargetContractFormatVersion::V2,
             target_id,
             kind,
             artifact_locator,
@@ -683,6 +887,27 @@ impl ExecutionTargetContract {
         &self.launch_policy
     }
 
+    /// Parses one target contract only after enforcing the complete transport byte bound.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionContractParseError`] when the document exceeds its byte limit or is not a
+    /// valid format-v2 target contract.
+    pub fn from_json_slice(bytes: &[u8]) -> Result<Self, ExecutionContractParseError> {
+        parse_bounded_slice(bytes, MAX_EXECUTION_TARGET_DOCUMENT_BYTES)
+    }
+
+    /// Reads and parses one target contract while retaining at most the document byte limit plus one
+    /// sentinel byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionContractParseError`] for reader failures, an oversized document, or an
+    /// invalid format-v2 target contract.
+    pub fn from_json_reader(reader: impl Read) -> Result<Self, ExecutionContractParseError> {
+        parse_bounded_reader(reader, MAX_EXECUTION_TARGET_DOCUMENT_BYTES)
+    }
+
     /// Returns deterministic canonical JSON bytes for content addressing.
     ///
     /// # Errors
@@ -692,14 +917,16 @@ impl ExecutionTargetContract {
         serde_json::to_vec(self)
     }
 
-    /// Computes the SHA-256 identity of canonical JSON bytes.
+    /// Computes the role-typed SHA-256 identity of canonical JSON bytes.
     ///
     /// # Errors
     ///
     /// Returns a Serde JSON error if canonical serialization cannot complete.
-    pub fn canonical_document_digest(&self) -> serde_json::Result<Sha256Digest> {
+    pub fn canonical_document_digest(&self) -> serde_json::Result<ExecutionContractDigest> {
         let bytes = self.canonical_json_bytes()?;
-        Ok(Sha256Digest::from_bytes(Sha256::digest(bytes).into()))
+        Ok(ExecutionContractDigest::new(Sha256Digest::from_bytes(
+            Sha256::digest(bytes).into(),
+        )))
     }
 }
 
@@ -708,15 +935,15 @@ impl ExecutionTargetContract {
 #[serde(deny_unknown_fields)]
 pub struct ExecutionResolutionDigests {
     /// Exact static target-contract identity.
-    pub execution_contract_digest: Sha256Digest,
+    pub execution_contract_digest: ExecutionContractDigest,
     /// Exact package-tree or managed-manifest identity.
-    pub artifact_source_digest: Sha256Digest,
+    pub artifact_source_digest: ExecutionArtifactSourceDigest,
     /// Exact executable byte identity.
-    pub executable_digest: Sha256Digest,
+    pub executable_digest: ExecutableDigest,
     /// Exact signer, local-build trust, or equivalent artifact trust evidence identity.
-    pub artifact_trust_evidence_digest: Sha256Digest,
+    pub artifact_trust_evidence_digest: ArtifactTrustEvidenceDigest,
     /// Exact artifact provenance evidence identity.
-    pub provenance_evidence_digest: Sha256Digest,
+    pub provenance_evidence_digest: ProvenanceEvidenceDigest,
 }
 
 /// Generated exact resolution evidence for one static execution target.
@@ -745,29 +972,40 @@ impl<'de> Deserialize<'de> for ExecutionResolutionEvidence {
     {
         let transport = ExecutionResolutionEvidenceTransport::deserialize(deserializer)?;
         match transport.format_version {
-            ExecutionResolutionFormatVersion::V1 => Ok(Self::new(
+            ExecutionResolutionFormatVersion::V2 => Self::new(
                 transport.target_id,
                 transport.artifact_locator,
                 transport.digests,
-            )),
+            )
+            .map_err(D::Error::custom),
         }
     }
 }
 
 impl ExecutionResolutionEvidence {
-    /// Constructs format-v1 generated target-resolution evidence.
-    #[must_use]
-    pub const fn new(
+    /// Constructs format-v2 generated target-resolution evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionTargetContractError::ManagedExecutableDigestMismatch`] when a managed
+    /// locator and the role-named executable digest contradict one another.
+    pub fn new(
         target_id: ExecutionTargetId,
         artifact_locator: ExecutionArtifactLocator,
         digests: ExecutionResolutionDigests,
-    ) -> Self {
-        Self {
-            format_version: ExecutionResolutionFormatVersion::V1,
+    ) -> Result<Self, ExecutionTargetContractError> {
+        if artifact_locator
+            .managed_digest()
+            .is_some_and(|digest| digest != &digests.executable_digest)
+        {
+            return Err(ExecutionTargetContractError::ManagedExecutableDigestMismatch);
+        }
+        Ok(Self {
+            format_version: ExecutionResolutionFormatVersion::V2,
             target_id,
             artifact_locator,
             digests,
-        }
+        })
     }
 
     /// Returns the exact static target identifier.
@@ -788,6 +1026,27 @@ impl ExecutionResolutionEvidence {
         &self.digests
     }
 
+    /// Parses one resolution document only after enforcing the complete transport byte bound.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionContractParseError`] when the document exceeds its byte limit or is not
+    /// valid format-v2 resolution evidence.
+    pub fn from_json_slice(bytes: &[u8]) -> Result<Self, ExecutionContractParseError> {
+        parse_bounded_slice(bytes, MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES)
+    }
+
+    /// Reads and parses one resolution document while retaining at most the document byte limit plus
+    /// one sentinel byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionContractParseError`] for reader failures, an oversized document, or invalid
+    /// format-v2 resolution evidence.
+    pub fn from_json_reader(reader: impl Read) -> Result<Self, ExecutionContractParseError> {
+        parse_bounded_reader(reader, MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES)
+    }
+
     /// Returns deterministic canonical JSON bytes for content addressing.
     ///
     /// # Errors
@@ -797,14 +1056,18 @@ impl ExecutionResolutionEvidence {
         serde_json::to_vec(self)
     }
 
-    /// Computes the SHA-256 identity of canonical JSON bytes.
+    /// Computes the role-typed SHA-256 identity of canonical JSON bytes.
     ///
     /// # Errors
     ///
     /// Returns a Serde JSON error if canonical serialization cannot complete.
-    pub fn canonical_document_digest(&self) -> serde_json::Result<Sha256Digest> {
+    pub fn canonical_document_digest(
+        &self,
+    ) -> serde_json::Result<ExecutionResolutionEvidenceDigest> {
         let bytes = self.canonical_json_bytes()?;
-        Ok(Sha256Digest::from_bytes(Sha256::digest(bytes).into()))
+        Ok(ExecutionResolutionEvidenceDigest::new(
+            Sha256Digest::from_bytes(Sha256::digest(bytes).into()),
+        ))
     }
 }
 
@@ -826,10 +1089,61 @@ pub enum ExecutionTargetContractError {
     /// A package-relative locator was not bounded and canonical.
     #[error("execution package path is not bounded and canonical")]
     InvalidPackagePath,
+    /// A managed locator contradicted the role-named executable byte identity.
+    #[error("managed artifact locator digest does not match the resolved executable digest")]
+    ManagedExecutableDigestMismatch,
     /// One process-tree resource limit was zero.
     #[error("execution resource limits must be nonzero")]
     ZeroResourceLimit,
     /// Per-process memory exceeded aggregate Job memory.
     #[error("process memory limit exceeds aggregate job memory limit")]
     IncoherentMemoryLimits,
+}
+
+/// Failure to read or parse one byte-bounded execution contract document.
+#[derive(Debug, Error)]
+pub enum ExecutionContractParseError {
+    /// The serialized document exceeded its root-specific transport bound.
+    #[error("execution contract document exceeds its {maximum}-byte transport limit")]
+    DocumentTooLarge {
+        /// Maximum accepted serialized bytes for this document root.
+        maximum: usize,
+    },
+    /// Reading a bounded document failed.
+    #[error("execution contract document could not be read")]
+    Read(#[source] io::Error),
+    /// Bounded bytes were not a valid canonical contract shape.
+    #[error("execution contract document is invalid")]
+    Json(#[source] serde_json::Error),
+}
+
+fn parse_bounded_slice<T>(bytes: &[u8], maximum: usize) -> Result<T, ExecutionContractParseError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    if bytes.len() > maximum {
+        return Err(ExecutionContractParseError::DocumentTooLarge { maximum });
+    }
+    serde_json::from_slice(bytes).map_err(ExecutionContractParseError::Json)
+}
+
+fn parse_bounded_reader<T>(
+    reader: impl Read,
+    maximum: usize,
+) -> Result<T, ExecutionContractParseError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let Some(sentinel_limit) = maximum.checked_add(1) else {
+        return Err(ExecutionContractParseError::DocumentTooLarge { maximum });
+    };
+    let Ok(sentinel_limit) = u64::try_from(sentinel_limit) else {
+        return Err(ExecutionContractParseError::DocumentTooLarge { maximum });
+    };
+    let mut bytes = Vec::new();
+    reader
+        .take(sentinel_limit)
+        .read_to_end(&mut bytes)
+        .map_err(ExecutionContractParseError::Read)?;
+    parse_bounded_slice(&bytes, maximum)
 }

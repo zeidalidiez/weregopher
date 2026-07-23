@@ -41,6 +41,7 @@ pub use execution_authorization::{
     AuthorizedExecution, ExecutionAuthorityPins, ExecutionAuthorizationError,
     ExecutionAuthorizationLimits, ExecutionAuthorizationRequest, ExecutionContextPins,
     ExecutionPolicyEvidence, ExecutionTargetPins, LocalExecutionPolicy, LocalExecutionPolicyStore,
+    MAX_EXECUTION_POLICY_EVIDENCE_BYTES, MAX_TOTAL_EXECUTION_POLICY_EVIDENCE_BYTES,
     RetainedExecutionArtifact, SupervisedExecution, SupervisedExecutionError, authorize_execution,
     launch_authorized_execution,
 };

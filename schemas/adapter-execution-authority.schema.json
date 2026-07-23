@@ -22,7 +22,7 @@
           "$ref": "#/$defs/ExecutionArtifactSource"
         },
         "execution_contract_digest": {
-          "$ref": "#/$defs/Sha256Digest"
+          "$ref": "#/$defs/ExecutionContractDigest"
         },
         "kind": {
           "$ref": "#/$defs/ExecutionTargetKind"
@@ -49,6 +49,10 @@
           "type": "string"
         }
       ]
+    },
+    "ExecutionContractDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical static execution-target contract identity."
     },
     "ExecutionRebindingFormatVersion": {
       "enum": [

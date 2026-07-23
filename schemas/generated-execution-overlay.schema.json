@@ -14,6 +14,10 @@
       "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
       "type": "string"
     },
+    "ExecutableDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Exact executable byte identity."
+    },
     "ExecutionArchitecture": {
       "description": "Architecture accepted by execution-rebinding format version 1.",
       "oneOf": [
@@ -29,16 +33,16 @@
       "description": "Generated evidence binding one static execution target to exact resolved artifacts.\n\nThe resolution-evidence artifact is expected to describe the resolved executable path, signer or\nprovenance checks, launch-policy resolution, and any other target-contract evidence. This record\nbinds its digest but does not interpret or trust those bytes.",
       "properties": {
         "artifact_source_digest": {
-          "$ref": "#/$defs/Sha256Digest"
+          "$ref": "#/$defs/ExecutionArtifactSourceDigest"
         },
         "executable_digest": {
-          "$ref": "#/$defs/Sha256Digest"
+          "$ref": "#/$defs/ExecutableDigest"
         },
         "execution_contract_digest": {
-          "$ref": "#/$defs/Sha256Digest"
+          "$ref": "#/$defs/ExecutionContractDigest"
         },
         "resolution_evidence_digest": {
-          "$ref": "#/$defs/Sha256Digest"
+          "$ref": "#/$defs/ExecutionResolutionEvidenceDigest"
         }
       },
       "required": [
@@ -48,6 +52,10 @@
         "resolution_evidence_digest"
       ],
       "type": "object"
+    },
+    "ExecutionArtifactSourceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Package-tree or managed-manifest identity containing an executable."
     },
     "ExecutionAuthorityBinding": {
       "additionalProperties": false,
@@ -73,6 +81,10 @@
         "adapter_execution_authority_digest"
       ],
       "type": "object"
+    },
+    "ExecutionContractDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical static execution-target contract identity."
     },
     "ExecutionOverlayBinding": {
       "additionalProperties": false,
@@ -118,6 +130,10 @@
         "1"
       ],
       "type": "string"
+    },
+    "ExecutionResolutionEvidenceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical generated execution-resolution evidence identity."
     },
     "Sha256Digest": {
       "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",

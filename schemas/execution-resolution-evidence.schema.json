@@ -1,5 +1,13 @@
 {
   "$defs": {
+    "ArtifactTrustEvidenceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Artifact trust-evidence identity."
+    },
+    "ExecutableDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Exact executable byte identity."
+    },
     "ExecutionArtifactLocator": {
       "description": "Exact artifact locator interpreted only within the source declared by one target contract.",
       "oneOf": [
@@ -12,10 +20,8 @@
               "type": "string"
             },
             "normalized_path": {
-              "description": "Canonical forward-slash package-relative path.",
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
+              "$ref": "#/$defs/ExecutionPackagePath",
+              "description": "Canonical forward-slash package-relative path."
             }
           },
           "required": [
@@ -33,7 +39,7 @@
               "type": "string"
             },
             "digest": {
-              "$ref": "#/$defs/Sha256Digest",
+              "$ref": "#/$defs/ExecutableDigest",
               "description": "Content identity of the executable blob."
             }
           },
@@ -45,28 +51,46 @@
         }
       ]
     },
+    "ExecutionArtifactSourceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Package-tree or managed-manifest identity containing an executable."
+    },
+    "ExecutionContractDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical static execution-target contract identity."
+    },
+    "ExecutionPackagePath": {
+      "description": "Canonical package-relative Windows path. Rust validation also rejects DOS device aliases in every component.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[<>:\"\\\\|?*\\u0000-\\u001f])(?!.*[. ](?:/|$)).+$",
+      "type": "string",
+      "x-weregopher-maxPathComponents": 256,
+      "x-weregopher-maxUtf8Bytes": 4096,
+      "x-weregopher-windowsDeviceAliasesRejected": true
+    },
     "ExecutionResolutionDigests": {
       "additionalProperties": false,
       "description": "Role-named generated resolution-evidence identities.",
       "properties": {
         "artifact_source_digest": {
-          "$ref": "#/$defs/Sha256Digest",
+          "$ref": "#/$defs/ExecutionArtifactSourceDigest",
           "description": "Exact package-tree or managed-manifest identity."
         },
         "artifact_trust_evidence_digest": {
-          "$ref": "#/$defs/Sha256Digest",
+          "$ref": "#/$defs/ArtifactTrustEvidenceDigest",
           "description": "Exact signer, local-build trust, or equivalent artifact trust evidence identity."
         },
         "executable_digest": {
-          "$ref": "#/$defs/Sha256Digest",
+          "$ref": "#/$defs/ExecutableDigest",
           "description": "Exact executable byte identity."
         },
         "execution_contract_digest": {
-          "$ref": "#/$defs/Sha256Digest",
+          "$ref": "#/$defs/ExecutionContractDigest",
           "description": "Exact static target-contract identity."
         },
         "provenance_evidence_digest": {
-          "$ref": "#/$defs/Sha256Digest",
+          "$ref": "#/$defs/ProvenanceEvidenceDigest",
           "description": "Exact artifact provenance evidence identity."
         }
       },
@@ -81,7 +105,7 @@
     },
     "ExecutionResolutionFormatVersion": {
       "enum": [
-        "1"
+        "2"
       ],
       "type": "string"
     },
@@ -91,6 +115,10 @@
       "minLength": 1,
       "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
       "type": "string"
+    },
+    "ProvenanceEvidenceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Artifact provenance-evidence identity."
     },
     "Sha256Digest": {
       "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
@@ -124,5 +152,7 @@
     "digests"
   ],
   "title": "ExecutionResolutionEvidence",
-  "type": "object"
+  "type": "object",
+  "x-weregopher-managedLocatorDigestEqualsExecutableDigest": true,
+  "x-weregopher-maxDocumentBytes": 65536
 }

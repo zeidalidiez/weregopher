@@ -328,6 +328,10 @@ impl ManagedArtifactExecutable<'_, '_> {
 
 #[cfg(windows)]
 impl<'lease, 'store> ManagedArtifactExecutable<'lease, 'store> {
+    pub(crate) const fn locked(&self) -> &LockedExecutable {
+        &self.locked
+    }
+
     pub(crate) fn into_launch_parts(
         self,
     ) -> (&'lease ManagedArtifactLease<'store>, LockedExecutable) {

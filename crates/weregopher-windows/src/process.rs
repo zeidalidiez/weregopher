@@ -31,7 +31,7 @@ use windows_sys::Win32::{
     },
 };
 
-use crate::{FileIdentityLease, KillOnCloseJob};
+use crate::{FileIdentity, FileIdentityLease, KillOnCloseJob};
 
 const WINDOWS_COMMAND_LINE_MAX_UNITS: usize = 32_767;
 
@@ -92,6 +92,32 @@ impl ProcessLaunchLimits {
     #[must_use]
     pub const fn max_command_line_units(self) -> usize {
         self.command_line_units
+    }
+}
+
+/// Opaque, exact Windows launch encoding prepared against one retained executable identity.
+///
+/// Construction validates UTF-16 encoding, C-runtime quoting expansion, aggregate command-line
+/// length, and working-directory representability before an authorization boundary can retain this
+/// value. It is neither cloneable nor serializable and cannot be consumed with a different file
+/// object or path.
+#[must_use = "a prepared launch must be consumed with its exact locked executable"]
+pub struct PreparedProcessLaunch {
+    executable_path: PathBuf,
+    executable_identity: FileIdentity,
+    application: Vec<u16>,
+    current_directory: Vec<u16>,
+    command_line: Vec<u16>,
+}
+
+impl fmt::Debug for PreparedProcessLaunch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PreparedProcessLaunch")
+            .field("application_units", &self.application.len())
+            .field("current_directory_units", &self.current_directory.len())
+            .field("command_line_units", &self.command_line.len())
+            .finish_non_exhaustive()
     }
 }
 
@@ -158,6 +184,34 @@ impl LockedExecutable {
             ));
         }
         Ok(executable)
+    }
+
+    /// Prepares the exact no-inheritance Windows command line for this retained executable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input or allocation error when the executable path, working directory, or
+    /// quoted arguments cannot be represented under `limits`.
+    pub fn prepare_launch(
+        &self,
+        arguments: &[OsString],
+        limits: ProcessLaunchLimits,
+    ) -> io::Result<PreparedProcessLaunch> {
+        let application = encode_nul_terminated(self.path().as_os_str(), limits.argument_units)?;
+        let current_directory_path = self
+            .path()
+            .parent()
+            .ok_or_else(|| invalid_input("locked executable lost its absolute parent"))?;
+        let current_directory =
+            encode_nul_terminated(current_directory_path.as_os_str(), limits.argument_units)?;
+        let command_line = build_command_line(self.path().as_os_str(), arguments, limits)?;
+        Ok(PreparedProcessLaunch {
+            executable_path: self.path.clone(),
+            executable_identity: self.file.identity,
+            application,
+            current_directory,
+            command_line,
+        })
     }
 
     fn path(&self) -> &Path {
@@ -263,29 +317,46 @@ impl KillOnCloseJob {
         arguments: &[OsString],
         limits: ProcessLaunchLimits,
     ) -> io::Result<OwnedJobProcess> {
-        launch_owned_process(self, executable, arguments, limits)
+        let prepared = executable.prepare_launch(arguments, limits)?;
+        self.launch_prepared(executable, prepared)
+    }
+
+    /// Consumes a launch encoding previously prepared for this exact retained executable.
+    ///
+    /// Binding is checked before any process-creation operation. This keeps quoting and Windows
+    /// representability validation on the pre-authorization side without permitting a prepared
+    /// command line to be rebound to another executable file object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for an executable/path binding mismatch, or the process-launch
+    /// errors documented by [`Self::launch`].
+    pub fn launch_prepared(
+        self,
+        executable: LockedExecutable,
+        prepared: PreparedProcessLaunch,
+    ) -> io::Result<OwnedJobProcess> {
+        if executable.path != prepared.executable_path
+            || executable.file.identity != prepared.executable_identity
+        {
+            return Err(invalid_input(
+                "prepared process launch does not match the retained executable",
+            ));
+        }
+        launch_owned_process(self, executable, prepared)
     }
 }
 
 fn launch_owned_process(
     job: KillOnCloseJob,
     executable: LockedExecutable,
-    arguments: &[OsString],
-    limits: ProcessLaunchLimits,
+    mut prepared: PreparedProcessLaunch,
 ) -> io::Result<OwnedJobProcess> {
-    let application = encode_nul_terminated(executable.path().as_os_str(), limits.argument_units)?;
-    let current_directory_path = executable
-        .path()
-        .parent()
-        .ok_or_else(|| invalid_input("locked executable lost its absolute parent"))?;
-    let current_directory =
-        encode_nul_terminated(current_directory_path.as_os_str(), limits.argument_units)?;
-    let mut command_line = build_command_line(executable.path().as_os_str(), arguments, limits)?;
     let attributes = AttributeList::with_job(job.handle())?;
     let (process, thread, process_id) = create_suspended_process(
-        &application,
-        &mut command_line,
-        &current_directory,
+        &prepared.application,
+        &mut prepared.command_line,
+        &prepared.current_directory,
         &attributes,
     )?;
 

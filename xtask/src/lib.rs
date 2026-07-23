@@ -148,6 +148,47 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
     if filename == "compatibility-analysis.schema.json" {
         require_evidence_for_resolved_compatibility_assessments(document)?;
     }
+    match filename {
+        "execution-target-contract.schema.json" => annotate_execution_target_limits(document)?,
+        "execution-resolution-evidence.schema.json" => {
+            annotate_execution_resolution_limits(document)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn annotate_execution_target_limits(document: &mut Value) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .context("execution target schema root is not an object")?;
+    root.insert(
+        "x-weregopher-maxDocumentBytes".to_owned(),
+        json!(weregopher_domain::MAX_EXECUTION_TARGET_DOCUMENT_BYTES),
+    );
+    let arguments = document
+        .pointer_mut("/$defs/ExecutionLaunchPolicy/properties/arguments")
+        .and_then(Value::as_object_mut)
+        .context("execution target schema is missing launch arguments")?;
+    arguments.insert(
+        "x-weregopher-maxAggregateUtf8Bytes".to_owned(),
+        json!(weregopher_domain::MAX_EXECUTION_ARGUMENT_AGGREGATE_BYTES),
+    );
+    Ok(())
+}
+
+fn annotate_execution_resolution_limits(document: &mut Value) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .context("execution resolution schema root is not an object")?;
+    root.insert(
+        "x-weregopher-maxDocumentBytes".to_owned(),
+        json!(weregopher_domain::MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES),
+    );
+    root.insert(
+        "x-weregopher-managedLocatorDigestEqualsExecutableDigest".to_owned(),
+        Value::Bool(true),
+    );
     Ok(())
 }
 

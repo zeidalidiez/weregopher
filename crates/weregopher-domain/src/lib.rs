@@ -11,6 +11,7 @@ mod compatibility;
 mod digest;
 mod discovery;
 mod execution;
+mod execution_digest;
 mod execution_target;
 mod ids;
 mod protocol;
@@ -41,15 +42,24 @@ pub use execution::{
     GeneratedExecutionOverlay, MAX_AUTHORIZED_EXECUTION_TARGETS, MAX_GENERATED_EXECUTION_BINDINGS,
     StructurallyValidatedExecutionOverlay,
 };
+pub use execution_digest::{
+    ArtifactTrustEvidenceDigest, CapabilityPolicyDigest, CompatibilityAnalysisDigest,
+    ExecutableDigest, ExecutionArtifactSourceDigest, ExecutionContractDigest,
+    ExecutionResolutionEvidenceDigest, ProvenanceEvidenceDigest, StatePolicyDigest,
+    UserPolicyDigest,
+};
 pub use execution_target::{
     EXECUTION_RESOLUTION_FORMAT_VERSION, EXECUTION_TARGET_CONTRACT_FORMAT_VERSION,
     ExecutionArgument, ExecutionArtifactLocator, ExecutionConsolePolicy,
-    ExecutionEnvironmentPolicy, ExecutionInheritedHandlePolicy, ExecutionLaunchPolicy,
-    ExecutionPolicyDigests, ExecutionResolutionDigests, ExecutionResolutionEvidence,
+    ExecutionContractParseError, ExecutionDependencyPolicy, ExecutionEnvironmentPolicy,
+    ExecutionInheritedHandlePolicy, ExecutionLaunchPolicy, ExecutionPackagePath,
+    ExecutionPolicyRequirements, ExecutionResolutionDigests, ExecutionResolutionEvidence,
     ExecutionResourceLimits, ExecutionStateMode, ExecutionTargetContract,
     ExecutionTargetContractError, ExecutionWorkingDirectoryPolicy,
     MAX_EXECUTION_ARGUMENT_AGGREGATE_BYTES, MAX_EXECUTION_ARGUMENT_BYTES, MAX_EXECUTION_ARGUMENTS,
     MAX_EXECUTION_PACKAGE_PATH_BYTES, MAX_EXECUTION_PACKAGE_PATH_COMPONENTS,
+    MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES, MAX_EXECUTION_TARGET_DOCUMENT_BYTES,
+    RequiredSecurityPosture,
 };
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,

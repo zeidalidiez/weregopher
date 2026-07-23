@@ -15,16 +15,20 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use weregopher_domain::{
-    AdapterId, AnalysisDisposition, ApplicationFamilyId, CompatibilityAnalysis,
-    EffectiveSecurityPosture, ExecutionArgument, ExecutionArtifactLocator, ExecutionArtifactSource,
-    ExecutionConsolePolicy, ExecutionEnvironmentPolicy, ExecutionInheritedHandlePolicy,
-    ExecutionLaunchPolicy, ExecutionResolutionEvidence, ExecutionResourceLimits,
-    ExecutionStateMode, ExecutionTargetContract, ExecutionTargetId,
-    ExecutionWorkingDirectoryPolicy, GeneratedExecutionOverlay, MAX_EXECUTION_ARGUMENTS,
-    Sha256Digest, StructurallyValidatedExecutionOverlay, TrustMode,
+    AdapterId, AnalysisDisposition, ApplicationFamilyId, ArtifactTrustEvidenceDigest,
+    CapabilityPolicyDigest, CompatibilityAnalysis, CompatibilityAnalysisDigest,
+    EffectiveSecurityPosture, ExecutableDigest, ExecutionArgument, ExecutionArtifactLocator,
+    ExecutionArtifactSource, ExecutionArtifactSourceDigest, ExecutionConsolePolicy,
+    ExecutionContractDigest, ExecutionDependencyPolicy, ExecutionEnvironmentPolicy,
+    ExecutionInheritedHandlePolicy, ExecutionLaunchPolicy, ExecutionResolutionEvidence,
+    ExecutionResolutionEvidenceDigest, ExecutionResourceLimits, ExecutionStateMode,
+    ExecutionTargetContract, ExecutionTargetId, ExecutionWorkingDirectoryPolicy,
+    GeneratedExecutionOverlay, MAX_EXECUTION_ARGUMENTS, ProvenanceEvidenceDigest, Sha256Digest,
+    StatePolicyDigest, StructurallyValidatedExecutionOverlay, TrustMode, UserPolicyDigest,
 };
 use weregopher_windows::{
-    JobLimits, KillOnCloseJob, LockedExecutable, OwnedJobProcess, ProcessLaunchLimits,
+    JobLimits, KillOnCloseJob, LockedExecutable, OwnedJobProcess, PreparedProcessLaunch,
+    ProcessLaunchLimits,
 };
 
 use crate::{
@@ -67,21 +71,21 @@ pub struct ExecutionTargetPins {
     /// Exact target identifier.
     pub target_id: ExecutionTargetId,
     /// Exact static target-contract identity.
-    pub target_contract_digest: Sha256Digest,
+    pub target_contract_digest: ExecutionContractDigest,
     /// Exact generated resolution-evidence identity.
-    pub resolution_evidence_digest: Sha256Digest,
+    pub resolution_evidence_digest: ExecutionResolutionEvidenceDigest,
     /// Exact artifact-trust evidence identity.
-    pub artifact_trust_evidence_digest: Sha256Digest,
+    pub artifact_trust_evidence_digest: ArtifactTrustEvidenceDigest,
     /// Exact provenance evidence identity.
-    pub provenance_evidence_digest: Sha256Digest,
+    pub provenance_evidence_digest: ProvenanceEvidenceDigest,
     /// Exact complete compatibility-analysis identity.
-    pub compatibility_analysis_digest: Sha256Digest,
+    pub compatibility_analysis_digest: CompatibilityAnalysisDigest,
     /// Exact resolved capability-policy identity.
-    pub capability_policy_digest: Sha256Digest,
+    pub capability_policy_digest: CapabilityPolicyDigest,
     /// Exact resolved state-policy identity.
-    pub state_policy_digest: Sha256Digest,
+    pub state_policy_digest: StatePolicyDigest,
     /// Exact current user-policy identity.
-    pub user_policy_digest: Sha256Digest,
+    pub user_policy_digest: UserPolicyDigest,
     /// Explicitly approved effective security posture.
     pub security_posture: EffectiveSecurityPosture,
     /// Explicitly approved state namespace mode.
@@ -116,6 +120,9 @@ impl LocalExecutionPolicy {
         target: ExecutionTargetPins,
         revision_digest: Sha256Digest,
     ) -> Result<Self, ExecutionAuthorizationError> {
+        if target.security_posture != EffectiveSecurityPosture::VendorEquivalentFullTrust {
+            return Err(ExecutionAuthorizationError::UnsupportedSecurityPosture);
+        }
         match trust_mode {
             TrustMode::LocallyTrusted => {}
             TrustMode::Developer if target.state_mode == ExecutionStateMode::Disposable => {}
@@ -249,7 +256,14 @@ impl LocalExecutionPolicyStore {
     }
 }
 
+/// Hard per-document ceiling for policy evidence hashed by live authorization.
+pub const MAX_EXECUTION_POLICY_EVIDENCE_BYTES: usize = 1024 * 1024;
+/// Hard aggregate ceiling for all policy evidence hashed by one live authorization.
+pub const MAX_TOTAL_EXECUTION_POLICY_EVIDENCE_BYTES: usize = 4 * 1024 * 1024;
+
 /// Caller-selected bounds for evidence hashed by one live authorization decision.
+///
+/// Callers may tighten these limits but cannot raise the implementation ceilings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionAuthorizationLimits {
     max_evidence_bytes: usize,
@@ -261,13 +275,20 @@ impl ExecutionAuthorizationLimits {
     ///
     /// # Errors
     ///
-    /// Returns [`ExecutionAuthorizationError::InvalidLimits`] when either limit is zero.
+    /// Returns [`ExecutionAuthorizationError::InvalidLimits`] when either limit is zero, or
+    /// [`ExecutionAuthorizationError::EvidenceLimitsExceedImplementationMaximum`] when either
+    /// caller-selected limit exceeds its hard implementation ceiling.
     pub const fn new(
         max_evidence_bytes: usize,
         max_total_evidence_bytes: usize,
     ) -> Result<Self, ExecutionAuthorizationError> {
         if max_evidence_bytes == 0 || max_total_evidence_bytes == 0 {
             return Err(ExecutionAuthorizationError::InvalidLimits);
+        }
+        if max_evidence_bytes > MAX_EXECUTION_POLICY_EVIDENCE_BYTES
+            || max_total_evidence_bytes > MAX_TOTAL_EXECUTION_POLICY_EVIDENCE_BYTES
+        {
+            return Err(ExecutionAuthorizationError::EvidenceLimitsExceedImplementationMaximum);
         }
         Ok(Self {
             max_evidence_bytes,
@@ -357,7 +378,7 @@ impl RetainedExecutionArtifact<'_, '_> {
                 ExecutionArtifactLocator::ManagedArtifact { .. },
             ) => locator
                 .managed_digest()
-                .is_some_and(|digest| *digest == executable.digest()),
+                .is_some_and(|digest| digest.as_sha256() == &executable.digest()),
             _ => false,
         }
     }
@@ -370,6 +391,21 @@ impl RetainedExecutionArtifact<'_, '_> {
             Self::ManagedArtifact(executable) => executable
                 .verify_current()
                 .map_err(|_| ExecutionAuthorizationError::RetainedArtifactCurrentViewInvalid),
+        }
+    }
+
+    fn prepare_launch(
+        &self,
+        arguments: &[OsString],
+        limits: ProcessLaunchLimits,
+    ) -> io::Result<PreparedProcessLaunch> {
+        match self {
+            Self::PackageSnapshot(executable) => {
+                executable.locked().prepare_launch(arguments, limits)
+            }
+            Self::ManagedArtifact(executable) => {
+                executable.locked().prepare_launch(arguments, limits)
+            }
         }
     }
 }
@@ -433,7 +469,23 @@ pub struct ExecutionAuthorizationRequest<'input, 'overlay, 'authority, 'lease, '
     pub limits: ExecutionAuthorizationLimits,
 }
 
+struct PreparedAuthorizedLaunch {
+    job_limits: JobLimits,
+    process: PreparedProcessLaunch,
+}
+
 /// One-shot, non-cloneable, non-serializable live execution authorization capability.
+///
+/// The compiler rejects attempts to duplicate the capability:
+///
+/// ```compile_fail
+/// use weregopher_transform::AuthorizedExecution;
+///
+/// fn require_clone<T: Clone>() {}
+/// fn check<'policy, 'artifact>() {
+///     require_clone::<AuthorizedExecution<'policy, 'artifact>>();
+/// }
+/// ```
 ///
 /// This value retains the exact executable and its parent lease. It is conditional on the policy
 /// generation that issued it; the launch boundary must recheck that generation while consuming it.
@@ -441,10 +493,12 @@ pub struct ExecutionAuthorizationRequest<'input, 'overlay, 'authority, 'lease, '
 pub struct AuthorizedExecution<'lease, 'store> {
     target_id: ExecutionTargetId,
     trust_mode: TrustMode,
+    effective_security_posture: EffectiveSecurityPosture,
     launch_policy: ExecutionLaunchPolicy,
     authorization_context_digest: Sha256Digest,
     policy_store: Weak<RwLock<ExecutionPolicyState>>,
     policy_generation: u64,
+    prepared_launch: PreparedAuthorizedLaunch,
     retained_artifact: RetainedExecutionArtifact<'lease, 'store>,
 }
 
@@ -454,6 +508,10 @@ impl fmt::Debug for AuthorizedExecution<'_, '_> {
             .debug_struct("AuthorizedExecution")
             .field("target_id", &self.target_id)
             .field("trust_mode", &self.trust_mode)
+            .field(
+                "effective_security_posture",
+                &self.effective_security_posture,
+            )
             .field("argument_count", &self.launch_policy.arguments().len())
             .field(
                 "argument_utf8_bytes",
@@ -464,7 +522,10 @@ impl fmt::Debug for AuthorizedExecution<'_, '_> {
                     .map(|argument| argument.as_str().len())
                     .sum::<usize>(),
             )
-            .field("security_posture", &self.launch_policy.security_posture())
+            .field(
+                "required_security_posture",
+                &self.launch_policy.required_security_posture(),
+            )
             .field("state_mode", &self.launch_policy.state_mode())
             .field("resource_limits", &self.launch_policy.resource_limits())
             .field(
@@ -504,7 +565,7 @@ impl AuthorizedExecution<'_, '_> {
     /// Returns the approved effective security posture.
     #[must_use]
     pub const fn security_posture(&self) -> EffectiveSecurityPosture {
-        self.launch_policy.security_posture()
+        self.effective_security_posture
     }
 
     /// Returns the approved state namespace mode.
@@ -567,6 +628,7 @@ pub struct SupervisedExecution<'lease, 'store> {
     process: OwnedJobProcess,
     target_id: ExecutionTargetId,
     trust_mode: TrustMode,
+    effective_security_posture: EffectiveSecurityPosture,
     launch_policy: ExecutionLaunchPolicy,
     authorization_context_digest: Sha256Digest,
     retained_source: RetainedExecutionLease<'lease, 'store>,
@@ -581,6 +643,10 @@ impl fmt::Debug for SupervisedExecution<'_, '_> {
             .field("process_id", &self.process.id())
             .field("target_id", &self.target_id)
             .field("trust_mode", &self.trust_mode)
+            .field(
+                "effective_security_posture",
+                &self.effective_security_posture,
+            )
             .field("argument_count", &self.launch_policy.arguments().len())
             .field(
                 "authorization_context_digest",
@@ -609,6 +675,12 @@ impl SupervisedExecution<'_, '_> {
     #[must_use]
     pub const fn trust_mode(&self) -> TrustMode {
         self.trust_mode
+    }
+
+    /// Returns the effective posture actually implemented by the launch boundary.
+    #[must_use]
+    pub const fn security_posture(&self) -> EffectiveSecurityPosture {
+        self.effective_security_posture
     }
 
     /// Returns the complete exact launch policy consumed to create this process.
@@ -681,7 +753,7 @@ impl SupervisedExecution<'_, '_> {
 ///
 /// The issuing policy generation is held under a read lock from the final currentness check through
 /// retained-view verification, Job creation, process creation, membership verification, and primary
-/// thread resume. Format-v1 empty-environment/no-inheritance/no-console/current-directory semantics
+/// thread resume. Format-v2 empty-environment/no-inheritance/no-console/current-directory semantics
 /// are implemented by the Windows launch primitive. This initial consumer accepts only
 /// [`EffectiveSecurityPosture::VendorEquivalentFullTrust`]; brokered or OS-contained targets require
 /// a different enforcing launch boundary.
@@ -697,7 +769,6 @@ impl SupervisedExecution<'_, '_> {
 pub fn launch_authorized_execution<'lease, 'store>(
     authorization: AuthorizedExecution<'lease, 'store>,
 ) -> Result<SupervisedExecution<'lease, 'store>, SupervisedExecutionError> {
-    let prepared = prepare_authorized_launch(&authorization)?;
     let policy_store = authorization
         .policy_store
         .upgrade()
@@ -708,20 +779,22 @@ pub fn launch_authorized_execution<'lease, 'store>(
     verify_policy_state(&policy_state, authorization.policy_generation)?;
     authorization.retained_artifact.verify_current()?;
 
-    let job = KillOnCloseJob::create(prepared.job_limits)
+    let job = KillOnCloseJob::create(authorization.prepared_launch.job_limits)
         .map_err(SupervisedExecutionError::JobCreation)?;
     let AuthorizedExecution {
         target_id,
         trust_mode,
+        effective_security_posture,
         launch_policy,
         authorization_context_digest,
         policy_store,
         policy_generation,
+        prepared_launch,
         retained_artifact,
     } = authorization;
     let (retained_source, executable) = retained_artifact.into_launch_parts();
     let process = job
-        .launch(executable, &prepared.arguments, prepared.process_limits)
+        .launch_prepared(executable, prepared_launch.process)
         .map_err(SupervisedExecutionError::ProcessLaunch)?;
     drop(policy_state);
 
@@ -729,62 +802,12 @@ pub fn launch_authorized_execution<'lease, 'store>(
         process,
         target_id,
         trust_mode,
+        effective_security_posture,
         launch_policy,
         authorization_context_digest,
         retained_source,
         policy_store,
         policy_generation,
-    })
-}
-
-struct PreparedLaunch {
-    arguments: Vec<OsString>,
-    job_limits: JobLimits,
-    process_limits: ProcessLaunchLimits,
-}
-
-fn prepare_authorized_launch(
-    authorization: &AuthorizedExecution<'_, '_>,
-) -> Result<PreparedLaunch, SupervisedExecutionError> {
-    if authorization.security_posture() != EffectiveSecurityPosture::VendorEquivalentFullTrust {
-        return Err(SupervisedExecutionError::UnsupportedSecurityPosture);
-    }
-    let launch_policy = authorization.launch_policy();
-    if launch_policy.environment() != ExecutionEnvironmentPolicy::Empty
-        || launch_policy.inherited_handles() != ExecutionInheritedHandlePolicy::None
-        || launch_policy.console() != ExecutionConsolePolicy::None
-        || launch_policy.working_directory() != ExecutionWorkingDirectoryPolicy::ExecutableParent
-    {
-        return Err(SupervisedExecutionError::UnsupportedLaunchSemantics);
-    }
-    let mut arguments = Vec::new();
-    arguments
-        .try_reserve_exact(authorization.arguments().len())
-        .map_err(|_| SupervisedExecutionError::ArgumentAllocationFailed)?;
-    arguments.extend(
-        authorization
-            .arguments()
-            .iter()
-            .map(|argument| OsString::from(argument.as_str())),
-    );
-
-    let resources = authorization.resource_limits();
-    let job_limits = JobLimits::new(
-        resources.active_process_limit(),
-        resources.process_memory_limit_bytes(),
-        resources.job_memory_limit_bytes(),
-    )
-    .map_err(SupervisedExecutionError::InvalidJobLimits)?;
-    let process_limits = ProcessLaunchLimits::new(
-        MAX_EXECUTION_ARGUMENTS,
-        WINDOWS_MAX_SINGLE_VALUE_UNITS,
-        WINDOWS_MAX_COMMAND_LINE_UNITS,
-    )
-    .map_err(SupervisedExecutionError::InvalidProcessLimits)?;
-    Ok(PreparedLaunch {
-        arguments,
-        job_limits,
-        process_limits,
     })
 }
 
@@ -794,21 +817,7 @@ pub enum SupervisedExecutionError {
     /// The authorization is no longer current or its retained view failed final verification.
     #[error(transparent)]
     Authorization(#[from] ExecutionAuthorizationError),
-    /// The current primitive cannot honestly implement a brokered or OS-contained posture.
-    #[error("authorized security posture requires an unavailable enforcing launch boundary")]
-    UnsupportedSecurityPosture,
-    /// The target requests launch behavior not implemented by the current Windows primitive.
-    #[error("authorized launch semantics require an unavailable enforcing launch boundary")]
-    UnsupportedLaunchSemantics,
-    /// Bounded argument storage could not be allocated.
-    #[error("authorized launch argument allocation failed")]
-    ArgumentAllocationFailed,
-    /// Exact target resource limits cannot be represented by the Windows Job API.
-    #[error("authorized Job Object limits are invalid")]
-    InvalidJobLimits(#[source] io::Error),
-    /// The fixed process-launch bounds cannot be represented by the Windows launch API.
-    #[error("authorized process launch limits are invalid")]
-    InvalidProcessLimits(#[source] io::Error),
+
     /// Windows could not create or configure the required kill-on-close Job Object.
     #[error("authorized Job Object creation failed")]
     JobCreation(#[source] io::Error),
@@ -863,13 +872,15 @@ pub fn authorize_execution<'lease, 'store>(
         return Err(ExecutionAuthorizationError::RetainedArtifactLocatorMismatch);
     }
     let artifact_source_digest = artifact.source_digest();
-    if artifact_source_digest != bindings.artifact_source_digest {
+    if &artifact_source_digest != bindings.artifact_source_digest.as_sha256() {
         return Err(ExecutionAuthorizationError::RetainedArtifactSourceDigestMismatch);
     }
     let executable_digest = artifact.executable_digest();
-    if executable_digest != bindings.executable_digest {
+    if &executable_digest != bindings.executable_digest.as_sha256() {
         return Err(ExecutionAuthorizationError::RetainedExecutableDigestMismatch);
     }
+
+    let prepared_launch = prepare_authorized_launch(&artifact, launch_policy)?;
 
     artifact.verify_current()?;
     verify_policy_generation(request.policy_store, snapshot.generation)?;
@@ -878,11 +889,11 @@ pub fn authorize_execution<'lease, 'store>(
         &bindings.target_id,
         &AuthorizationContextDigests {
             authority_document: bindings.authority_digest,
-            target_contract: bindings.contract_digest,
-            resolution_evidence: bindings.resolution_digest,
+            target_contract: bindings.contract_digest.into_sha256(),
+            resolution_evidence: bindings.resolution_digest.into_sha256(),
             artifact_source: artifact_source_digest,
             executable: executable_digest,
-            compatibility_analysis: compatibility_digest,
+            compatibility_analysis: compatibility_digest.into_sha256(),
             policy_evidence: evidence_digests,
         },
         policy,
@@ -891,22 +902,75 @@ pub fn authorize_execution<'lease, 'store>(
     Ok(AuthorizedExecution {
         target_id: bindings.target_id,
         trust_mode: policy.trust_mode,
+        effective_security_posture: policy.target.security_posture,
         launch_policy: launch_policy.clone(),
         authorization_context_digest,
         policy_store: Arc::downgrade(&request.policy_store.inner),
         policy_generation: snapshot.generation,
+        prepared_launch,
         retained_artifact: artifact,
+    })
+}
+
+fn prepare_authorized_launch(
+    artifact: &RetainedExecutionArtifact<'_, '_>,
+    launch_policy: &ExecutionLaunchPolicy,
+) -> Result<PreparedAuthorizedLaunch, ExecutionAuthorizationError> {
+    if launch_policy.dependency_policy() != ExecutionDependencyPolicy::VendorDefaultAmbient {
+        return Err(ExecutionAuthorizationError::UnsupportedDependencyPolicy);
+    }
+    if launch_policy.state_mode() != ExecutionStateMode::VendorDefault {
+        return Err(ExecutionAuthorizationError::UnsupportedStateMode);
+    }
+    if launch_policy.environment() != ExecutionEnvironmentPolicy::Empty
+        || launch_policy.inherited_handles() != ExecutionInheritedHandlePolicy::None
+        || launch_policy.console() != ExecutionConsolePolicy::None
+        || launch_policy.working_directory() != ExecutionWorkingDirectoryPolicy::ExecutableParent
+    {
+        return Err(ExecutionAuthorizationError::UnsupportedLaunchSemantics);
+    }
+
+    let mut arguments = Vec::new();
+    arguments
+        .try_reserve_exact(launch_policy.arguments().len())
+        .map_err(|_| ExecutionAuthorizationError::UnrepresentableLaunch)?;
+    arguments.extend(
+        launch_policy
+            .arguments()
+            .iter()
+            .map(|argument| OsString::from(argument.as_str())),
+    );
+    let process_limits = ProcessLaunchLimits::new(
+        MAX_EXECUTION_ARGUMENTS,
+        WINDOWS_MAX_SINGLE_VALUE_UNITS,
+        WINDOWS_MAX_COMMAND_LINE_UNITS,
+    )
+    .map_err(|_| ExecutionAuthorizationError::UnrepresentableLaunch)?;
+    let process = artifact
+        .prepare_launch(&arguments, process_limits)
+        .map_err(|_| ExecutionAuthorizationError::UnrepresentableLaunch)?;
+
+    let resources = launch_policy.resource_limits();
+    let job_limits = JobLimits::new(
+        resources.active_process_limit(),
+        resources.process_memory_limit_bytes(),
+        resources.job_memory_limit_bytes(),
+    )
+    .map_err(|_| ExecutionAuthorizationError::UnrepresentableResourceLimits)?;
+    Ok(PreparedAuthorizedLaunch {
+        job_limits,
+        process,
     })
 }
 
 struct ValidatedExecutionBindings {
     authority_digest: Sha256Digest,
     target_id: ExecutionTargetId,
-    contract_digest: Sha256Digest,
-    resolution_digest: Sha256Digest,
+    contract_digest: ExecutionContractDigest,
+    resolution_digest: ExecutionResolutionEvidenceDigest,
     artifact_source: ExecutionArtifactSource,
-    artifact_source_digest: Sha256Digest,
-    executable_digest: Sha256Digest,
+    artifact_source_digest: ExecutionArtifactSourceDigest,
+    executable_digest: ExecutableDigest,
 }
 
 fn validate_execution_bindings(
@@ -1017,7 +1081,7 @@ fn validate_policy_evidence(
     launch_policy: &ExecutionLaunchPolicy,
     evidence: ExecutionPolicyEvidence<'_>,
     limits: ExecutionAuthorizationLimits,
-) -> Result<(PolicyEvidenceDigests, Sha256Digest), ExecutionAuthorizationError> {
+) -> Result<(PolicyEvidenceDigests, CompatibilityAnalysisDigest), ExecutionAuthorizationError> {
     let evidence_digests = hash_policy_evidence(evidence, limits)?;
     let resolution_digests = resolution.digests();
     if evidence_digests.artifact_trust != resolution_digests.artifact_trust_evidence_digest
@@ -1031,11 +1095,9 @@ fn validate_policy_evidence(
         return Err(ExecutionAuthorizationError::ProvenanceEvidenceMismatch);
     }
 
-    let required = launch_policy.policy_digests();
-    let compatibility_digest = canonical_digest(compatibility)?;
-    if compatibility_digest != required.compatibility_analysis_digest
-        || compatibility_digest != policy.target.compatibility_analysis_digest
-    {
+    let required = launch_policy.policy_requirements();
+    let compatibility_digest = CompatibilityAnalysisDigest::new(canonical_digest(compatibility)?);
+    if compatibility_digest != policy.target.compatibility_analysis_digest {
         return Err(ExecutionAuthorizationError::CompatibilityDigestMismatch);
     }
     if compatibility.disposition() != AnalysisDisposition::Complete {
@@ -1061,12 +1123,13 @@ fn validate_policy_evidence(
     {
         return Err(ExecutionAuthorizationError::StatePolicyMismatch);
     }
-    if evidence_digests.user_policy != required.user_policy_digest
-        || evidence_digests.user_policy != policy.target.user_policy_digest
-    {
+    if evidence_digests.user_policy != policy.target.user_policy_digest {
         return Err(ExecutionAuthorizationError::UserPolicyMismatch);
     }
-    if launch_policy.security_posture() != policy.target.security_posture {
+    if !launch_policy
+        .required_security_posture()
+        .is_satisfied_by(policy.target.security_posture)
+    {
         return Err(ExecutionAuthorizationError::SecurityPostureMismatch);
     }
     if launch_policy.state_mode() != policy.target.state_mode {
@@ -1077,11 +1140,23 @@ fn validate_policy_evidence(
 
 #[derive(Clone, Copy)]
 struct PolicyEvidenceDigests {
-    artifact_trust: Sha256Digest,
-    provenance: Sha256Digest,
-    capability_policy: Sha256Digest,
-    state_policy: Sha256Digest,
-    user_policy: Sha256Digest,
+    artifact_trust: ArtifactTrustEvidenceDigest,
+    provenance: ProvenanceEvidenceDigest,
+    capability_policy: CapabilityPolicyDigest,
+    state_policy: StatePolicyDigest,
+    user_policy: UserPolicyDigest,
+}
+
+impl PolicyEvidenceDigests {
+    fn into_sha256_array(self) -> [Sha256Digest; 5] {
+        [
+            self.artifact_trust.into_sha256(),
+            self.provenance.into_sha256(),
+            self.capability_policy.into_sha256(),
+            self.state_policy.into_sha256(),
+            self.user_policy.into_sha256(),
+        ]
+    }
 }
 
 fn hash_policy_evidence(
@@ -1108,11 +1183,11 @@ fn hash_policy_evidence(
         }
     }
     Ok(PolicyEvidenceDigests {
-        artifact_trust: digest(evidence.artifact_trust),
-        provenance: digest(evidence.provenance),
-        capability_policy: digest(evidence.capability_policy),
-        state_policy: digest(evidence.state_policy),
-        user_policy: digest(evidence.user_policy),
+        artifact_trust: digest(evidence.artifact_trust).into(),
+        provenance: digest(evidence.provenance).into(),
+        capability_policy: digest(evidence.capability_policy).into(),
+        state_policy: digest(evidence.state_policy).into(),
+        user_policy: digest(evidence.user_policy).into(),
     })
 }
 
@@ -1179,15 +1254,13 @@ fn authorization_context_digest(
         digests.artifact_source,
         digests.executable,
         digests.compatibility_analysis,
-        digests.policy_evidence.artifact_trust,
-        digests.policy_evidence.provenance,
-        digests.policy_evidence.capability_policy,
-        digests.policy_evidence.state_policy,
-        digests.policy_evidence.user_policy,
-        policy.revision_digest,
     ] {
         hasher.update(value.as_bytes());
     }
+    for value in digests.policy_evidence.into_sha256_array() {
+        hasher.update(value.as_bytes());
+    }
+    hasher.update(policy.revision_digest.as_bytes());
     hasher.update(generation.to_le_bytes());
     hasher.update([match policy.trust_mode {
         TrustMode::RegistryTrusted => 0,
@@ -1204,6 +1277,9 @@ pub enum ExecutionAuthorizationError {
     /// Caller-selected evidence limits were zero.
     #[error("execution authorization evidence limits must be nonzero")]
     InvalidLimits,
+    /// Caller-selected evidence limits attempted to exceed a hard implementation ceiling.
+    #[error("execution authorization evidence limits exceed the implementation maximum")]
+    EvidenceLimitsExceedImplementationMaximum,
     /// One evidence artifact exceeded its byte limit.
     #[error("execution authorization evidence exceeds its per-artifact byte limit")]
     EvidenceByteLimitExceeded,
@@ -1216,6 +1292,24 @@ pub enum ExecutionAuthorizationError {
     /// The selected trust mode requires a trust engine outside this local-policy boundary.
     #[error("execution authorization trust mode is not supported by local policy")]
     UnsupportedTrustMode,
+    /// The local authorizer has no launch mechanism that can establish the approved posture.
+    #[error("execution security posture is not supported by the local launch boundary")]
+    UnsupportedSecurityPosture,
+    /// Fixed launch semantics cannot be implemented by the local Windows launch boundary.
+    #[error("execution target requires unsupported launch semantics")]
+    UnsupportedLaunchSemantics,
+    /// The target requires a state namespace that this low-level launch boundary does not retain.
+    #[error("execution target requires an unsupported state namespace mode")]
+    UnsupportedStateMode,
+    /// The target requires a closed dependency namespace that this launch boundary cannot seal.
+    #[error("execution target requires an unsupported dependency namespace policy")]
+    UnsupportedDependencyPolicy,
+    /// The exact executable path and quoted arguments cannot be represented by `CreateProcessW`.
+    #[error("execution target cannot be represented as a bounded Windows process launch")]
+    UnrepresentableLaunch,
+    /// Exact resource limits cannot be represented by the Windows Job primitive.
+    #[error("execution target resource limits cannot be represented by the Windows Job primitive")]
+    UnrepresentableResourceLimits,
     /// Unsigned developer execution requested production state.
     #[error("developer execution requires disposable state")]
     DeveloperModeRequiresDisposableState,

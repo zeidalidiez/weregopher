@@ -7,6 +7,7 @@ use std::{
     path::{Component, Path, Prefix},
 };
 
+use weregopher_domain::ExecutionPackagePath;
 use weregopher_windows::{FileIdentityLease, windows_ordinal_case_key};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -571,36 +572,13 @@ fn map_file_verification_error(
 }
 
 fn validate_windows_name(name: &str, path: &Path) -> Result<(), PackageTreeObservationError> {
-    if name.ends_with([' ', '.']) {
-        return Err(PackageTreeObservationError::AmbiguousWindowsName {
-            path: path.to_path_buf(),
-        });
-    }
-    let stem = name
-        .split_once('.')
-        .map_or(name, |(stem, _extension)| stem)
-        .trim_end_matches([' ', '.']);
-    let uppercase = stem.to_ascii_uppercase();
-    let reserved = matches!(uppercase.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || uppercase.strip_prefix("COM").is_some_and(|suffix| {
-            matches!(
-                suffix,
-                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-            )
-        })
-        || uppercase.strip_prefix("LPT").is_some_and(|suffix| {
-            matches!(
-                suffix,
-                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-            )
-        });
-    if reserved {
-        Err(PackageTreeObservationError::AmbiguousWindowsName {
-            path: path.to_path_buf(),
-        })
-    } else {
-        Ok(())
-    }
+    ExecutionPackagePath::new(name)
+        .map(|_validated| ())
+        .map_err(
+            |_source| PackageTreeObservationError::AmbiguousWindowsName {
+                path: path.to_path_buf(),
+            },
+        )
 }
 
 fn normalized_depth(path: &str) -> usize {

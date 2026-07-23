@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-07-23
 
+> Amended by [ADR 0026](0026-execution-contract-v2-and-pre-authorized-launch-plans.md): posture,
+> resource, path, argument, quoting-expansion, and command-line representability checks now complete
+> before `AuthorizedExecution` is issued. Launch consumes the resulting opaque prepared plan.
+
 ## Context
 
 ADR 0024 introduced a conditional, non-cloneable live authorization that owns an identity-bound executable capability and binds one policy generation. That value deliberately did not launch a process. A separate boundary still had to prove that authorization currentness, final retained-view verification, Job containment, suspended process creation, assignment verification, and resume occur as one fail-closed operation.
@@ -13,13 +17,13 @@ Passing an executable path to a later component would lose the retained-capabili
 
 On Windows, `launch_authorized_execution` consumes exactly one `AuthorizedExecution` and:
 
-1. rejects every security posture except `vendor-equivalent-full-trust`, because the current Windows primitive is neither a broker nor an independently tested OS sandbox;
-2. converts the exact target resource limits into Job Object limits and the exact target arguments into bounded Windows arguments;
-3. upgrades the issuing policy-store reference and holds its read lock through the remainder of launch;
-4. rechecks revocation and policy generation;
-5. repeats current-view verification through the retained executable capability;
-6. creates and configures a kill-on-close Job Object;
-7. moves the already locked executable directly into `CREATE_SUSPENDED` process creation with an empty environment, no inherited handles, no console, and the executable directory as the working directory;
+1. receives only an authorization for which the local authorizer already rejected unsupported posture and semantics and prepared exact Job limits plus a Windows command line;
+2. upgrades the issuing policy-store reference and holds its read lock through the remainder of launch;
+3. rechecks revocation and policy generation;
+4. repeats current-view verification through the retained executable capability;
+5. creates and configures a kill-on-close Job Object;
+6. checks that the prepared launch still names the same absolute path and full-width file identity;
+7. moves the already locked executable and prepared command line directly into `CREATE_SUSPENDED` process creation with an empty environment, no inherited handles, no console, and the executable directory as the working directory;
 8. assigns the suspended process to the Job, verifies membership, and only then resumes its primary thread; and
 9. returns `SupervisedExecution`, which owns the Job/process capability and retains a borrow of the complete package snapshot or managed-artifact lease.
 
@@ -27,7 +31,7 @@ The authorization is consumed by value and cannot be replayed. No launch step re
 
 `SupervisedExecution` retains the issuing policy generation and a weak reference to the policy store. Supervisors can recheck policy currentness after launch and MUST terminate the Job tree before permitting further privileged effects when that check fails. This API exposes the revocation signal; continuous monitoring and automatic termination remain supervisor work.
 
-The Windows command-line ceiling is a runtime transport limit, not authority. The smaller canonical target-contract argument limits continue to define authorized input.
+The Windows command-line ceiling is a runtime transport limit, not authority. The smaller canonical target-contract argument limits continue to define authorized input, but quoting expansion and the complete ceiling are validated before the authorization capability exists.
 
 ## Consequences
 

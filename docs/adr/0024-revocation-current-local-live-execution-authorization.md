@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-07-23
 
+> Amended by [ADR 0026](0026-execution-contract-v2-and-pre-authorized-launch-plans.md): current
+> compatibility and consent are live policy inputs rather than static target fields, and exact
+> Windows launch representability is prepared before authorization issuance.
+
 ## Context
 
 Static execution authority, generated overlay validation, bounded target and resolution documents, and retained executable capabilities establish separate pieces of evidence. None jointly decides whether a concrete executable may run now. Reconnecting those pieces through ambient paths, positional digests, or an unbounded policy callback would lose the exact identities established by the earlier boundaries.
@@ -17,11 +21,12 @@ The Windows transform runtime defines an initial local live authorization bounda
 
 - `LocalExecutionPolicy` is a trusted supervisor input for exactly one target. Role-named pin groups bind the adapter and authority document; source build, package tree, execution environment, and build descriptor; target and resolution documents; artifact-trust and provenance evidence; compatibility, capability, state, and user-policy evidence; effective security posture; state mode; and local policy revision.
 - `LocalExecutionPolicyStore` owns one current policy generation. Atomic replacement or revocation increments that generation. Outstanding authorizations retain only a weak reference and the generation that issued them.
-- `authorize_execution` consumes a structurally validated overlay proof and one identity-bound retained executable capability. It canonical-hashes typed documents, hashes caller-supplied evidence under explicit per-document and aggregate byte limits, compares every role to its local pin and cross-document binding, requires a complete compatibility disposition, verifies the exact retained locator and source/executable identities, revalidates the retained current view, and confirms that policy did not change during evaluation.
-- `AuthorizedExecution` is opaque, non-cloneable, and non-serializable. It owns the retained executable capability and a complete clone of the exact bounded `ExecutionLaunchPolicy`; diagnostics redact argument and evidence contents. Its context digest binds the authenticated authority, build/environment context, target, resolution, artifact, compatibility, policy evidence, trust mode, policy revision, and issuing generation.
-- Local and developer trust are the only implemented modes. Developer mode requires disposable state. Registry-trusted and forensic-override requests fail closed until their independent trust engines exist.
+- `authorize_execution` consumes a structurally validated overlay proof and one identity-bound retained executable capability. It canonical-hashes typed documents, hashes caller-supplied evidence under explicit per-document and aggregate byte limits that callers may tighten but cannot raise above the 1 MiB/document and 4 MiB/decision implementation ceilings, compares every role to its local pin and cross-document binding, requires a complete compatibility disposition, verifies the exact retained locator and source/executable identities, rejects unsupported required security posture or launch semantics, prepares an exact path-and-file-identity-bound Windows launch plan, revalidates the retained current view, and confirms that policy did not change during evaluation.
+- `AuthorizedExecution` is opaque, non-cloneable, and non-serializable. It owns the retained executable capability, a complete clone of the exact bounded `ExecutionLaunchPolicy`, and the opaque prevalidated Windows launch plan; diagnostics redact argument and evidence contents. Its context digest binds the authenticated authority, build/environment context, target, resolution, artifact, compatibility, policy evidence, trust mode, policy revision, and issuing generation.
+- The initial process primitive accepts only explicitly declared vendor-default ambient dependency loading and vendor-default ambient state. Manifest-closed dependencies and disposable/production state fail before authorization because the low-level owner does not yet retain an immutable dependency namespace or state lease.
+- Local and developer trust are the only recognized local-policy modes. Developer policy requires disposable state, which the current low-level process primitive deliberately rejects until a retained disposable-state lease exists. Registry-trusted and forensic-override requests fail closed until their independent trust engines exist.
 
-The issued value is a conditional live authorization, not process-launch proof. A subsequent supervised launch operation must consume it exactly once, hold the issuing policy generation stable, repeat retained current-view validation immediately before process creation, establish Job containment, create the process suspended, assign it, and resume only after all prior operations succeed.
+The issued value is a conditional live authorization, not process-launch proof. `launch_authorized_execution` consumes it exactly once, holds the issuing policy generation stable, repeats retained current-view validation immediately before process creation, establishes Job containment, creates the process suspended, assigns it, and resumes only after all prior operations succeed.
 
 ## Security and authority boundary
 
@@ -42,7 +47,7 @@ Policy loading and persistence remain supervisor responsibilities. Unknown or un
 - Exact static, generated, policy, compatibility, and filesystem evidence now converge at one typed boundary without reopening an executable path.
 - Replacement and revocation invalidate previously issued values without mutating or serializing them.
 - The complete launch policy travels with the authorization, preventing later supervisor code from rebuilding arguments, environment, working-directory, console, handle, state, posture, or resource semantics from ambient configuration.
-- A later launch API can consume the capability without widening the public visibility of retained Windows handles.
+- The consuming launch API operates without widening the public visibility of retained Windows handles.
 - Registry trust, durable policy storage, atomic authorization-to-launch consumption, supervisor integration, compatibility certification, and runtime effect authorization remain separate milestones.
 
 ## Verification

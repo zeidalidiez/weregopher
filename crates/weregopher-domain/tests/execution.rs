@@ -18,10 +18,10 @@ fn execution_binding_construction_uses_role_named_digest_contexts()
     let authority = authority("helper.allowed", digest(0x31))?;
     let context = execution_context();
     let artifact = ExecutionArtifactBinding::new(ExecutionArtifactDigests {
-        execution_contract_digest: digest(0x31),
-        artifact_source_digest: digest(0x42),
-        executable_digest: digest(0x45),
-        resolution_evidence_digest: digest(0x46),
+        execution_contract_digest: digest(0x31).into(),
+        artifact_source_digest: digest(0x42).into(),
+        executable_digest: digest(0x45).into(),
+        resolution_evidence_digest: digest(0x46).into(),
     });
     let overlay = GeneratedExecutionOverlay::windows_x64(
         ExecutionOverlayBinding::new(context, &authority),
@@ -48,7 +48,7 @@ fn exact_execution_binding_is_structurally_valid() -> Result<(), Box<dyn std::er
             AuthorizedExecutionTargetRef::new(
                 ExecutionTargetKind::VendorHelper,
                 ExecutionArtifactSource::PackageSnapshot,
-                contract_digest,
+                contract_digest.into(),
             ),
         )]),
     )?;
@@ -96,8 +96,11 @@ fn exact_execution_binding_is_structurally_valid() -> Result<(), Box<dyn std::er
         .bindings()
         .get(&target_id)
         .ok_or("expected generated binding")?;
-    assert_eq!(generated.executable_digest(), &digest(0x24));
-    assert_eq!(generated.resolution_evidence_digest(), &digest(0x25));
+    assert_eq!(generated.executable_digest().as_sha256(), &digest(0x24));
+    assert_eq!(
+        generated.resolution_evidence_digest().as_sha256(),
+        &digest(0x25)
+    );
     Ok(())
 }
 
@@ -149,7 +152,7 @@ fn managed_artifact_target_can_bind_a_distinct_materialization_manifest()
             AuthorizedExecutionTargetRef::new(
                 ExecutionTargetKind::MainRuntime,
                 ExecutionArtifactSource::ManagedArtifact,
-                contract_digest,
+                contract_digest.into(),
             ),
         )]),
     )?;
@@ -236,7 +239,7 @@ fn execution_overlay_must_reference_the_exact_authority_object()
             AuthorizedExecutionTargetRef::new(
                 ExecutionTargetKind::VendorHelper,
                 ExecutionArtifactSource::PackageSnapshot,
-                digest(0x31),
+                digest(0x31).into(),
             ),
         )]),
     )?;
@@ -271,7 +274,7 @@ fn execution_contracts_enforce_nonempty_bounded_maps() -> Result<(), Box<dyn std
                 AuthorizedExecutionTargetRef::new(
                     ExecutionTargetKind::VendorHelper,
                     ExecutionArtifactSource::PackageSnapshot,
-                    digest(0x82),
+                    digest(0x82).into(),
                 ),
             ))
         })
@@ -326,7 +329,7 @@ fn execution_transport_rejects_excess_duplicate_and_unknown_data()
     let target = serde_json::to_value(AuthorizedExecutionTargetRef::new(
         ExecutionTargetKind::VendorHelper,
         ExecutionArtifactSource::PackageSnapshot,
-        digest(0x92),
+        digest(0x92).into(),
     ))?;
     let targets = authority_document["targets"]
         .as_object_mut()
@@ -416,7 +419,7 @@ fn streamed_authority_parser_ignores_the_first_malformed_excess_value()
     let target = serde_json::to_string(&AuthorizedExecutionTargetRef::new(
         ExecutionTargetKind::VendorHelper,
         ExecutionArtifactSource::PackageSnapshot,
-        digest(0xb0),
+        digest(0xb0).into(),
     ))?;
     let targets = (0..MAX_AUTHORIZED_EXECUTION_TARGETS)
         .map(|index| format!(r#""helper.target-{index:03}":{target}"#))
@@ -612,7 +615,7 @@ fn execution_contract_maps_accept_the_exact_serialized_limits()
                 AuthorizedExecutionTargetRef::new(
                     ExecutionTargetKind::VendorHelper,
                     ExecutionArtifactSource::PackageSnapshot,
-                    digest(0xc1),
+                    digest(0xc1).into(),
                 ),
             ))
         })
@@ -668,7 +671,7 @@ fn authority_digest_and_serialization_are_insertion_order_independent()
                 AuthorizedExecutionTargetRef::new(
                     ExecutionTargetKind::VendorHelper,
                     ExecutionArtifactSource::PackageSnapshot,
-                    digest(0xb2),
+                    digest(0xb2).into(),
                 ),
             ),
             (
@@ -676,7 +679,7 @@ fn authority_digest_and_serialization_are_insertion_order_independent()
                 AuthorizedExecutionTargetRef::new(
                     ExecutionTargetKind::MainRuntime,
                     ExecutionArtifactSource::ManagedArtifact,
-                    digest(0xb3),
+                    digest(0xb3).into(),
                 ),
             ),
         ]),
@@ -691,7 +694,7 @@ fn authority_digest_and_serialization_are_insertion_order_independent()
                 AuthorizedExecutionTargetRef::new(
                     ExecutionTargetKind::MainRuntime,
                     ExecutionArtifactSource::ManagedArtifact,
-                    digest(0xb3),
+                    digest(0xb3).into(),
                 ),
             ),
             (
@@ -699,7 +702,7 @@ fn authority_digest_and_serialization_are_insertion_order_independent()
                 AuthorizedExecutionTargetRef::new(
                     ExecutionTargetKind::VendorHelper,
                     ExecutionArtifactSource::PackageSnapshot,
-                    digest(0xb2),
+                    digest(0xb2).into(),
                 ),
             ),
         ]
@@ -770,7 +773,7 @@ fn authority_targets(
         AuthorizedExecutionTargetRef::new(
             ExecutionTargetKind::VendorHelper,
             ExecutionArtifactSource::PackageSnapshot,
-            contract_digest,
+            contract_digest.into(),
         ),
     )]))
 }
@@ -806,10 +809,10 @@ fn artifact_binding(
     resolution_evidence_digest: Sha256Digest,
 ) -> ExecutionArtifactBinding {
     ExecutionArtifactBinding::new(ExecutionArtifactDigests {
-        execution_contract_digest,
-        artifact_source_digest,
-        executable_digest,
-        resolution_evidence_digest,
+        execution_contract_digest: execution_contract_digest.into(),
+        artifact_source_digest: artifact_source_digest.into(),
+        executable_digest: executable_digest.into(),
+        resolution_evidence_digest: resolution_evidence_digest.into(),
     })
 }
 

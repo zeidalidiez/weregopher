@@ -21,7 +21,7 @@ mod process;
 
 pub use job::{JobLimits, KillOnCloseJob};
 pub use path::windows_ordinal_case_key;
-pub use process::{LockedExecutable, OwnedJobProcess, ProcessLaunchLimits};
+pub use process::{LockedExecutable, OwnedJobProcess, PreparedProcessLaunch, ProcessLaunchLimits};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct FileIdentity {

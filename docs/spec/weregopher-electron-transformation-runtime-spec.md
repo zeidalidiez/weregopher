@@ -1696,12 +1696,17 @@ command-line, environment, capability, compatibility, state, and user-policy req
 package-view roots are not closed namespaces: execution-qualified package access MUST use
 manifest-scoped, identity-verified file capabilities rather than unrestricted traversal.
 
-Format-version-1 execution target contracts make the static artifact locator, fixed arguments,
-empty-environment/no-inherited-handle/no-console launch semantics, working-directory rule, effective
-security posture, state mode, Job/process resource ceilings, and exact compatibility, capability,
-state, and user-policy identities explicit and bounded. Separate generated resolution evidence binds
-the chosen locator to target-contract, artifact-source, executable, artifact-trust, and provenance
-identities. Parsing and content-addressing either document remains non-authorizing. See
+Format-version-2 execution target contracts make the static artifact locator, fixed arguments,
+empty-environment/no-inherited-handle/no-console launch semantics, working-directory rule, required
+security posture, loader dependency policy, state mode, Job/process resource ceilings, and exact
+static capability/state-policy requirements explicit and bounded. Current compatibility analysis
+and user policy/consent remain
+separate generation-tracked live-policy inputs; changing either MUST NOT require a new static target
+signature. Separate generated resolution evidence binds the chosen locator to target-contract,
+artifact-source, executable, artifact-trust, and provenance identities. A managed locator digest MUST
+equal the role-named executable digest. Hostile readers MUST enforce the contract's outer document
+byte ceiling before Serde allocation, and package locators MUST reject Windows-ambiguous names.
+Parsing and content-addressing either document remains non-authorizing. See
 [ADR-0023](../adr/0023-bounded-execution-target-and-resolution-contracts.md).
 
 The initial Windows capability bridge binds a locked executable path back to the full-width file
@@ -1716,36 +1721,56 @@ The initial Windows live authorizer uses an explicitly trusted local policy stor
 target. Its role-named pins cover authority, source/build/environment context, target and resolution
 documents, trust and provenance evidence, resolved compatibility/capability/state/user policy,
 security posture, state mode, and policy revision. Evidence bytes MUST be hashed under nonzero
-per-document and aggregate limits. Compatibility MUST be complete even when an incomplete analysis
-is itself exactly pinned. Package and managed executables MUST match both the declared locator and
-the retained source/executable identities, and their retained views MUST be revalidated immediately
-before issuance. Policy replacement or revocation MUST monotonically invalidate outstanding values.
+per-document and aggregate limits. Callers MAY tighten those limits but MUST NOT raise them above
+the implementation ceilings of 1 MiB per evidence document and 4 MiB per authorization decision.
+Compatibility MUST be complete even when an incomplete analysis is itself exactly pinned. Package
+and managed executables MUST match both the declared locator and the retained source/executable
+identities. The initial primitive MUST accept only
+`vendor_default_ambient` loader dependencies and `vendor_default` state. It MUST reject
+`manifest_closed`, `disposable`, and `production` requirements until it retains independently
+enforced dependency and state namespace capabilities. Before issuance, authorization MUST reject
+unsupported posture or launch semantics, validate exact Job-limit representability, run the sole
+Windows quoting implementation over the exact path and arguments, enforce the complete
+`CreateProcessW` ceiling, bind the prepared plan to the retained path and full-width file identity,
+and revalidate the retained view.
+Policy replacement or revocation MUST monotonically invalidate outstanding values.
 
 The resulting authorization capability MUST be opaque, non-cloneable, non-serializable, retain the
-exact executable and its complete launch policy, and bind the issuing policy generation. Local and
-developer trust are the only implemented initial modes; developer mode MUST use disposable state.
+exact executable, its complete launch policy, and its opaque prevalidated launch plan, and bind the
+issuing policy generation. Local and developer trust are the only recognized initial local-policy
+modes; developer policy MUST require disposable state and therefore cannot produce an authorization
+through the initial vendor-default-state primitive.
 Registry and forensic modes MUST fail closed until their independent authentication and approval
 engines exist. Issuance is still not launch. The Windows one-shot consumer MUST hold the issuing
-policy read lock, repeat retained-view validation, create the kill-on-close Job, create the exact
-retained executable suspended, assign and verify Job membership, and only then resume the primary
-thread. It MUST consume the authorization by value, retain the complete containing-artifact lease in
-the returned process-tree owner, and fail before resume on every policy, posture, view, containment,
-creation, assignment, or verification error. The initial consumer MUST reject broker-mediated and
-OS-contained targets because its Job Object is not an enforcing security boundary. See
+policy read lock, repeat retained-view validation, create the kill-on-close Job, recheck the prepared
+plan's retained path and file identity, create the exact retained executable suspended, assign and
+verify Job membership, and only then resume the primary thread. It MUST consume the authorization by
+value, retain the complete containing-artifact lease in the returned process-tree owner, and fail
+before resume on every policy, posture, view, containment, creation, assignment, or verification
+error. The initial consumer MUST reject broker-mediated and OS-contained targets because its Job
+Object is not an enforcing security boundary. Exact executable identity under
+`vendor_default_ambient` MUST NOT be described as exact dependency-closure identity. See
 [ADR-0024](../adr/0024-revocation-current-local-live-execution-authorization.md).
 
-The returned owner MUST preserve the authorization-context digest, target identity, exact Job
-limits, and issuing policy generation. A supervisor MUST be able to recheck revocation currentness
-and MUST terminate the complete Job tree before permitting further privileged effects after that
-check fails. The check surface does not itself provide continuous monitoring. Retained Windows
-directory handles still do not seal child namespaces, and this launch ordering MUST NOT be described
-as an OS sandbox or persistent package-tree immutability. See
+The format-version-2 correction and prepared-plan boundary are specified by
+[ADR-0026](../adr/0026-execution-contract-v2-and-pre-authorized-launch-plans.md).
+
+The returned low-level Job owner MUST preserve the authorization-context digest, target identity,
+exact Job limits, and issuing policy generation. It is not yet an `AppInstanceId`, `RuntimeId`, or
+state-lease owner and MUST NOT be represented as a complete production application supervisor. A
+higher-level supervisor MUST bind those owner identities and state capability, recheck revocation
+currentness, and MUST terminate the complete Job tree before permitting further privileged effects
+after that check fails. The check surface does not itself provide continuous monitoring. Retained
+Windows directory handles still do not seal child namespaces, and this launch ordering MUST NOT be
+described as an OS sandbox or persistent package-tree immutability. See
 [ADR-0025](../adr/0025-atomic-authorization-consumption-and-job-owned-launch.md).
 
 Execution authorization, Job Object ownership, suspended process creation, process resume, runtime
 supervision, security posture, efficiency, and certification remain distinct decisions and evidence
-boundaries. The canonical format-v1 Rust contracts and generated schemas are specified by
-[ADR-0021](../adr/0021-authority-nonexpanding-execution-artifact-rebinding.md).
+boundaries. The authority-nonexpansion base is specified by
+[ADR-0021](../adr/0021-authority-nonexpanding-execution-artifact-rebinding.md), and the canonical
+format-v2 correction by
+[ADR-0026](../adr/0026-execution-contract-v2-and-pre-authorized-launch-plans.md).
 
 ## 19.4 Semantic module matching
 

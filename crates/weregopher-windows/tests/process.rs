@@ -113,6 +113,15 @@ fn locked_executable_must_match_the_retained_file_identity()
         LockedExecutable::open_matching_identity(&substituted_path, 64, &expected_identity),
         Err(ref error) if error.kind() == io::ErrorKind::InvalidData
     ));
+
+    let prepared = locked.prepare_launch(&[], ProcessLaunchLimits::new(1, 1_024, 2_048)?)?;
+    let mismatch =
+        KillOnCloseJob::create(JobLimits::new(1, PROCESS_MEMORY_LIMIT, JOB_MEMORY_LIMIT)?)?
+            .launch_prepared(LockedExecutable::open(&substituted_path, 64)?, prepared);
+    assert!(matches!(
+        mismatch,
+        Err(ref error) if error.kind() == io::ErrorKind::InvalidInput
+    ));
     Ok(())
 }
 

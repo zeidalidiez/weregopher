@@ -109,7 +109,7 @@ fn assert_execution_target_schema(
     )?;
     assert_eq!(
         target["$defs"]["ExecutionTargetContractFormatVersion"]["enum"],
-        serde_json::json!(["1"])
+        serde_json::json!(["2"])
     );
     let launch = &target["$defs"]["ExecutionLaunchPolicy"];
     assert_eq!(launch["additionalProperties"], false);
@@ -121,18 +121,31 @@ fn assert_execution_target_schema(
             "inherited_handles",
             "console",
             "working_directory",
-            "security_posture",
+            "dependency_policy",
+            "required_security_posture",
             "state_mode",
             "resource_limits",
-            "policy_digests",
+            "policy_requirements",
         ],
     )?;
     assert_eq!(launch["properties"]["arguments"]["maxItems"], 64);
+    assert_eq!(
+        launch["properties"]["arguments"]["x-weregopher-maxAggregateUtf8Bytes"],
+        weregopher_domain::MAX_EXECUTION_ARGUMENT_AGGREGATE_BYTES
+    );
     assert_eq!(
         launch["properties"]["arguments"]["items"]["$ref"],
         "#/$defs/ExecutionArgument"
     );
     assert_eq!(target["$defs"]["ExecutionArgument"]["maxLength"], 8192);
+    assert_eq!(
+        target["$defs"]["ExecutionArgument"]["x-weregopher-maxUtf8Bytes"],
+        weregopher_domain::MAX_EXECUTION_ARGUMENT_BYTES
+    );
+    assert_eq!(
+        target["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_EXECUTION_TARGET_DOCUMENT_BYTES
+    );
     assert_execution_locator_schema(target)?;
     assert_execution_policy_schema(target)?;
     assert_no_live_authorization_fields(target);
@@ -151,11 +164,23 @@ fn assert_execution_locator_schema(
         assert!(variant["properties"]["artifact_source"]["const"].is_string());
     }
     assert_eq!(
-        variants[0]["properties"]["normalized_path"]["maxLength"],
-        4096
+        variants[0]["properties"]["normalized_path"]["$ref"],
+        "#/$defs/ExecutionPackagePath"
+    );
+    let package_path = &document["$defs"]["ExecutionPackagePath"];
+    assert_eq!(package_path["maxLength"], 4096);
+    assert_eq!(package_path["x-weregopher-maxUtf8Bytes"], 4096);
+    assert_eq!(package_path["x-weregopher-maxPathComponents"], 256);
+    assert_eq!(
+        package_path["x-weregopher-windowsDeviceAliasesRejected"],
+        true
     );
     assert_eq!(
         variants[1]["properties"]["digest"]["$ref"],
+        "#/$defs/ExecutableDigest"
+    );
+    assert_eq!(
+        document["$defs"]["ExecutableDigest"]["$ref"],
         "#/$defs/Sha256Digest"
     );
     Ok(())
@@ -181,16 +206,29 @@ fn assert_execution_policy_schema(
     ] {
         assert_eq!(resources["properties"][field]["minimum"], 1);
     }
-    let digests = &target["$defs"]["ExecutionPolicyDigests"];
-    assert_eq!(digests["additionalProperties"], false);
-    for field in [
-        "compatibility_analysis_digest",
-        "capability_policy_digest",
-        "state_policy_digest",
-        "user_policy_digest",
+    assert_eq!(resources["x-weregopher-processMemoryAtMostJobMemory"], true);
+    let requirements = &target["$defs"]["ExecutionPolicyRequirements"];
+    assert_eq!(requirements["additionalProperties"], false);
+    for (field, role) in [
+        ("capability_policy_digest", "CapabilityPolicyDigest"),
+        ("state_policy_digest", "StatePolicyDigest"),
     ] {
-        assert_eq!(digests["properties"][field]["$ref"], "#/$defs/Sha256Digest");
+        assert_eq!(
+            requirements["properties"][field]["$ref"],
+            format!("#/$defs/{role}")
+        );
+        assert_eq!(target["$defs"][role]["$ref"], "#/$defs/Sha256Digest");
     }
+    assert!(
+        requirements["properties"]
+            .get("compatibility_analysis_digest")
+            .is_none()
+    );
+    assert!(
+        requirements["properties"]
+            .get("user_policy_digest")
+            .is_none()
+    );
     Ok(())
 }
 
@@ -204,18 +242,33 @@ fn assert_execution_resolution_schema(
     )?;
     assert_eq!(
         resolution["$defs"]["ExecutionResolutionFormatVersion"]["enum"],
-        serde_json::json!(["1"])
+        serde_json::json!(["2"])
+    );
+    assert_eq!(
+        resolution["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES
+    );
+    assert_eq!(
+        resolution["x-weregopher-managedLocatorDigestEqualsExecutableDigest"],
+        true
     );
     let digests = &resolution["$defs"]["ExecutionResolutionDigests"];
     assert_eq!(digests["additionalProperties"], false);
-    for field in [
-        "execution_contract_digest",
-        "artifact_source_digest",
-        "executable_digest",
-        "artifact_trust_evidence_digest",
-        "provenance_evidence_digest",
+    for (field, role) in [
+        ("execution_contract_digest", "ExecutionContractDigest"),
+        ("artifact_source_digest", "ExecutionArtifactSourceDigest"),
+        ("executable_digest", "ExecutableDigest"),
+        (
+            "artifact_trust_evidence_digest",
+            "ArtifactTrustEvidenceDigest",
+        ),
+        ("provenance_evidence_digest", "ProvenanceEvidenceDigest"),
     ] {
-        assert_eq!(digests["properties"][field]["$ref"], "#/$defs/Sha256Digest");
+        assert_eq!(
+            digests["properties"][field]["$ref"],
+            format!("#/$defs/{role}")
+        );
+        assert_eq!(resolution["$defs"][role]["$ref"], "#/$defs/Sha256Digest");
     }
     assert_execution_locator_schema(resolution)?;
     assert_no_live_authorization_fields(resolution);
@@ -289,6 +342,10 @@ fn assert_execution_authority_schema(
     );
     assert_eq!(
         target["properties"]["execution_contract_digest"]["$ref"],
+        "#/$defs/ExecutionContractDigest"
+    );
+    assert_eq!(
+        authority["$defs"]["ExecutionContractDigest"]["$ref"],
         "#/$defs/Sha256Digest"
     );
     for forbidden in execution_authority_forbidden_fields() {
@@ -361,16 +418,20 @@ fn assert_generated_execution_overlay_schema(
             "resolution_evidence_digest",
         ],
     )?;
-    for field in [
-        "execution_contract_digest",
-        "artifact_source_digest",
-        "executable_digest",
-        "resolution_evidence_digest",
+    for (field, role) in [
+        ("execution_contract_digest", "ExecutionContractDigest"),
+        ("artifact_source_digest", "ExecutionArtifactSourceDigest"),
+        ("executable_digest", "ExecutableDigest"),
+        (
+            "resolution_evidence_digest",
+            "ExecutionResolutionEvidenceDigest",
+        ),
     ] {
         assert_eq!(
             artifact["properties"][field]["$ref"],
-            "#/$defs/Sha256Digest"
+            format!("#/$defs/{role}")
         );
+        assert_eq!(overlay["$defs"][role]["$ref"], "#/$defs/Sha256Digest");
     }
     assert_execution_overlay_context_schema(overlay)?;
     assert_execution_overlay_is_non_authorizing(overlay);

@@ -6527,7 +6527,8 @@ bootstrap, preload handshake, state safety, helper lifecycle, security contract,
 scenario, and declared exceptions. It additionally admits at most 128 `FeatureId` workflow
 checks. Each check retains at most 64 unique, canonically ordered immutable evidence references.
 `passed`, `failed`, and `not_applicable` checks require evidence; `not_run` checks must not contain
-evidence. The canonical parser rejects inputs larger than 4 MiB before deserialization and fails
+evidence. The public evidence type omits generic `Deserialize`; its canonical parser rejects inputs
+larger than 4 MiB before deserialization and fails
 closed on unsupported versions, unknown fields, duplicate keys/references, contradictory status
 and evidence, invalid identifiers, and collection overflow. Canonical compact JSON produces a
 role-specific `CertificationEvidenceDigest`, so insertion-order-equivalent documents have one exact
@@ -6538,9 +6539,12 @@ The format-`"1"` `CertificationProfile` contract described by
 successful class, exact expected status for all thirteen fixed dimensions, and an exact set of at
 most 128 mandatory workflows. Fixed expectations admit only `passed` or `not_applicable`; every
 mandatory workflow must pass. Profile classes are role-distinct from trusted `CertificationClass`
-values and exclude `provisional` and `blocked`. The canonical parser enforces a 128 KiB ceiling and
+values and exclude `provisional` and `blocked`. The public profile type likewise omits generic
+`Deserialize`; its canonical parser enforces a 128 KiB ceiling and
 fails closed on unsupported versions, unknown fields, duplicate or invalid workflow identifiers,
-and collection overflow.
+and collection overflow. For both format-`"1"` documents, compact UTF-8 member order and canonical
+collection order are normative and frozen by checked-in golden byte and SHA-256 vectors; the
+encoding has no BOM, insignificant whitespace, or trailing newline.
 
 Structural validation consumes one evidence document with the exact canonical profile named by
 its digest. Every fixed status must match, the workflow key sets must be equal, and every mandatory

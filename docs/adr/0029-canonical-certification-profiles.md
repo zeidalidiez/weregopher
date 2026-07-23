@@ -24,7 +24,9 @@ A fixed expectation is either `passed` or `not_applicable`. It cannot ask for `n
 
 Profile classes deliberately use a distinct Rust type with only `structural_verified`, `smoke_verified`, `contract_verified`, and `exact_certified`. There is no direct conversion from this untrusted declaration to the shared `CertificationClass` vocabulary. `provisional` and `blocked` remain decision outcomes rather than successful profile declarations.
 
-Canonical JSON bytes determine `CertificationProfileDigest`. The bounded parser rejects inputs larger than 128 KiB before deserialization. Unsupported versions, unknown fields, duplicate workflow identifiers, invalid identifiers, and collection overflow fail closed.
+Canonical JSON bytes determine `CertificationProfileDigest`. The public domain type deliberately does not implement `Deserialize`; serialized bytes must enter through the bounded parser, which rejects inputs larger than 128 KiB before deserialization. Unsupported versions, unknown fields, duplicate workflow identifiers, invalid identifiers, and collection overflow fail closed.
+
+Format `"1"` canonical bytes are compact UTF-8 with no BOM, insignificant whitespace, or trailing newline. Top-level members are emitted in `format_version`, `class`, `checks`, `workflows` order; fixed checks use the declared check-dimension order; workflow identifiers are lexicographically ordered. The checked-in golden byte vector and SHA-256 vector freeze this encoding independently of Rust field reordering or serializer changes.
 
 `CertificationEvidence::validate_against_profile` consumes one evidence document and one profile, then verifies:
 

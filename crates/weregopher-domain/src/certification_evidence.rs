@@ -617,21 +617,6 @@ pub struct CertificationProfile {
     workflows: BTreeSet<FeatureId>,
 }
 
-impl<'de> Deserialize<'de> for CertificationProfile {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let UncheckedCertificationProfile {
-            format_version: CertificationProfileFormatVersion::V1,
-            class,
-            checks,
-            workflows,
-        } = UncheckedCertificationProfile::deserialize(deserializer)?;
-        Self::new(class, checks, workflows).map_err(D::Error::custom)
-    }
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UncheckedCertificationProfile {
@@ -717,6 +702,16 @@ impl CertificationProfile {
 
     /// Parses one profile only after enforcing its non-configurable byte ceiling.
     ///
+    /// Generic deserialization is intentionally unavailable so this check cannot be bypassed:
+    ///
+    /// ```compile_fail
+    /// use weregopher_domain::CertificationProfile;
+    ///
+    /// let bytes = br#"{}"#;
+    /// let _: CertificationProfile = serde_json::from_slice(bytes)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`CertificationDocumentError`] for oversized or invalid profile bytes.
@@ -724,10 +719,21 @@ impl CertificationProfile {
         if bytes.len() > MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES {
             return Err(CertificationDocumentError::DocumentTooLarge);
         }
-        serde_json::from_slice(bytes).map_err(CertificationDocumentError::InvalidJson)
+        let UncheckedCertificationProfile {
+            format_version: CertificationProfileFormatVersion::V1,
+            class,
+            checks,
+            workflows,
+        } = serde_json::from_slice(bytes).map_err(CertificationDocumentError::InvalidJson)?;
+        Self::new(class, checks, workflows).map_err(|error| {
+            CertificationDocumentError::InvalidJson(serde_json::Error::custom(error))
+        })
     }
 
     /// Returns deterministic canonical JSON bytes.
+    ///
+    /// Format `"1"` fixes compact UTF-8 encoding, member order, and canonical collection order;
+    /// the checked-in golden byte vector is part of the public contract.
     ///
     /// # Errors
     ///
@@ -873,22 +879,6 @@ pub struct CertificationEvidence {
     workflows: BTreeMap<FeatureId, CertificationCheckAssessment>,
 }
 
-impl<'de> Deserialize<'de> for CertificationEvidence {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let UncheckedCertificationEvidence {
-            format_version: CertificationEvidenceFormatVersion::V1,
-            target,
-            profile_digest,
-            checks,
-            workflows,
-        } = UncheckedCertificationEvidence::deserialize(deserializer)?;
-        Self::new(target, profile_digest, checks, workflows).map_err(D::Error::custom)
-    }
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UncheckedCertificationEvidence {
@@ -981,6 +971,16 @@ impl CertificationEvidence {
 
     /// Parses one document only after enforcing the non-configurable byte ceiling.
     ///
+    /// Generic deserialization is intentionally unavailable so this check cannot be bypassed:
+    ///
+    /// ```compile_fail
+    /// use weregopher_domain::CertificationEvidence;
+    ///
+    /// let bytes = br#"{}"#;
+    /// let _: CertificationEvidence = serde_json::from_slice(bytes)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`CertificationDocumentError`] when the input exceeds the byte ceiling or is not a
@@ -989,7 +989,16 @@ impl CertificationEvidence {
         if bytes.len() > MAX_CERTIFICATION_DOCUMENT_BYTES {
             return Err(CertificationDocumentError::DocumentTooLarge);
         }
-        serde_json::from_slice(bytes).map_err(CertificationDocumentError::InvalidJson)
+        let UncheckedCertificationEvidence {
+            format_version: CertificationEvidenceFormatVersion::V1,
+            target,
+            profile_digest,
+            checks,
+            workflows,
+        } = serde_json::from_slice(bytes).map_err(CertificationDocumentError::InvalidJson)?;
+        Self::new(target, profile_digest, checks, workflows).map_err(|error| {
+            CertificationDocumentError::InvalidJson(serde_json::Error::custom(error))
+        })
     }
 
     /// Returns the exact serialized format version.
@@ -1034,6 +1043,9 @@ impl CertificationEvidence {
     }
 
     /// Serializes this evidence to canonical compact JSON bytes.
+    ///
+    /// Format `"1"` fixes compact UTF-8 encoding, member order, and canonical collection order;
+    /// the checked-in golden byte vector is part of the public contract.
     ///
     /// # Errors
     ///

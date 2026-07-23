@@ -6,13 +6,13 @@ use serde_json::json;
 use weregopher_domain::{
     CertificationArtifactDigest, CertificationArtifactKind, CertificationArtifactRef,
     CertificationCheckAssessment, CertificationCheckDimension, CertificationCheckStatus,
-    CertificationChecks, CertificationContractError, CertificationEvidence,
-    CertificationEvidenceDigest, CertificationEvidenceDisposition, CertificationExpectedStatus,
-    CertificationProfile, CertificationProfileChecks, CertificationProfileClass,
-    CertificationProfileDigest, CertificationProfileValidationError, CertificationTarget,
-    CompatibilityAnalysisDigest, ExecutableDigest, ExecutionArtifactSourceDigest,
-    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, FeatureId,
-    MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
+    CertificationChecks, CertificationContractError, CertificationDocumentError,
+    CertificationEvidence, CertificationEvidenceDigest, CertificationEvidenceDisposition,
+    CertificationExpectedStatus, CertificationProfile, CertificationProfileChecks,
+    CertificationProfileClass, CertificationProfileDigest, CertificationProfileValidationError,
+    CertificationTarget, CompatibilityAnalysisDigest, ExecutableDigest,
+    ExecutionArtifactSourceDigest, ExecutionContractDigest, ExecutionResolutionEvidenceDigest,
+    FeatureId, MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
     MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES, MAX_CERTIFICATION_WORKFLOWS, Sha256Digest,
 };
 
@@ -222,12 +222,12 @@ fn certification_transport_is_exact_targeted_closed_and_byte_bounded()
         .as_object_mut()
         .ok_or("certification document must be an object")?
         .insert("authority".to_owned(), json!(true));
-    assert!(serde_json::from_value::<CertificationEvidence>(unknown).is_err());
+    assert!(parse_evidence_value(&unknown).is_err());
 
     for malformed_version in [json!(1), json!("01"), json!("2"), serde_json::Value::Null] {
         let mut malformed = value.clone();
         malformed["format_version"] = malformed_version;
-        assert!(serde_json::from_value::<CertificationEvidence>(malformed).is_err());
+        assert!(parse_evidence_value(&malformed).is_err());
     }
 
     let mut exact_limit = bytes;
@@ -259,10 +259,16 @@ fn duplicate_and_excess_workflow_transport_fails_before_domain_acceptance()
         1,
     );
     assert_ne!(serialized, duplicate);
-    let error = serde_json::from_str::<CertificationEvidence>(&duplicate)
+    let error = CertificationEvidence::from_json_slice(duplicate.as_bytes())
         .err()
         .ok_or("duplicate workflow must fail")?;
-    assert!(error.to_string().contains("duplicate workflow identifiers"));
+    let source =
+        std::error::Error::source(&error).ok_or("invalid JSON error must retain source")?;
+    assert!(
+        source
+            .to_string()
+            .contains("duplicate workflow identifiers")
+    );
 
     let mut value = serde_json::to_value(evidence)?;
     let workflows = value["workflows"]
@@ -274,7 +280,7 @@ fn duplicate_and_excess_workflow_transport_fails_before_domain_acceptance()
             serde_json::to_value(&assessment)?,
         );
     }
-    assert!(serde_json::from_value::<CertificationEvidence>(value).is_err());
+    assert!(parse_evidence_value(&value).is_err());
     Ok(())
 }
 
@@ -309,6 +315,23 @@ fn certification_profiles_are_canonical_bounded_and_content_addressed()
     );
     assert_eq!(forward.format_version(), "1");
 
+    let golden = CertificationProfile::new(
+        CertificationProfileClass::ExactCertified,
+        profile_checks(CertificationExpectedStatus::Passed),
+        BTreeSet::from([
+            FeatureId::new("workflow.alpha")?,
+            FeatureId::new("workflow.beta")?,
+        ]),
+    )?;
+    assert_eq!(
+        golden.canonical_json_bytes()?,
+        include_bytes!("fixtures/certification-profile-v1.golden.json")
+    );
+    assert_eq!(
+        golden.canonical_document_digest()?.to_string(),
+        "sha256:af6a2ed35e5beea003100bf698e1d89b0e2219ae53d003c323434ba303e598bf"
+    );
+
     let bytes = forward.canonical_json_bytes()?;
     assert_eq!(CertificationProfile::from_json_slice(&bytes)?, forward);
     let mut exact_limit = bytes;
@@ -331,7 +354,7 @@ fn certification_profiles_are_canonical_bounded_and_content_addressed()
 
     let mut duplicate = serde_json::to_value(&forward)?;
     duplicate["workflows"] = json!(["workflow.duplicate", "workflow.duplicate"]);
-    assert!(serde_json::from_value::<CertificationProfile>(duplicate).is_err());
+    assert!(parse_profile_value(&duplicate).is_err());
     Ok(())
 }
 
@@ -360,6 +383,14 @@ fn certification_evidence_is_canonical_and_content_addressed()
 
     let canonical = left.canonical_json_bytes()?;
     let content_digest: CertificationEvidenceDigest = left.canonical_document_digest()?;
+    assert_eq!(
+        canonical,
+        include_bytes!("fixtures/certification-evidence-v1.golden.json")
+    );
+    assert_eq!(
+        content_digest.to_string(),
+        "sha256:f2260c6a9fcc4546a70055c55792be2d823da055574c5341817ead03840dda16"
+    );
     assert_eq!(canonical, right.canonical_json_bytes()?);
     assert_eq!(content_digest, right.canonical_document_digest()?);
     assert_eq!(CertificationEvidence::from_json_slice(&canonical)?, left);
@@ -514,4 +545,18 @@ fn profile_checks(expected: CertificationExpectedStatus) -> CertificationProfile
 
 fn digest(byte: u8) -> Sha256Digest {
     Sha256Digest::from_bytes([byte; 32])
+}
+
+fn parse_evidence_value(
+    value: &serde_json::Value,
+) -> Result<CertificationEvidence, CertificationDocumentError> {
+    let bytes = serde_json::to_vec(value).map_err(CertificationDocumentError::InvalidJson)?;
+    CertificationEvidence::from_json_slice(&bytes)
+}
+
+fn parse_profile_value(
+    value: &serde_json::Value,
+) -> Result<CertificationProfile, CertificationDocumentError> {
+    let bytes = serde_json::to_vec(value).map_err(CertificationDocumentError::InvalidJson)?;
+    CertificationProfile::from_json_slice(&bytes)
 }

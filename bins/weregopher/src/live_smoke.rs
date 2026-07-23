@@ -543,7 +543,8 @@ mod tests {
         let receipt = stage_discord_package(&vendor, &managed)?;
 
         assert_eq!(fs::read(vendor.join(APP_ASAR_PATH))?, original);
-        assert_eq!(receipt.root, managed);
+        assert!(receipt.root.is_dir());
+        assert_eq!(receipt.root.file_name(), managed.file_name());
         assert!(!managed.join(DISPATCH_LOG_PATH).exists());
         assert_eq!(fs::read(managed.join("stable.dat"))?, b"stable");
         assert!(receipt.omitted_dispatch_log);

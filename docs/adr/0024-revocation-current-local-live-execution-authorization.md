@@ -48,8 +48,8 @@ Policy loading and persistence remain supervisor responsibilities. Unknown or un
 - Replacement and revocation invalidate previously issued values without mutating or serializing them.
 - The complete launch policy travels with the authorization, preventing later supervisor code from rebuilding arguments, environment, working-directory, console, handle, state, posture, or resource semantics from ambient configuration.
 - The consuming launch API operates without widening the public visibility of retained Windows handles.
-- Registry trust, durable policy storage, atomic authorization-to-launch consumption, supervisor integration, compatibility certification, and runtime effect authorization remain separate milestones.
+- Registry trust, durable policy storage, durable supervisor protocol integration, compatibility certification, and runtime effect authorization remain separate milestones.
 
 ## Verification
 
-Windows regressions cover successful package-snapshot authorization, complete launch-policy retention and diagnostic redaction, revocation before and after issuance, policy replacement and store loss, incomplete compatibility denial despite exact pinning, evidence-content and byte-limit rejection, retained locator and source mismatches, supported trust modes, and developer production-state denial. Native and Linux-target strict Clippy ensure the Windows-only boundary does not regress the portable workspace surface.
+Windows regressions cover successful package-snapshot authorization, complete launch-policy retention and diagnostic redaction, revocation before and after issuance, delayed revocation during bounded blocking supervision, policy replacement and store loss, incomplete compatibility denial despite exact pinning, evidence-content and byte-limit rejection, retained locator and source mismatches, supported trust modes, and developer production-state denial. Native and Linux-target strict Clippy ensure the Windows-only boundary does not regress the portable workspace surface.

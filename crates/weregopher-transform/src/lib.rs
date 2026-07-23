@@ -27,6 +27,8 @@ mod planning;
 mod snapshot;
 mod source_map;
 mod store;
+#[cfg(windows)]
+mod supervision;
 
 pub use bundle::{
     EmittedTransformArtifactBundle, TransformBundleError, TransformBundleLimits,
@@ -65,6 +67,10 @@ pub use store::ManagedArtifactExecutable;
 pub use store::{
     ManagedArtifactLease, ManagedArtifactLeaseLimits, ManagedArtifactStore, ManagedStoreRootLimits,
     MaterializationReceipt, MaterializationStoreError, MaterializationWriteLimits,
+};
+#[cfg(windows)]
+pub use supervision::{
+    SupervisionError, SupervisionLimits, SupervisionOutcome, SupervisionReport, supervise_execution,
 };
 
 /// Artifact category covered by one generated transform rebinding.

@@ -1755,15 +1755,23 @@ Object is not an enforcing security boundary. Exact executable identity under
 The format-version-2 correction and prepared-plan boundary are specified by
 [ADR-0026](../adr/0026-execution-contract-v2-and-pre-authorized-launch-plans.md).
 
-The returned low-level Job owner MUST preserve the authorization-context digest, target identity,
-exact Job limits, and issuing policy generation. It is not yet an `AppInstanceId`, `RuntimeId`, or
-state-lease owner and MUST NOT be represented as a complete production application supervisor. A
-higher-level supervisor MUST bind those owner identities and state capability, recheck revocation
-currentness, and MUST terminate the complete Job tree before permitting further privileged effects
-after that check fails. The check surface does not itself provide continuous monitoring. Retained
-Windows directory handles still do not seal child namespaces, and this launch ordering MUST NOT be
-described as an OS sandbox or persistent package-tree immutability. See
-[ADR-0025](../adr/0025-atomic-authorization-consumption-and-job-owned-launch.md).
+The returned low-level Job owner MUST preserve the role-distinct authorization-context digest,
+target identity, exact Job limits, and issuing policy generation. A bounded blocking supervisor MAY
+consume that owner. Such a supervisor MUST use a policy interval from one millisecond through 60 seconds,
+MUST use a nonzero runtime no greater than 24 hours, MUST wait for no longer than the smaller of the
+poll interval and remaining runtime, and MUST terminate the complete Job after policy invalidation
+or runtime expiry. Forced termination MUST be followed by bounded primary-process exit
+confirmation. A terminal report MUST preserve the exact target and authorization-context identities
+and MUST NOT become serialized authority or certification evidence.
+
+This bounded lifecycle owner is not yet an `AppInstanceId`, `RuntimeId`, workflow, user-activation,
+or state-lease owner and MUST NOT be represented as a complete production application supervisor.
+Higher-level orchestration MUST bind those identities and state capability before permitting
+corresponding privileged effects. Retained Windows directory handles still do not seal child
+namespaces, and launch/supervision ordering MUST NOT be described as an OS sandbox or persistent
+package-tree immutability. See
+[ADR-0025](../adr/0025-atomic-authorization-consumption-and-job-owned-launch.md) and
+[ADR-0027](../adr/0027-bounded-blocking-execution-supervision.md).
 
 Execution authorization, Job Object ownership, suspended process creation, process resume, runtime
 supervision, security posture, efficiency, and certification remain distinct decisions and evidence

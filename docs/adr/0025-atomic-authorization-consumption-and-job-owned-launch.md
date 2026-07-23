@@ -6,6 +6,10 @@
 > Amended by [ADR 0026](0026-execution-contract-v2-and-pre-authorized-launch-plans.md): posture,
 > resource, path, argument, quoting-expansion, and command-line representability checks now complete
 > before `AuthorizedExecution` is issued. Launch consumes the resulting opaque prepared plan.
+>
+> Amended by [ADR 0027](0027-bounded-blocking-execution-supervision.md): the returned owner can now
+> be consumed by a bounded blocking loop that automatically terminates the complete Job after policy
+> invalidation or a stricter local runtime deadline.
 
 ## Context
 
@@ -29,7 +33,7 @@ On Windows, `launch_authorized_execution` consumes exactly one `AuthorizedExecut
 
 The authorization is consumed by value and cannot be replayed. No launch step reopens the executable from an untrusted path. Every failure before successful resume drops the kill-on-close ownership chain without returning a runnable process.
 
-`SupervisedExecution` retains the issuing policy generation and a weak reference to the policy store. Supervisors can recheck policy currentness after launch and MUST terminate the Job tree before permitting further privileged effects when that check fails. This API exposes the revocation signal; continuous monitoring and automatic termination remain supervisor work.
+`SupervisedExecution` retains the issuing policy generation and a weak reference to the policy store. `supervise_execution` consumes it, rechecks policy on a caller-selected interval beneath fixed hard ceilings, and terminates the complete Job after policy invalidation or runtime expiry. Durable protocol orchestration and privileged-effect mediation remain higher-level supervisor work.
 
 The Windows command-line ceiling is a runtime transport limit, not authority. The smaller canonical target-contract argument limits continue to define authorized input, but quoting expansion and the complete ceiling are validated before the authorization capability exists.
 
@@ -41,4 +45,4 @@ The Windows command-line ceiling is a runtime transport limit, not authority. Th
 - Broker-mediated and OS-contained targets fail closed at this boundary until corresponding enforcing launch implementations exist.
 - Job Objects remain lifecycle and accounting controls, not sandboxes.
 - A retained Windows directory handle still does not prevent a same-user process from inserting a new child after manifest verification. Package-manifest current-view evidence therefore remains point-in-time and must not be described as a sealed namespace.
-- Registry trust, forensic override approval, continuous revocation enforcement, supervisor protocol integration, and certification evidence remain separate milestones.
+- Registry trust, forensic override approval, durable supervisor protocol integration, graceful shutdown, and certification evidence remain separate milestones.

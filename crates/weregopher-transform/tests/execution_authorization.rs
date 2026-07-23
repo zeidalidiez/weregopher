@@ -28,9 +28,9 @@ use weregopher_transform::{
     ManagedArtifactLease, ManagedArtifactLeaseLimits, ManagedArtifactStore, ManagedStoreRootLimits,
     MaterializationManifestLimits, MaterializationWriteLimits, PackageSnapshotLease,
     PackageSnapshotWriteLimits, RetainedExecutionArtifact, SupervisedExecutionError,
-    TransformArtifactBytes, TransformArtifactLimits, authorize_execution,
-    launch_authorized_execution, plan_content_addressed_materialization,
-    verify_transform_artifacts,
+    SupervisionError, SupervisionLimits, SupervisionOutcome, TransformArtifactBytes,
+    TransformArtifactLimits, authorize_execution, launch_authorized_execution,
+    plan_content_addressed_materialization, supervise_execution, verify_transform_artifacts,
 };
 
 const TRUST_EVIDENCE: &[u8] = b"locally approved adapter trust evidence";
@@ -384,6 +384,94 @@ fn running_process_owner_preserves_revocation_currentness() -> Result<(), Box<dy
             Ok(())
         },
     )
+}
+
+#[test]
+fn blocking_supervisor_terminates_revoked_execution_and_reports_exact_identity()
+-> Result<(), Box<dyn std::error::Error>> {
+    with_authorized_test_binary(
+        "authorized_launch_long_running_child_helper",
+        |authorization, policy| {
+            let target_id = authorization.target_id().clone();
+            let context_digest = authorization.authorization_context_digest();
+            let process = launch_authorized_execution(authorization)?;
+            let report = std::thread::scope(|scope| -> Result<_, Box<dyn std::error::Error>> {
+                let supervisor = scope.spawn(move || {
+                    supervise_execution(
+                        process,
+                        SupervisionLimits::new(Duration::from_millis(5), Duration::from_secs(5))?,
+                    )
+                });
+                std::thread::sleep(Duration::from_millis(25));
+                policy.revoke(digest(0xf9))?;
+                Ok(supervisor
+                    .join()
+                    .map_err(|_| std::io::Error::other("execution supervisor thread panicked"))??)
+            })?;
+            assert_eq!(report.target_id(), &target_id);
+            assert_eq!(report.authorization_context_digest(), context_digest);
+            assert_eq!(
+                report.outcome(),
+                &SupervisionOutcome::PolicyInvalidated {
+                    reason: ExecutionAuthorizationError::PolicyRevoked,
+                }
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn blocking_supervisor_enforces_a_stricter_runtime_deadline()
+-> Result<(), Box<dyn std::error::Error>> {
+    with_authorized_test_binary(
+        "authorized_launch_long_running_child_helper",
+        |authorization, _policy| {
+            let process = launch_authorized_execution(authorization)?;
+            let report = supervise_execution(
+                process,
+                SupervisionLimits::new(Duration::from_millis(5), Duration::from_millis(25))?,
+            )?;
+            assert_eq!(report.outcome(), &SupervisionOutcome::RuntimeExceeded);
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn blocking_supervisor_reports_natural_primary_exit() -> Result<(), Box<dyn std::error::Error>> {
+    with_authorized_test_binary(
+        "authorized_launch_child_helper",
+        |authorization, _policy| {
+            let process = launch_authorized_execution(authorization)?;
+            let report = supervise_execution(
+                process,
+                SupervisionLimits::new(Duration::from_millis(5), Duration::from_secs(5))?,
+            )?;
+            assert_eq!(report.outcome(), &SupervisionOutcome::Exited { code: 0 });
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn supervision_limits_are_nonzero_bounded_and_ordered() {
+    assert!(matches!(
+        SupervisionLimits::new(Duration::ZERO, Duration::from_secs(1)),
+        Err(SupervisionError::InvalidLimits)
+    ));
+    assert!(matches!(
+        SupervisionLimits::new(Duration::from_nanos(1), Duration::from_secs(1)),
+        Err(SupervisionError::InvalidLimits)
+    ));
+    assert!(matches!(
+        SupervisionLimits::new(Duration::from_secs(2), Duration::from_secs(1)),
+        Err(SupervisionError::InvalidLimits)
+    ));
+    assert!(matches!(
+        SupervisionLimits::new(Duration::from_secs(61), Duration::from_secs(61)),
+        Err(SupervisionError::InvalidLimits)
+    ));
 }
 
 #[test]

@@ -1035,10 +1035,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "walkdir",
  "weregopher-adapter-discord",
  "weregopher-asar",
  "weregopher-domain",
  "weregopher-fingerprint",
+ "weregopher-windows",
+ "windows-sys",
 ]
 
 [[package]]

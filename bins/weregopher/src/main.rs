@@ -6,6 +6,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{self, Write as _},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -24,6 +25,8 @@ use weregopher_fingerprint::{
     fingerprint_package,
 };
 
+mod live_smoke;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "weregopher",
@@ -41,6 +44,24 @@ enum Command {
     Fingerprint(FingerprintArguments),
     /// Apply an application-family transform to a distinct managed artifact.
     Transform(TransformArguments),
+    /// Materialize and Job-launch the exact Discord smoke adapter locally.
+    LiveSmokeDiscord(DiscordLiveSmokeArguments),
+}
+
+#[derive(Debug, Args)]
+struct DiscordLiveSmokeArguments {
+    /// Installed Discord version directory to copy without modification.
+    vendor_root: PathBuf,
+    /// New disjoint directory that will receive the transformed package.
+    managed_root: PathBuf,
+    /// New marker file written only if transformed source executes.
+    marker_path: PathBuf,
+    /// Maximum launch time before the Job-owned process tree is terminated.
+    #[arg(long, default_value_t = 20)]
+    timeout_seconds: u64,
+    /// Explicitly authorize this non-certified local smoke run.
+    #[arg(long)]
+    allow_uncertified_local_smoke: bool,
 }
 
 #[derive(Debug, Args)]
@@ -144,7 +165,22 @@ fn main() -> Result<()> {
         Command::Transform(arguments) => match arguments.adapter {
             TransformCommand::DiscordSmoke(arguments) => run_discord_smoke_transform(&arguments),
         },
+        Command::LiveSmokeDiscord(arguments) => run_discord_live_smoke(&arguments),
     }
+}
+
+fn run_discord_live_smoke(arguments: &DiscordLiveSmokeArguments) -> Result<()> {
+    let report = live_smoke::run_discord_live_smoke(
+        &arguments.vendor_root,
+        &arguments.managed_root,
+        &arguments.marker_path,
+        Duration::from_secs(arguments.timeout_seconds),
+        arguments.allow_uncertified_local_smoke,
+    )?;
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    serde_json::to_writer(&mut output, &report).context("failed to serialize live smoke report")?;
+    writeln!(&mut output).context("failed to terminate live smoke report")
 }
 
 fn run_fingerprint(arguments: FingerprintArguments) -> Result<()> {

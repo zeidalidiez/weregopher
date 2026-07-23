@@ -5,13 +5,15 @@ use thiserror::Error;
 const MAX_PACKAGE_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_MAIN_SOURCE_BYTES: usize = 64 * 1024 * 1024;
 const DISCORD_MAIN_PREFIX: &[u8] = b"(()=>{";
-const SMOKE_PREFIX: &[u8] = br#";(()=>{const __weregopherAdapter="discord.smoke-marker.v1";const __weregopherMarker=process.env.WEREGOPHER_SMOKE_MARKER;if(__weregopherMarker){require("node:fs").writeFileSync(__weregopherMarker,"weregopher-discord-smoke-v1\n",{encoding:"utf8",flag:"wx"});}void __weregopherAdapter;})();
+const SMOKE_PREFIX: &[u8] = br#";(()=>{const __weregopherAdapter="discord.smoke-marker.v1";const __weregopherPrefix="--weregopher-smoke-marker=";const __weregopherArgument=process.argv.find(__weregopherValue=>__weregopherValue.startsWith(__weregopherPrefix));if(__weregopherArgument){const __weregopherMarker=__weregopherArgument.slice(__weregopherPrefix.length);if(__weregopherMarker){require("node:fs").writeFileSync(__weregopherMarker,"weregopher-discord-smoke-v1\n",{encoding:"utf8",flag:"wx"});}}void __weregopherAdapter;})();
 "#;
 
 /// Stable identity of the deliberately narrow Discord smoke adapter.
 pub const SMOKE_ADAPTER_ID: &str = "discord.smoke-marker.v1";
-/// Exact bytes written by the adapter when `WEREGOPHER_SMOKE_MARKER` is set.
+/// Exact bytes written by the adapter when its private marker argument is present.
 pub const SMOKE_MARKER_CONTENT: &str = "weregopher-discord-smoke-v1\n";
+/// Exact private command-line prefix consumed by the smoke adapter.
+pub const SMOKE_MARKER_ARGUMENT_PREFIX: &str = "--weregopher-smoke-marker=";
 /// ASAR member containing Discord's packaged main process source.
 pub const DISCORD_MAIN_ENTRY: &str = "bundle.js";
 /// ASAR member declaring Discord's packaged main entry.
@@ -22,7 +24,7 @@ pub const DISCORD_PACKAGE_MANIFEST: &str = "package.json";
 /// The adapter accepts only a Discord package manifest whose main entry is `bundle.js` and the
 /// Rspack bootstrap shape observed for the supported family. The original source is retained
 /// byte-for-byte after the injected prefix. The marker write occurs only when the launch command
-/// supplies `WEREGOPHER_SMOKE_MARKER`; this function itself performs no filesystem access.
+/// supplies [`SMOKE_MARKER_ARGUMENT_PREFIX`]; this function itself performs no filesystem access.
 ///
 /// # Errors
 ///

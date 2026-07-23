@@ -2,11 +2,17 @@
 
 #![forbid(unsafe_code)]
 
+mod acquisition;
 mod builder;
 mod classifier;
 mod model;
 mod observation;
 
+pub use acquisition::{
+    MAX_PACKAGE_TREE_DEPTH, MAX_PACKAGE_TREE_DIRECTORIES, PackageFileReader,
+    PackageTreeObservation, PackageTreeObservationError, PackageTreeObservationLimits,
+    observe_package_tree,
+};
 pub use builder::{ManifestError, build_package_manifest};
 pub use classifier::{PackageEntryType, classify_package_file};
 pub use model::{

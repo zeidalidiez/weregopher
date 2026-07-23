@@ -6,6 +6,9 @@ use thiserror::Error;
 
 use crate::{ManifestError, PackageFileRecord, builder::validate_normalized_path};
 
+#[cfg(windows)]
+use std::fs::File;
+
 /// Resource limits for one package-file observation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ObservationLimits {
@@ -33,6 +36,11 @@ impl ObservationLimits {
     #[must_use]
     pub const fn max_file_bytes(self) -> u64 {
         self.max_file_bytes
+    }
+
+    #[cfg(windows)]
+    pub(crate) const fn for_tree_budget(max_file_bytes: u64) -> Self {
+        Self { max_file_bytes }
     }
 }
 
@@ -73,6 +81,14 @@ impl PackageFileObservation {
             let _ = filesystem_path;
             Err(ObservationError::UnsupportedPlatform)
         }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn open_current_file(
+        &self,
+        filesystem_path: &Path,
+    ) -> Result<File, ObservationError> {
+        windows::open_current_path(filesystem_path, &self.identity_lease)
     }
 }
 

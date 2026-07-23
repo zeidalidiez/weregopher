@@ -84,12 +84,22 @@ pub(super) fn verify_current_path(
     path: &Path,
     retained_identity: &FileIdentityLease,
 ) -> Result<(), ObservationError> {
+    open_current_path(path, retained_identity).map(drop)
+}
+
+pub(super) fn open_current_path(
+    path: &Path,
+    retained_identity: &FileIdentityLease,
+) -> Result<File, ObservationError> {
     let current_file = open_locked(path)?;
     let _ = snapshot(&current_file, path)?;
-    let current_identity = FileIdentityLease::from_file(current_file)
+    let identity_handle = current_file
+        .try_clone()
+        .map_err(|source| io_error("duplicate package path identity handle", path, source))?;
+    let current_identity = FileIdentityLease::from_file(identity_handle)
         .map_err(|source| io_error("recheck package path identity", path, source))?;
     if retained_identity.has_same_identity(&current_identity) {
-        Ok(())
+        Ok(current_file)
     } else {
         Err(ObservationError::PathIdentityChanged {
             path: path.to_path_buf(),

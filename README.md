@@ -48,6 +48,7 @@ never makes an application compatible by itself.
 | Domain and protocol contracts | Implemented in Rust with deterministic JSON Schemas |
 | Package manifest construction | Deterministic construction from pre-observed file records, with closed transport objects, a 65,536-record ceiling, and a 16 MiB aggregate normalized-path budget |
 | Windows file observation | Bounded direct-file hashing with retained handle identity checks |
+| Windows package-tree observation | Bounded iterative traversal retains every root-ancestor, directory, and regular-file identity and can reopen exact manifest files through bounded identity-verified readers; rejects reparse points, unsupported or ambiguous entries, case collisions, non-root empty directories, and visible membership changes; this is a live observation, not an immutable snapshot |
 | Installed-app discovery | Known locations, uninstall registry, and Windows package catalog |
 | Evidence correlation | Conservative grouping that keeps each source and confidence value intact |
 | Candidate verification | Fixed-layout inputs for Codex, Hermes Agent, Discord, and Visual Studio Code |

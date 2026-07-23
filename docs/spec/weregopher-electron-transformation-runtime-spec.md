@@ -6529,7 +6529,9 @@ checks. Each check retains at most 64 unique, canonically ordered immutable evid
 `passed`, `failed`, and `not_applicable` checks require evidence; `not_run` checks must not contain
 evidence. The canonical parser rejects inputs larger than 4 MiB before deserialization and fails
 closed on unsupported versions, unknown fields, duplicate keys/references, contradictory status
-and evidence, invalid identifiers, and collection overflow.
+and evidence, invalid identifiers, and collection overflow. Canonical compact JSON produces a
+role-specific `CertificationEvidenceDigest`, so insertion-order-equivalent documents have one exact
+content identity and evidence/profile/artifact hashes cannot be substituted in Rust.
 
 The format-`"1"` `CertificationProfile` contract described by
 [ADR 0029](../adr/0029-canonical-certification-profiles.md) content-addresses the declared

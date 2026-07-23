@@ -45,6 +45,8 @@ It may also contain at most 128 canonically ordered `FeatureId` workflow checks.
 
 The canonical bounded parser rejects serialized documents larger than 4 MiB before deserialization. Unknown fields, unsupported format versions, duplicate workflow identifiers, duplicate evidence references, invalid identifiers, contradictory status/evidence combinations, and collection overflows fail closed. The generated schema mirrors structural limits and status/evidence conditions, but Rust remains authoritative.
 
+Canonical compact JSON bytes produce a role-specific `CertificationEvidenceDigest`. Equivalent map insertion orders therefore identify the same exact-target evidence document, while any serialized semantic change changes the content identity. Evidence, profile, and artifact digest wrappers are not substitutable in Rust.
+
 `CertificationEvidence::disposition` derives only `incomplete`, `blocked`, or `complete`. The document does **not** serialize or derive a certification class from a producer-selected scope. Mapping complete evidence to `CertificationClass` requires a later trusted lookup of the exact profile digest plus decision policy.
 
 The evidence contract contains no publication status, trust mode, timestamps, mutable registry state, transformation authority, execution authority, or `certified` boolean. It is evidence, not a capability or trust decision.

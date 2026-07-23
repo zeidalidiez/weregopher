@@ -7,13 +7,13 @@ use weregopher_domain::{
     CertificationArtifactDigest, CertificationArtifactKind, CertificationArtifactRef,
     CertificationCheckAssessment, CertificationCheckDimension, CertificationCheckStatus,
     CertificationChecks, CertificationContractError, CertificationEvidence,
-    CertificationEvidenceDisposition, CertificationExpectedStatus, CertificationProfile,
-    CertificationProfileChecks, CertificationProfileClass, CertificationProfileDigest,
-    CertificationProfileValidationError, CertificationTarget, CompatibilityAnalysisDigest,
-    ExecutableDigest, ExecutionArtifactSourceDigest, ExecutionContractDigest,
-    ExecutionResolutionEvidenceDigest, FeatureId, MAX_CERTIFICATION_DOCUMENT_BYTES,
-    MAX_CERTIFICATION_EVIDENCE_REFS, MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES,
-    MAX_CERTIFICATION_WORKFLOWS, Sha256Digest,
+    CertificationEvidenceDigest, CertificationEvidenceDisposition, CertificationExpectedStatus,
+    CertificationProfile, CertificationProfileChecks, CertificationProfileClass,
+    CertificationProfileDigest, CertificationProfileValidationError, CertificationTarget,
+    CompatibilityAnalysisDigest, ExecutableDigest, ExecutionArtifactSourceDigest,
+    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, FeatureId,
+    MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
+    MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES, MAX_CERTIFICATION_WORKFLOWS, Sha256Digest,
 };
 
 #[test]
@@ -332,6 +332,45 @@ fn certification_profiles_are_canonical_bounded_and_content_addressed()
     let mut duplicate = serde_json::to_value(&forward)?;
     duplicate["workflows"] = json!(["workflow.duplicate", "workflow.duplicate"]);
     assert!(serde_json::from_value::<CertificationProfile>(duplicate).is_err());
+    Ok(())
+}
+
+#[test]
+fn certification_evidence_is_canonical_and_content_addressed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let alpha = FeatureId::new("workflow.alpha")?;
+    let beta = FeatureId::new("workflow.beta")?;
+    let passed = assessment(CertificationCheckStatus::Passed, 0xa0)?;
+    let profile_digest = CertificationProfileDigest::new(digest(0xa1));
+    let left = CertificationEvidence::new(
+        target(0xa2),
+        profile_digest,
+        checks(passed.clone()),
+        BTreeMap::from([
+            (alpha.clone(), passed.clone()),
+            (beta.clone(), passed.clone()),
+        ]),
+    )?;
+    let right = CertificationEvidence::new(
+        target(0xa2),
+        profile_digest,
+        checks(passed.clone()),
+        BTreeMap::from([(beta, passed.clone()), (alpha, passed.clone())]),
+    )?;
+
+    let canonical = left.canonical_json_bytes()?;
+    let content_digest: CertificationEvidenceDigest = left.canonical_document_digest()?;
+    assert_eq!(canonical, right.canonical_json_bytes()?);
+    assert_eq!(content_digest, right.canonical_document_digest()?);
+    assert_eq!(CertificationEvidence::from_json_slice(&canonical)?, left);
+
+    let changed = CertificationEvidence::new(
+        target(0xa3),
+        profile_digest,
+        checks(passed),
+        BTreeMap::new(),
+    )?;
+    assert_ne!(content_digest, changed.canonical_document_digest()?);
     Ok(())
 }
 

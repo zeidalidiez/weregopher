@@ -29,12 +29,12 @@ pub use certification_evidence::{
     CERTIFICATION_PROFILE_FORMAT_VERSION, CertificationArtifactDigest, CertificationArtifactKind,
     CertificationArtifactRef, CertificationCheckAssessment, CertificationCheckDimension,
     CertificationCheckStatus, CertificationChecks, CertificationContractError,
-    CertificationDocumentError, CertificationEvidence, CertificationEvidenceDisposition,
-    CertificationExpectedStatus, CertificationProfile, CertificationProfileChecks,
-    CertificationProfileClass, CertificationProfileDigest, CertificationProfileValidationError,
-    CertificationTarget, MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
-    MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES, MAX_CERTIFICATION_WORKFLOWS,
-    StructurallyValidatedCertificationEvidence,
+    CertificationDocumentError, CertificationEvidence, CertificationEvidenceDigest,
+    CertificationEvidenceDisposition, CertificationExpectedStatus, CertificationProfile,
+    CertificationProfileChecks, CertificationProfileClass, CertificationProfileDigest,
+    CertificationProfileValidationError, CertificationTarget, MAX_CERTIFICATION_DOCUMENT_BYTES,
+    MAX_CERTIFICATION_EVIDENCE_REFS, MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES,
+    MAX_CERTIFICATION_WORKFLOWS, StructurallyValidatedCertificationEvidence,
 };
 pub use compatibility::{
     AnalysisDisposition, COMPATIBILITY_ANALYSIS_FORMAT_VERSION, CompatibilityAnalysis,

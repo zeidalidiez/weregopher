@@ -97,6 +97,22 @@ certification_digest_role!(
     CertificationProfileDigest
 );
 certification_digest_role!(
+    /// Immutable identity of one canonical exact-target certification-evidence document.
+    ///
+    /// Evidence and profile identities are intentionally not substitutable:
+    ///
+    /// ```compile_fail
+    /// use weregopher_domain::{
+    ///     CertificationEvidenceDigest, CertificationProfileDigest, Sha256Digest,
+    /// };
+    ///
+    /// let evidence = CertificationEvidenceDigest::new(Sha256Digest::from_bytes([0; 32]));
+    /// let profile: CertificationProfileDigest = evidence;
+    /// # let _ = profile;
+    /// ```
+    CertificationEvidenceDigest
+);
+certification_digest_role!(
     /// Immutable identity of one certification probe, trace, fixture result, or report artifact.
     CertificationArtifactDigest
 );
@@ -1015,6 +1031,27 @@ impl CertificationEvidence {
             .into_iter()
             .chain(self.workflows.values())
             .flat_map(|assessment| assessment.evidence().iter())
+    }
+
+    /// Serializes this evidence to canonical compact JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns the serializer error if the in-memory evidence cannot be encoded.
+    pub fn canonical_json_bytes(&self) -> serde_json::Result<Vec<u8>> {
+        serde_json::to_vec(self)
+    }
+
+    /// Returns the role-specific SHA-256 identity of canonical evidence bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns the serializer error if canonical bytes cannot be produced.
+    pub fn canonical_document_digest(&self) -> serde_json::Result<CertificationEvidenceDigest> {
+        let bytes = self.canonical_json_bytes()?;
+        Ok(CertificationEvidenceDigest::new(Sha256Digest::from_bytes(
+            Sha256::digest(bytes).into(),
+        )))
     }
 
     /// Derives a fail-closed evidence disposition without assigning a certification class.

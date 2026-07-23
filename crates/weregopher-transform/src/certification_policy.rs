@@ -272,8 +272,9 @@ impl fmt::Debug for LocallyCertifiedArtifacts<'_, '_> {
 impl<'artifacts, 'bytes> LocallyCertifiedArtifacts<'artifacts, 'bytes> {
     /// Returns the trusted class only after checking that the issuing policy remains current.
     ///
-    /// This is still a point-in-time classification, not an authorization capability. A future
-    /// policy-controlled effect must retain an appropriate policy guard through its own commit point.
+    /// This is still a point-in-time classification, not an authorization capability. Any
+    /// policy-controlled effect must retain an appropriate policy guard through its own commit point;
+    /// local publication does so by consuming this value into a prepared plan.
     ///
     /// # Errors
     ///
@@ -320,28 +321,44 @@ impl<'artifacts, 'bytes> LocallyCertifiedArtifacts<'artifacts, 'bytes> {
 
     /// Fails closed unless the issuing policy remains current and non-revoked.
     ///
-    /// This is a point-in-time check. A future policy-controlled effect must hold an appropriate
-    /// policy guard through its own commit point rather than treating this method as a capability.
+    /// This is a point-in-time check. Any policy-controlled effect must hold an appropriate policy
+    /// guard through its own commit point rather than treating this method as a capability.
     ///
     /// # Errors
     ///
     /// Returns a currentness error if the store was dropped, replaced, revoked, or poisoned.
     pub fn verify_current_policy(&self) -> Result<(), CertificationPolicyError> {
+        self.commit_while_policy_current(|| ())
+    }
+
+    pub(crate) fn commit_while_policy_current<T>(
+        &self,
+        commit: impl FnOnce() -> T,
+    ) -> Result<T, CertificationPolicyError> {
         let store = self
             .policy_store
             .upgrade()
             .ok_or(CertificationPolicyError::PolicyStoreUnavailable)?;
-        let state = store
-            .read()
-            .map_err(|_| CertificationPolicyError::PolicyStorePoisoned)?;
-        if state.revocation_evidence_digest.is_some() {
-            return Err(CertificationPolicyError::PolicyRevoked);
-        }
-        if state.generation != self.policy_generation || state.policy != self.policy {
-            return Err(CertificationPolicyError::PolicyChanged);
-        }
-        Ok(())
+        commit_if_policy_current(&store, &self.policy, self.policy_generation, commit)
     }
+}
+
+fn commit_if_policy_current<T>(
+    store: &RwLock<CertificationPolicyState>,
+    expected_policy: &LocalCertificationPolicy,
+    expected_generation: u64,
+    commit: impl FnOnce() -> T,
+) -> Result<T, CertificationPolicyError> {
+    let state = store
+        .read()
+        .map_err(|_| CertificationPolicyError::PolicyStorePoisoned)?;
+    if state.revocation_evidence_digest.is_some() {
+        return Err(CertificationPolicyError::PolicyRevoked);
+    }
+    if state.generation != expected_generation || state.policy != *expected_policy {
+        return Err(CertificationPolicyError::PolicyChanged);
+    }
+    Ok(commit())
 }
 
 /// Assigns a trusted local class only when every exact policy pin matches verified evidence bytes.
@@ -456,4 +473,49 @@ pub enum CertificationPolicyError {
     /// The profile's declared class did not match the class explicitly approved by local policy.
     #[error("certification profile class does not match local policy")]
     ClassMismatch,
+}
+
+#[cfg(test)]
+mod tests {
+    use weregopher_domain::{
+        CertificationClass, CertificationEvidenceDigest, CertificationProfileDigest,
+        CertificationTarget, CompatibilityAnalysisDigest, ExecutableDigest,
+        ExecutionArtifactSourceDigest, ExecutionContractDigest, ExecutionResolutionEvidenceDigest,
+        Sha256Digest,
+    };
+
+    use super::{
+        CertificationPolicyRevisionDigest, LocalCertificationPolicy, LocalCertificationPolicyStore,
+        commit_if_policy_current,
+    };
+
+    #[test]
+    fn current_policy_guard_is_held_through_the_commit_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let policy = LocalCertificationPolicy::new(
+            CertificationTarget::new(
+                CompatibilityAnalysisDigest::new(digest(0x10)),
+                ExecutionContractDigest::new(digest(0x11)),
+                ExecutionResolutionEvidenceDigest::new(digest(0x12)),
+                ExecutionArtifactSourceDigest::new(digest(0x13)),
+                ExecutableDigest::new(digest(0x14)),
+            ),
+            CertificationProfileDigest::new(digest(0x20)),
+            CertificationEvidenceDigest::new(digest(0x21)),
+            CertificationClass::ContractVerified,
+            CertificationPolicyRevisionDigest::new(digest(0x22)),
+        )?;
+        let store = LocalCertificationPolicyStore::new(policy.clone());
+
+        let write_was_blocked = commit_if_policy_current(&store.inner, &policy, 1, || {
+            store.inner.try_write().is_err()
+        })?;
+
+        assert!(write_was_blocked);
+        Ok(())
+    }
+
+    const fn digest(byte: u8) -> Sha256Digest {
+        Sha256Digest::from_bytes([byte; 32])
+    }
 }

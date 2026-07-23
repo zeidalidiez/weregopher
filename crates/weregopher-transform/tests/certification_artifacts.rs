@@ -10,16 +10,18 @@ use weregopher_domain::{
     CertificationExpectedStatus, CertificationProfile, CertificationProfileChecks,
     CertificationProfileClass, CertificationProfileDigest, CertificationTarget,
     CompatibilityAnalysisDigest, ExecutableDigest, ExecutionArtifactSourceDigest,
-    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, FeatureId, Sha256Digest,
-    StructurallyValidatedCertificationEvidence,
+    ExecutionContractDigest, ExecutionResolutionEvidenceDigest, FeatureId, PublicationStatus,
+    Sha256Digest, StructurallyValidatedCertificationEvidence,
 };
 use weregopher_transform::{
     CertificationArtifactVerificationError, CertificationArtifactVerificationLimits,
     CertificationPolicyError, CertificationPolicyRevisionDigest,
-    CertificationPolicyRevocationDigest, LocalCertificationPolicy, LocalCertificationPolicyStore,
+    CertificationPolicyRevocationDigest, CertificationPublicationError, LocalCertificationPolicy,
+    LocalCertificationPolicyStore, LocalCertificationPublicationStore,
     MAX_CERTIFICATION_ARTIFACT_BYTES, MAX_CERTIFICATION_ARTIFACT_REFERENCES,
-    MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES, assign_local_certification,
-    verify_certification_artifacts,
+    MAX_LOCAL_CERTIFICATION_PUBLICATIONS, MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES,
+    assign_local_certification, prepare_local_certification_publication,
+    publish_local_certification, verify_certification_artifacts,
 };
 
 const FIXED_BYTES: &[u8] = b"fixed-proof";
@@ -123,6 +125,212 @@ fn local_certification_fails_closed_after_replacement_revocation_or_store_loss()
         certified.current_class(),
         Err(CertificationPolicyError::PolicyStoreUnavailable)
     ));
+    Ok(())
+}
+
+#[test]
+fn local_publication_commits_one_exact_idempotent_receipt() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let expected_profile_digest = *proof.evidence().profile_digest();
+    let expected_evidence_digest = proof.evidence().canonical_document_digest()?;
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x50)?;
+    let policy_store = LocalCertificationPolicyStore::new(policy);
+    let publication_store = LocalCertificationPublicationStore::new(8)?;
+    let certified = assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &policy_store,
+    )?;
+
+    let receipt = publish_local_certification(
+        prepare_local_certification_publication(certified)?,
+        &publication_store,
+    )?;
+
+    assert_eq!(receipt.target(), &target());
+    assert_eq!(receipt.profile_digest(), expected_profile_digest);
+    assert_eq!(receipt.evidence_digest(), expected_evidence_digest);
+    assert_eq!(receipt.class(), CertificationClass::ContractVerified);
+    assert_eq!(receipt.policy_generation(), 1);
+    assert_eq!(
+        receipt.policy_revision_digest(),
+        CertificationPolicyRevisionDigest::new(digest(0x50))
+    );
+    assert_eq!(receipt.publication_status(), PublicationStatus::LocalOnly);
+    assert_eq!(receipt.artifact_count(), 2);
+    assert_eq!(
+        receipt.total_artifact_bytes(),
+        FIXED_BYTES.len() + WORKFLOW_BYTES.len()
+    );
+    assert_eq!(
+        receipt.artifact_set_digest().to_string(),
+        "sha256:9bc569125e337161b0aeb9f463f5a6b5c73b44871e4e59f3e6260658acc0716f"
+    );
+    assert!(publication_store.contains(&receipt)?);
+    assert_eq!(publication_store.publication_count()?, 1);
+    let debug = format!("{receipt:?}");
+    assert!(!debug.contains("fixed-proof"));
+    assert!(!debug.contains("workflow-proof"));
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let duplicate = publish_local_certification(
+        prepare_local_certification_publication(assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &policy_store,
+        )?)?,
+        &publication_store,
+    )?;
+    assert_eq!(duplicate, receipt);
+    assert_eq!(publication_store.publication_count()?, 1);
+    policy_store.revoke(CertificationPolicyRevocationDigest::new(digest(0x51)))?;
+    assert!(publication_store.contains(&receipt)?);
+    Ok(())
+}
+
+#[test]
+fn local_publication_rechecks_replacement_revocation_and_store_liveness_at_commit()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x60)?;
+    let policy_store = LocalCertificationPolicyStore::new(policy.clone());
+    let publication_store = LocalCertificationPublicationStore::new(8)?;
+    let prepared = prepare_local_certification_publication(assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &policy_store,
+    )?)?;
+    policy_store.replace_policy(policy)?;
+    assert!(matches!(
+        publish_local_certification(prepared, &publication_store),
+        Err(CertificationPublicationError::Policy(
+            CertificationPolicyError::PolicyChanged
+        ))
+    ));
+    assert_eq!(publication_store.publication_count()?, 0);
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x61)?;
+    let policy_store = LocalCertificationPolicyStore::new(policy);
+    let prepared = prepare_local_certification_publication(assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &policy_store,
+    )?)?;
+    policy_store.revoke(CertificationPolicyRevocationDigest::new(digest(0x70)))?;
+    assert!(matches!(
+        publish_local_certification(prepared, &publication_store),
+        Err(CertificationPublicationError::Policy(
+            CertificationPolicyError::PolicyRevoked
+        ))
+    ));
+    assert_eq!(publication_store.publication_count()?, 0);
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x62)?;
+    let policy_store = LocalCertificationPolicyStore::new(policy);
+    let prepared = prepare_local_certification_publication(assign_local_certification(
+        verify_certification_artifacts(
+            proof,
+            &artifacts,
+            CertificationArtifactVerificationLimits::new(64, 128)?,
+        )?,
+        &policy_store,
+    )?)?;
+    drop(policy_store);
+    assert!(matches!(
+        publish_local_certification(prepared, &publication_store),
+        Err(CertificationPublicationError::Policy(
+            CertificationPolicyError::PolicyStoreUnavailable
+        ))
+    ));
+    assert_eq!(publication_store.publication_count()?, 0);
+    Ok(())
+}
+
+#[test]
+fn local_publication_store_is_hard_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    assert!(matches!(
+        LocalCertificationPublicationStore::new(0),
+        Err(CertificationPublicationError::InvalidLimits)
+    ));
+    assert!(matches!(
+        LocalCertificationPublicationStore::new(MAX_LOCAL_CERTIFICATION_PUBLICATIONS + 1),
+        Err(CertificationPublicationError::LimitsExceedImplementationMaximum)
+    ));
+
+    let publication_store = LocalCertificationPublicationStore::new(1)?;
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ContractVerified, 0x80)?;
+    let policy_store = LocalCertificationPolicyStore::new(policy);
+    let receipt = publish_local_certification(
+        prepare_local_certification_publication(assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &policy_store,
+        )?)?,
+        &publication_store,
+    )?;
+    assert!(publication_store.contains(&receipt)?);
+
+    let (proof, fixed, workflow) = fixture()?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let duplicate = publish_local_certification(
+        prepare_local_certification_publication(assign_local_certification(
+            verify_certification_artifacts(
+                proof,
+                &artifacts,
+                CertificationArtifactVerificationLimits::new(64, 128)?,
+            )?,
+            &policy_store,
+        )?)?,
+        &publication_store,
+    )?;
+    assert_eq!(duplicate, receipt);
+    assert_eq!(publication_store.publication_count()?, 1);
+
+    let (proof, fixed, workflow) =
+        fixture_for_profile_class(CertificationProfileClass::ExactCertified)?;
+    let artifacts = artifact_map(&fixed, FIXED_BYTES, &workflow, WORKFLOW_BYTES);
+    let policy = local_policy_for(&proof, CertificationClass::ExactCertified, 0x81)?;
+    let policy_store = LocalCertificationPolicyStore::new(policy);
+    assert!(matches!(
+        publish_local_certification(
+            prepare_local_certification_publication(assign_local_certification(
+                verify_certification_artifacts(
+                    proof,
+                    &artifacts,
+                    CertificationArtifactVerificationLimits::new(64, 128)?,
+                )?,
+                &policy_store,
+            )?)?,
+            &publication_store,
+        ),
+        Err(CertificationPublicationError::StoreFull)
+    ));
+    assert_eq!(publication_store.publication_count()?, 1);
     Ok(())
 }
 

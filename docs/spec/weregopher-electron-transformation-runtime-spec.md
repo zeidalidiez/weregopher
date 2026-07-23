@@ -6583,11 +6583,21 @@ is not assignable at this exact verified-evidence boundary.
 The resulting opaque decision retains the structural proof and exact borrowed byte map, is neither
 cloneable nor serializable, and remains conditional on the issuing policy generation. Replacement,
 revocation, policy-store loss, or synchronization failure makes current-class access fail closed.
-This currentness check is point-in-time; future publication must hold policy currentness through its
-own commit point. Local class assignment does not validate artifact semantics, authenticate a runner,
-publish a result, authorize transformation or execution, or establish registry/signature trust.
-Concrete certification probes, semantic report parsing, trusted runner identity, registry signatures,
-durable policy persistence, publication, and the disposable-state runner remain separate layers.
+
+The atomic local-publication boundary described by
+[ADR 0032](../adr/0032-atomic-local-certification-publication.md) consumes that decision into a
+non-cloneable prepared plan. It content-addresses the exact verified artifact-reference set with a
+frozen domain-separated framing, then rechecks policy while holding the policy read guard through a
+bounded in-memory receipt-store commit. The local-only historical receipt binds the complete target,
+profile, evidence, artifact set, trusted class, policy revision/generation, artifact count, and
+aggregate verified bytes. Replacement or revocation after preparation but before commit fails closed;
+exact duplicate receipts converge and distinct store growth is hard bounded at 4,096 entries.
+
+Local class assignment and local-only receipt publication do not validate artifact semantics,
+authenticate a runner, authorize transformation or execution, or establish durable registry,
+signature, or remote-revocation trust. Concrete certification probes, semantic report parsing,
+trusted runner identity, authenticated registry publication, durable policy/receipt persistence, and
+the disposable-state runner remain separate layers.
 
 ## 35.6 Stable adapter gates
 

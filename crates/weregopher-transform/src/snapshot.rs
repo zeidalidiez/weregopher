@@ -22,6 +22,8 @@ use weregopher_fingerprint::{
 
 #[cfg(windows)]
 use weregopher_fingerprint::{MAX_PACKAGE_RECORD_PATH_BYTES, PackageFileKind};
+#[cfg(windows)]
+use weregopher_windows::LockedExecutable;
 
 use crate::{ManagedArtifactStore, MaterializationStoreError};
 
@@ -130,6 +132,45 @@ pub struct PackageSnapshotLease<'store> {
 pub struct PackageSnapshotFileReader {
     file: File,
     remaining: u64,
+}
+
+/// One exact manifest-listed executable retained together with its complete package lease.
+///
+/// This capability binds a direct locked executable path to the file identity and digest already
+/// retained by the snapshot. It does not authenticate an adapter or authorize execution or launch.
+#[cfg(windows)]
+#[must_use = "retain the executable capability until a higher-level authorizer consumes it"]
+pub struct PackageSnapshotExecutable<'lease, 'store> {
+    _lease: &'lease PackageSnapshotLease<'store>,
+    normalized_path: String,
+    digest: Sha256Digest,
+    _locked: LockedExecutable,
+}
+
+#[cfg(windows)]
+impl PackageSnapshotExecutable<'_, '_> {
+    /// Returns the manifest-relative executable path selected through the logical allowlist.
+    #[must_use]
+    pub fn normalized_path(&self) -> &str {
+        &self.normalized_path
+    }
+
+    /// Returns the exact executable-byte digest retained by the package manifest.
+    #[must_use]
+    pub const fn digest(&self) -> Sha256Digest {
+        self.digest
+    }
+}
+
+#[cfg(windows)]
+impl fmt::Debug for PackageSnapshotExecutable<'_, '_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PackageSnapshotExecutable")
+            .field("normalized_path", &self.normalized_path)
+            .field("digest", &self.digest)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PackageSnapshotFileReader {
@@ -298,6 +339,37 @@ impl PackageSnapshotLease<'_> {
     #[must_use]
     pub const fn reused_links(&self) -> usize {
         self.reused_links
+    }
+}
+
+#[cfg(windows)]
+impl<'store> PackageSnapshotLease<'store> {
+    /// Retains one manifest-listed file as an identity-matched locked executable capability.
+    ///
+    /// The full package lease is borrowed by the returned value so manifest files and directories
+    /// remain retained for its complete lifetime. This performs no adapter authentication and does
+    /// not grant execution or launch authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError::UnknownFile`] for an unlisted path, or another snapshot
+    /// error when managed-root verification or identity-matched path locking fails.
+    pub fn lock_executable<'lease>(
+        &'lease self,
+        normalized_path: &str,
+        max_path_components: usize,
+    ) -> Result<PackageSnapshotExecutable<'lease, 'store>, PackageSnapshotError> {
+        self.store.lease.verify_root_path()?;
+        let (locked, digest) =
+            self.platform
+                .lock_executable(&self.root, normalized_path, max_path_components)?;
+        self.store.lease.verify_root_path()?;
+        Ok(PackageSnapshotExecutable {
+            _lease: self,
+            normalized_path: normalized_path.to_owned(),
+            digest,
+            _locked: locked,
+        })
     }
 }
 
@@ -673,6 +745,15 @@ pub enum PackageSnapshotError {
     UnknownFile {
         /// Rejected caller-supplied path.
         normalized_path: String,
+    },
+    /// A manifest-listed executable could not be locked to its retained file identity.
+    #[error("could not lock package executable {normalized_path}: {source}")]
+    ExecutableLock {
+        /// Canonical package-relative path.
+        normalized_path: String,
+        /// Identity-matched locked-path acquisition failure.
+        #[source]
+        source: std::io::Error,
     },
     /// The managed package view contains missing or extra membership.
     #[error("managed package view membership differs from its manifest")]

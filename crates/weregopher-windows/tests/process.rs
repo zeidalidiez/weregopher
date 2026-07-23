@@ -8,7 +8,9 @@ use std::{
 };
 
 use tempfile::tempdir;
-use weregopher_windows::{JobLimits, KillOnCloseJob, LockedExecutable, ProcessLaunchLimits};
+use weregopher_windows::{
+    FileIdentityLease, JobLimits, KillOnCloseJob, LockedExecutable, ProcessLaunchLimits,
+};
 
 const PROCESS_MEMORY_LIMIT: u64 = 512 * 1024 * 1024;
 const JOB_MEMORY_LIMIT: u64 = 1024 * 1024 * 1024;
@@ -91,6 +93,25 @@ fn locked_executable_rejects_a_junction_ancestor() -> Result<(), Box<dyn std::er
     assert!(matches!(
         LockedExecutable::open(&junction.join("helper.exe"), 64),
         Err(ref error) if error.kind() == io::ErrorKind::InvalidInput
+    ));
+    Ok(())
+}
+
+#[test]
+fn locked_executable_must_match_the_retained_file_identity()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let expected_path = fixture.path().join("expected.exe");
+    let substituted_path = fixture.path().join("substituted.exe");
+    fs::copy(std::env::current_exe()?, &expected_path)?;
+    fs::copy(std::env::current_exe()?, &substituted_path)?;
+    let expected_identity = FileIdentityLease::from_file(fs::File::open(&expected_path)?)?;
+
+    let locked = LockedExecutable::open_matching_identity(&expected_path, 64, &expected_identity)?;
+    assert!(!format!("{locked:?}").contains(&expected_path.display().to_string()));
+    assert!(matches!(
+        LockedExecutable::open_matching_identity(&substituted_path, 64, &expected_identity),
+        Err(ref error) if error.kind() == io::ErrorKind::InvalidData
     ));
     Ok(())
 }

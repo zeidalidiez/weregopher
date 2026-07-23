@@ -42,11 +42,15 @@ pub use planning::{
     PlannerLimits, SourceUnitInput, StaticImportRewrite, StaticImportSpecifier, TextEdit,
     TransformPlan, TransformPlanError, plan_static_import_rewrite,
 };
+#[cfg(windows)]
+pub use snapshot::PackageSnapshotExecutable;
 pub use snapshot::{
     PackageSnapshotError, PackageSnapshotFileReader, PackageSnapshotLease,
     PackageSnapshotLeaseLimits, PackageSnapshotWriteLimits,
 };
 pub use source_map::{EmittedSourceMap, SourceMapError, SourceMapLimits, emit_source_map};
+#[cfg(windows)]
+pub use store::ManagedArtifactExecutable;
 pub use store::{
     ManagedArtifactLease, ManagedArtifactLeaseLimits, ManagedArtifactStore, ManagedStoreRootLimits,
     MaterializationReceipt, MaterializationStoreError, MaterializationWriteLimits,

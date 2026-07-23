@@ -11,7 +11,7 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 use weregopher_domain::Sha256Digest;
-use weregopher_windows::FileIdentityLease;
+use weregopher_windows::{FileIdentityLease, LockedExecutable};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
     FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -34,7 +34,7 @@ pub(super) struct ManagedManifestLease {
 
 struct ManagedBlobLease {
     path: PathBuf,
-    _identity: FileIdentityLease,
+    identity: FileIdentityLease,
 }
 
 impl ManagedManifestLease {
@@ -44,6 +44,22 @@ impl ManagedManifestLease {
 
     pub(super) fn blob_path(&self, digest: &Sha256Digest) -> Option<&Path> {
         self.blobs.get(digest).map(|blob| blob.path.as_path())
+    }
+
+    pub(super) fn lock_executable(
+        &self,
+        digest: &Sha256Digest,
+        max_path_components: usize,
+    ) -> Result<LockedExecutable, MaterializationStoreError> {
+        let blob = self
+            .blobs
+            .get(digest)
+            .ok_or(MaterializationStoreError::MissingBlob { digest: *digest })?;
+        LockedExecutable::open_matching_identity(&blob.path, max_path_components, &blob.identity)
+            .map_err(|source| MaterializationStoreError::ExecutableLock {
+                digest: *digest,
+                source,
+            })
     }
 }
 
@@ -233,7 +249,7 @@ pub(super) fn lease_manifest(
             *digest,
             ManagedBlobLease {
                 path: blob_path,
-                _identity: identity,
+                identity,
             },
         );
     }

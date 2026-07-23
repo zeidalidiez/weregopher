@@ -480,10 +480,17 @@ fn assert_verified_managed_lease(
         let path = lease
             .blob_path(digest)
             .ok_or("leased manifest digest must have a path")?;
+        let executable = lease.lock_executable(digest, 64)?;
+        assert_eq!(executable.digest(), *digest);
+        assert!(!format!("{executable:?}").contains(&path.display().to_string()));
         assert_eq!(std::fs::read(path)?, *expected);
         assert!(std::fs::write(path, b"tamper while leased").is_err());
         assert!(std::fs::remove_file(path).is_err());
     }
+    assert!(matches!(
+        lease.lock_executable(&weregopher_domain::Sha256Digest::from_bytes([0_u8; 32]), 64),
+        Err(weregopher_transform::MaterializationStoreError::MissingBlob { .. })
+    ));
     Ok(())
 }
 

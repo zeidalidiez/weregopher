@@ -477,6 +477,26 @@ fn snapshot_preserves_asar_native_module_and_executable_bytes()
         fs::read(snapshot.unrestricted_physical_root().join("helper.exe"))?,
         b"executable"
     );
+    let executable = snapshot.lock_executable("helper.exe", 64)?;
+    assert_eq!(
+        executable.digest(),
+        observation
+            .manifest()
+            .files()
+            .iter()
+            .find(|record| record.normalized_path == "helper.exe")
+            .ok_or("helper manifest record must exist")?
+            .sha256
+    );
+    assert_eq!(executable.normalized_path(), "helper.exe");
+    assert!(
+        !format!("{executable:?}")
+            .contains(&snapshot.unrestricted_physical_root().display().to_string())
+    );
+    assert!(matches!(
+        snapshot.lock_executable("injected.exe", 64),
+        Err(PackageSnapshotError::UnknownFile { .. })
+    ));
     Ok(())
 }
 

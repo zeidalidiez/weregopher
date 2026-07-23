@@ -1696,6 +1696,14 @@ command-line, environment, capability, compatibility, state, and user-policy req
 package-view roots are not closed namespaces: execution-qualified package access MUST use
 manifest-scoped, identity-verified file capabilities rather than unrestricted traversal.
 
+The initial Windows capability bridge binds a locked executable path back to the full-width file
+identity already retained by its package-snapshot or managed-manifest lease. Package resolution
+performs the manifest allowlist lookup before joining the physical root, and each executable
+capability borrows the complete source lease. These capabilities are integrity prerequisites only:
+they do not authenticate authority, authorize execution or launch, freeze later DLL resolution, or
+close an ordinary directory namespace. See
+[ADR-0022](../adr/0022-identity-bound-retained-executable-capabilities.md).
+
 Execution authorization, Job Object ownership, suspended process creation, process resume, runtime
 supervision, security posture, efficiency, and certification remain distinct decisions and evidence
 boundaries. The canonical format-v1 Rust contracts and generated schemas are specified by

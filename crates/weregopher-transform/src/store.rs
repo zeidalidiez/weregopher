@@ -9,6 +9,8 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use weregopher_domain::Sha256Digest;
+#[cfg(windows)]
+use weregopher_windows::LockedExecutable;
 
 use crate::MaterializationManifest;
 
@@ -221,7 +223,7 @@ impl ManagedArtifactStore {
             )?;
             let platform = windows::lease_manifest(&self.lease, manifest)?;
             Ok(ManagedArtifactLease {
-                _store: self,
+                store: self,
                 manifest_digest: *manifest.digest(),
                 total_blob_bytes: total_bytes,
                 platform,
@@ -274,11 +276,42 @@ impl MaterializationReceipt {
 /// A reverified set of direct managed-artifact handles retained for one consumer lifetime.
 #[must_use = "keep the artifact lease alive while any returned blob path is in use"]
 pub struct ManagedArtifactLease<'store> {
-    _store: &'store ManagedArtifactStore,
+    store: &'store ManagedArtifactStore,
     manifest_digest: Sha256Digest,
     total_blob_bytes: usize,
     #[cfg(windows)]
     platform: windows::ManagedManifestLease,
+}
+
+/// One exact managed blob retained as an identity-matched locked executable.
+///
+/// This capability keeps the complete manifest lease alive and proves only retained blob identity
+/// and bytes. It does not authenticate adapter authority or authorize execution or launch.
+#[cfg(windows)]
+#[must_use = "retain the executable capability until a higher-level authorizer consumes it"]
+pub struct ManagedArtifactExecutable<'lease, 'store> {
+    _lease: &'lease ManagedArtifactLease<'store>,
+    digest: Sha256Digest,
+    _locked: LockedExecutable,
+}
+
+#[cfg(windows)]
+impl ManagedArtifactExecutable<'_, '_> {
+    /// Returns the exact managed executable-byte digest.
+    #[must_use]
+    pub const fn digest(&self) -> Sha256Digest {
+        self.digest
+    }
+}
+
+#[cfg(windows)]
+impl fmt::Debug for ManagedArtifactExecutable<'_, '_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedArtifactExecutable")
+            .field("digest", &self.digest)
+            .finish_non_exhaustive()
+    }
 }
 
 impl fmt::Debug for ManagedArtifactLease<'_> {
@@ -286,6 +319,10 @@ impl fmt::Debug for ManagedArtifactLease<'_> {
         formatter
             .debug_struct("ManagedArtifactLease")
             .field("manifest_digest", &self.manifest_digest)
+            .field(
+                "store_root_components",
+                &self.store.root.components().count(),
+            )
             .field("blob_count", &self.blob_count())
             .field("total_blob_bytes", &self.total_blob_bytes)
             .finish_non_exhaustive()
@@ -332,6 +369,30 @@ impl ManagedArtifactLease<'_> {
             let _ = digest;
             None
         }
+    }
+}
+
+#[cfg(windows)]
+impl<'store> ManagedArtifactLease<'store> {
+    /// Retains one leased manifest blob as an identity-matched locked executable capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError::MissingBlob`] when `digest` is outside this manifest
+    /// lease, or another store error when root verification or executable locking fails.
+    pub fn lock_executable<'lease>(
+        &'lease self,
+        digest: &Sha256Digest,
+        max_path_components: usize,
+    ) -> Result<ManagedArtifactExecutable<'lease, 'store>, MaterializationStoreError> {
+        self.store.lease.verify_root_path()?;
+        let locked = self.platform.lock_executable(digest, max_path_components)?;
+        self.store.lease.verify_root_path()?;
+        Ok(ManagedArtifactExecutable {
+            _lease: self,
+            digest: *digest,
+            _locked: locked,
+        })
     }
 }
 
@@ -508,6 +569,15 @@ pub enum MaterializationStoreError {
     MissingBlob {
         /// Missing content identity.
         digest: Sha256Digest,
+    },
+    /// A leased managed blob could not be locked to its retained file identity.
+    #[error("could not lock managed executable {digest}: {source}")]
+    ExecutableLock {
+        /// Managed executable-byte identity.
+        digest: Sha256Digest,
+        /// Identity-matched locked-path acquisition failure.
+        #[source]
+        source: std::io::Error,
     },
     /// A pre-existing content path did not contain the exact expected direct-file bytes.
     #[error("content path for {digest} contains conflicting or unstable bytes")]

@@ -11,7 +11,7 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use weregopher_domain::Sha256Digest;
 use weregopher_fingerprint::{PackageTreeManifest, PackageTreeObservation};
-use weregopher_windows::FileIdentityLease;
+use weregopher_windows::{FileIdentityLease, LockedExecutable};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
     FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -27,6 +27,8 @@ use crate::{
 };
 
 const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
+const ERROR_SHARING_VIOLATION_CODE: i32 = 32;
+const MAX_TRANSIENT_DIRECTORY_OPEN_ATTEMPTS: usize = 16;
 
 pub(super) struct WindowsPackageSnapshotLease {
     _ancestors: Vec<FileIdentityLease>,
@@ -94,6 +96,31 @@ impl WindowsPackageSnapshotLease {
         file.seek(SeekFrom::Start(0))
             .map_err(|source| io_error("rewind package-view file reader", &path, source))?;
         Ok((file, retained.size))
+    }
+
+    pub(super) fn lock_executable(
+        &self,
+        root: &Path,
+        normalized_path: &str,
+        max_path_components: usize,
+    ) -> Result<(LockedExecutable, Sha256Digest), PackageSnapshotError> {
+        let retained =
+            self.files
+                .get(normalized_path)
+                .ok_or_else(|| PackageSnapshotError::UnknownFile {
+                    normalized_path: normalized_path.to_owned(),
+                })?;
+        let path = join_normalized(root, normalized_path);
+        let locked = LockedExecutable::open_matching_identity(
+            &path,
+            max_path_components,
+            &retained.identity,
+        )
+        .map_err(|source| PackageSnapshotError::ExecutableLock {
+            normalized_path: normalized_path.to_owned(),
+            source,
+        })?;
+        Ok((locked, retained.digest))
     }
 }
 
@@ -600,7 +627,7 @@ fn open_optional_directory(
         .read(true)
         .share_mode(share_mode)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
-    let file = match options.open(path) {
+    let file = match retry_transient_directory_open(|| options.open(path)) {
         Ok(file) => file,
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {
@@ -623,6 +650,24 @@ fn open_optional_directory(
     FileIdentityLease::from_file(file)
         .map(Some)
         .map_err(|source| io_error("retain package-view directory identity", path, source))
+}
+
+fn retry_transient_directory_open<T>(
+    mut open: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut attempts = 1_usize;
+    loop {
+        match open() {
+            Err(source)
+                if source.raw_os_error() == Some(ERROR_SHARING_VIOLATION_CODE)
+                    && attempts < MAX_TRANSIENT_DIRECTORY_OPEN_ATTEMPTS =>
+            {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            result => return result,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -796,6 +841,33 @@ mod tests {
         })?;
 
         assert!(path.is_dir());
+        Ok(())
+    }
+
+    #[test]
+    fn direct_directory_open_retries_only_bounded_sharing_violations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut transient_attempts = 0_usize;
+        let value = retry_transient_directory_open(|| {
+            transient_attempts += 1;
+            if transient_attempts < 3 {
+                Err(std::io::Error::from_raw_os_error(32))
+            } else {
+                Ok(7_u8)
+            }
+        })?;
+        assert_eq!(value, 7);
+        assert_eq!(transient_attempts, 3);
+
+        let mut permanent_attempts = 0_usize;
+        let error = retry_transient_directory_open(|| -> std::io::Result<()> {
+            permanent_attempts += 1;
+            Err(std::io::Error::from_raw_os_error(5))
+        })
+        .err()
+        .ok_or("a permanent error must fail")?;
+        assert_eq!(error.raw_os_error(), Some(5));
+        assert_eq!(permanent_attempts, 1);
         Ok(())
     }
 }

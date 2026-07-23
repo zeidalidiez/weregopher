@@ -104,7 +104,7 @@ pub struct LockedExecutable {
     path: PathBuf,
     component_count: usize,
     _ancestors: Vec<FileIdentityLease>,
-    _file: FileIdentityLease,
+    file: FileIdentityLease,
 }
 
 impl LockedExecutable {
@@ -131,8 +131,33 @@ impl LockedExecutable {
             path: path.to_path_buf(),
             component_count,
             _ancestors: ancestors,
-            _file: file,
+            file,
         })
+    }
+
+    /// Opens and locks an executable only when it is the exact retained file object expected by
+    /// a higher-level artifact lease.
+    ///
+    /// This adds identity binding to [`Self::open`], but does not authenticate the file's bytes or
+    /// authorize execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors documented by [`Self::open`], or an invalid-data error when the selected
+    /// file object does not match `expected_identity`.
+    pub fn open_matching_identity(
+        path: &Path,
+        max_components: usize,
+        expected_identity: &FileIdentityLease,
+    ) -> io::Result<Self> {
+        let executable = Self::open(path, max_components)?;
+        if !executable.file.has_same_identity(expected_identity) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "locked executable does not match the retained artifact identity",
+            ));
+        }
+        Ok(executable)
     }
 
     fn path(&self) -> &Path {

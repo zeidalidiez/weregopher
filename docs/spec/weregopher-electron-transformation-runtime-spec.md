@@ -1731,8 +1731,8 @@ identities. The initial primitive MUST accept only
 enforced dependency and state namespace capabilities. Before issuance, authorization MUST reject
 unsupported posture or launch semantics, validate exact Job-limit representability, run the sole
 Windows quoting implementation over the exact path and arguments, enforce the complete
-`CreateProcessW` ceiling, bind the prepared plan to the retained path and full-width file identity,
-and revalidate the retained view.
+`CreateProcessW` ceiling, bind the prepared plan to the retained path, full-width file identity, and
+one private live executable-lock instance, and revalidate the retained view.
 Policy replacement or revocation MUST monotonically invalidate outstanding values.
 
 The resulting authorization capability MUST be opaque, non-cloneable, non-serializable, retain the
@@ -1743,8 +1743,11 @@ through the initial vendor-default-state primitive.
 Registry and forensic modes MUST fail closed until their independent authentication and approval
 engines exist. Issuance is still not launch. The Windows one-shot consumer MUST hold the issuing
 policy read lock, repeat retained-view validation, create the kill-on-close Job, recheck the prepared
-plan's retained path and file identity, create the exact retained executable suspended, assign and
-verify Job membership, and only then resume the primary thread. It MUST consume the authorization by
+plan's retained path, file identity, and private lock-instance binding, create the exact retained
+executable suspended, assign and verify Job membership, and only then resume the primary thread. A
+plan MUST fail before process creation when the preparing lock was dropped and replaced by a newly
+opened lock, even if parent rebinding plus a hard link reproduces the same path and file identity. It
+MUST consume the authorization by
 value, retain the complete containing-artifact lease in the returned process-tree owner, and fail
 before resume on every policy, posture, view, containment, creation, assignment, or verification
 error. The initial consumer MUST reject broker-mediated and OS-contained targets because its Job
@@ -1763,6 +1766,11 @@ poll interval and remaining runtime, and MUST terminate the complete Job after p
 or runtime expiry. Forced termination MUST be followed by bounded primary-process exit
 confirmation. A terminal report MUST preserve the exact target and authorization-context identities
 and MUST NOT become serialized authority or certification evidence.
+
+The authorization-context digest identifies the logical authorization decision. It MUST NOT be
+described as an exact physical-launch identity: local absolute paths, Windows lock-instance identity,
+and the ambient dependency namespace remain attached to opaque live capabilities rather than that
+digest.
 
 This bounded lifecycle owner is not yet an `AppInstanceId`, `RuntimeId`, workflow, user-activation,
 or state-lease owner and MUST NOT be represented as a complete production application supervisor.

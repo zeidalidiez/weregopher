@@ -581,7 +581,10 @@ impl AuthorizedExecution<'_, '_> {
         self.launch_policy.resource_limits()
     }
 
-    /// Returns the decision identity binding every authenticated and retained input.
+    /// Returns the logical authorization-decision identity.
+    ///
+    /// This deliberately excludes local absolute paths, Windows lock-instance identity, and the
+    /// ambient dependency namespace. It is not an exact physical-launch identity.
     #[must_use]
     pub const fn authorization_context_digest(&self) -> AuthorizationContextDigest {
         self.authorization_context_digest
@@ -690,7 +693,10 @@ impl SupervisedExecution<'_, '_> {
         &self.launch_policy
     }
 
-    /// Returns the decision identity bound to this process tree.
+    /// Returns the logical authorization-decision identity bound to this process tree.
+    ///
+    /// This is not an exact physical-launch identity; the process owner separately retains the exact
+    /// executable lock and containing-artifact capability used for launch.
     #[must_use]
     pub const fn authorization_context_digest(&self) -> AuthorizationContextDigest {
         self.authorization_context_digest

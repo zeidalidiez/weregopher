@@ -56,9 +56,9 @@ Before returning `AuthorizedExecution`, `authorize_execution` now:
 2. converts exact resource limits into a validated `JobLimits` value;
 3. converts exact arguments with the sole Windows quoting implementation;
 4. validates the executable path, working directory, per-value UTF-16 limits, quoting expansion, and complete NUL-terminated command-line ceiling; and
-5. stores an opaque `PreparedProcessLaunch` bound to the retained executable's absolute path and full-width Windows file identity.
+5. stores an opaque `PreparedProcessLaunch` bound to the retained executable's absolute path, full-width Windows file identity, and private live lock-instance identity.
 
-The prepared plan is non-cloneable and non-serializable. `KillOnCloseJob::launch_prepared` checks both path and file identity before any process-creation call. The one-shot launch consumer performs only revocation/current-view revalidation, Job creation, and consumption of that already validated exact plan; it does not rebuild arguments or reopen the executable.
+The prepared plan is non-cloneable and non-serializable. `KillOnCloseJob::launch_prepared` checks path, file identity, and the private lock-instance binding before any process-creation call. Dropping the preparing lock, rebinding its parent, hard-linking the same file object at the same textual path, and opening a new lock therefore cannot consume the plan. The one-shot launch consumer performs only revocation/current-view revalidation, Job creation, and consumption of that already validated exact plan; it does not rebuild arguments or reopen the executable.
 
 The current primitive also accepts only `state_mode = vendor_default`. `disposable` and `production` require a retained state-namespace capability and fail authorization until that higher-level runtime mechanism exists. `SupervisedExecution` is therefore a low-level Job-owned process capability, not yet an `AppInstanceId`/`RuntimeId`/state-lease owner and not a complete production application supervisor.
 
@@ -76,4 +76,4 @@ Format-v2 contracts, bounded parsing, structural equality, and prepared launch r
 
 ## Verification
 
-Regressions cover contradictory managed evidence at construction and deserialization; format-v2 canonical golden bytes and digests; compile-fail digest-role swaps; bounded slice/reader entry points; worst-case escaped valid documents; Windows-ambiguous package names; schema extension limits; hard live-evidence ceilings; mutable current consent and compatibility with an unchanged static target digest; unsupported required posture; domain-valid but Windows-unrepresentable quoted arguments; prepared-plan path/file-identity rebinding; successful package and managed-artifact Job-owned launch; and managed-manifest mismatch rejection.
+Regressions cover contradictory managed evidence at construction and deserialization; format-v2 canonical golden bytes and digests; compile-fail digest-role swaps; bounded slice/reader entry points; worst-case escaped valid documents; Windows-ambiguous package names; schema extension limits; hard live-evidence ceilings; mutable current consent and compatibility with an unchanged static target digest; unsupported required posture; domain-valid but Windows-unrepresentable quoted arguments; prepared-plan path/file-identity substitution and same-file parent rebinding through a newly opened lock; successful package and managed-artifact Job-owned launch; and managed-manifest mismatch rejection.

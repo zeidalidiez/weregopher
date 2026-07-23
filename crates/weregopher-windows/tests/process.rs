@@ -126,6 +126,43 @@ fn locked_executable_must_match_the_retained_file_identity()
 }
 
 #[test]
+fn prepared_launch_rejects_reopened_lock_after_parent_rebind()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let launch_parent = fixture.path().join("launch");
+    let displaced_parent = fixture.path().join("displaced");
+    fs::create_dir(&launch_parent)?;
+    let executable_path = launch_parent.join("helper.exe");
+    fs::copy(std::env::current_exe()?, &executable_path)?;
+
+    let preparing_lock = LockedExecutable::open(&executable_path, 64)?;
+    let prepared = preparing_lock.prepare_launch(
+        &[
+            OsString::from("--ignored"),
+            OsString::from("--exact"),
+            OsString::from("owned_launch_child_helper"),
+            OsString::from("--test-threads=1"),
+        ],
+        ProcessLaunchLimits::new(4, 128, 1_024)?,
+    )?;
+    drop(preparing_lock);
+
+    fs::rename(&launch_parent, &displaced_parent)?;
+    fs::create_dir(&launch_parent)?;
+    fs::hard_link(displaced_parent.join("helper.exe"), &executable_path)?;
+
+    let rebound_lock = LockedExecutable::open(&executable_path, 64)?;
+    let result =
+        KillOnCloseJob::create(JobLimits::new(1, PROCESS_MEMORY_LIMIT, JOB_MEMORY_LIMIT)?)?
+            .launch_prepared(rebound_lock, prepared);
+    assert!(matches!(
+        result,
+        Err(ref error) if error.kind() == io::ErrorKind::InvalidInput
+    ));
+    Ok(())
+}
+
+#[test]
 fn process_is_job_owned_before_the_primary_thread_runs() -> Result<(), Box<dyn std::error::Error>> {
     let executable_path = std::env::current_exe()?;
     let executable = LockedExecutable::open(&executable_path, 64)?;

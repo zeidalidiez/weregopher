@@ -26,7 +26,7 @@ On Windows, `launch_authorized_execution` consumes exactly one `AuthorizedExecut
 3. rechecks revocation and policy generation;
 4. repeats current-view verification through the retained executable capability;
 5. creates and configures a kill-on-close Job Object;
-6. checks that the prepared launch still names the same absolute path and full-width file identity;
+6. checks that the prepared launch still names the same absolute path and full-width file identity and is paired with the exact private executable-lock instance that prepared it;
 7. moves the already locked executable and prepared command line directly into `CREATE_SUSPENDED` process creation with an empty environment, no inherited handles, no console, and the executable directory as the working directory;
 8. assigns the suspended process to the Job, verifies membership, and only then resumes its primary thread; and
 9. returns `SupervisedExecution`, which owns the Job/process capability and retains a borrow of the complete package snapshot or managed-artifact lease.
@@ -45,4 +45,5 @@ The Windows command-line ceiling is a runtime transport limit, not authority. Th
 - Broker-mediated and OS-contained targets fail closed at this boundary until corresponding enforcing launch implementations exist.
 - Job Objects remain lifecycle and accounting controls, not sandboxes.
 - A retained Windows directory handle still does not prevent a same-user process from inserting a new child after manifest verification. Package-manifest current-view evidence therefore remains point-in-time and must not be described as a sealed namespace.
+- The authorization-context digest identifies logical decision equivalence, not a physical path, lock instance, or ambient dependency namespace; exact launch capabilities remain attached to the opaque process owner instead.
 - Registry trust, forensic override approval, durable supervisor protocol integration, graceful shutdown, and certification evidence remain separate milestones.

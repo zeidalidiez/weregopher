@@ -13,6 +13,7 @@ use std::{
     },
     path::{Component, Path, PathBuf, Prefix},
     ptr,
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -34,6 +35,15 @@ use windows_sys::Win32::{
 use crate::{FileIdentity, FileIdentityLease, KillOnCloseJob};
 
 const WINDOWS_COMMAND_LINE_MAX_UNITS: usize = 32_767;
+static NEXT_LOCK_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn allocate_lock_instance_id() -> io::Result<u64> {
+    NEXT_LOCK_INSTANCE_ID
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| io::Error::other("locked executable instance identity exhausted"))
+}
 
 /// Caller-selected bounds for one no-inheritance suspended launch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,12 +109,14 @@ impl ProcessLaunchLimits {
 ///
 /// Construction validates UTF-16 encoding, C-runtime quoting expansion, aggregate command-line
 /// length, and working-directory representability before an authorization boundary can retain this
-/// value. It is neither cloneable nor serializable and cannot be consumed with a different file
-/// object or path.
+/// value. It is neither cloneable nor serializable and carries a private binding to the exact
+/// [`LockedExecutable`] instance that prepared it. Reopening the same file object through the same
+/// textual path cannot satisfy that binding after the preparing lock is dropped.
 #[must_use = "a prepared launch must be consumed with its exact locked executable"]
 pub struct PreparedProcessLaunch {
     executable_path: PathBuf,
     executable_identity: FileIdentity,
+    lock_instance_id: u64,
     application: Vec<u16>,
     current_directory: Vec<u16>,
     command_line: Vec<u16>,
@@ -125,10 +137,12 @@ impl fmt::Debug for PreparedProcessLaunch {
 ///
 /// The capability rejects reparse points and keeps the executable open without write or delete
 /// sharing. It proves path stability and regular-file shape, not a trusted signer, content hash,
-/// architecture, adapter allowlist, or execution authority.
+/// architecture, adapter allowlist, or execution authority. Every successful open receives a
+/// process-local private instance identity so prepared launch data cannot be rebound to a later lock.
 pub struct LockedExecutable {
     path: PathBuf,
     component_count: usize,
+    lock_instance_id: u64,
     _ancestors: Vec<FileIdentityLease>,
     file: FileIdentityLease,
 }
@@ -153,9 +167,11 @@ impl LockedExecutable {
         let ancestors = open_directory_chain(parent)?;
         let file = open_regular_file(path)?;
         let file = FileIdentityLease::from_file(file)?;
+        let lock_instance_id = allocate_lock_instance_id()?;
         Ok(Self {
             path: path.to_path_buf(),
             component_count,
+            lock_instance_id,
             _ancestors: ancestors,
             file,
         })
@@ -208,6 +224,7 @@ impl LockedExecutable {
         Ok(PreparedProcessLaunch {
             executable_path: self.path.clone(),
             executable_identity: self.file.identity,
+            lock_instance_id: self.lock_instance_id,
             application,
             current_directory,
             command_line,
@@ -323,14 +340,15 @@ impl KillOnCloseJob {
 
     /// Consumes a launch encoding previously prepared for this exact retained executable.
     ///
-    /// Binding is checked before any process-creation operation. This keeps quoting and Windows
-    /// representability validation on the pre-authorization side without permitting a prepared
-    /// command line to be rebound to another executable file object.
+    /// Path, full-width file identity, and private lock-instance binding are checked before any
+    /// process-creation operation. This keeps quoting and Windows representability validation on the
+    /// pre-authorization side without permitting a prepared command line to be rebound after the
+    /// original executable or ancestor handles are dropped.
     ///
     /// # Errors
     ///
-    /// Returns an invalid-input error for an executable/path binding mismatch, or the process-launch
-    /// errors documented by [`Self::launch`].
+    /// Returns an invalid-input error for an executable, path, or lock-instance binding mismatch, or
+    /// the process-launch errors documented by [`Self::launch`].
     pub fn launch_prepared(
         self,
         executable: LockedExecutable,
@@ -338,6 +356,7 @@ impl KillOnCloseJob {
     ) -> io::Result<OwnedJobProcess> {
         if executable.path != prepared.executable_path
             || executable.file.identity != prepared.executable_identity
+            || executable.lock_instance_id != prepared.lock_instance_id
         {
             return Err(invalid_input(
                 "prepared process launch does not match the retained executable",

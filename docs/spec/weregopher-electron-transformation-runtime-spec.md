@@ -6546,6 +6546,15 @@ workflow must be `passed`. The resulting proof is opaque and non-serializable. I
 structural binding: it does not authenticate the profile, validate referenced artifact bytes,
 approve target applicability, or assign a trusted certification class.
 
+The bounded artifact-verification boundary described by
+[ADR 0030](../adr/0030-bounded-certification-artifact-verification.md) then consumes that structural
+proof with an exact map of artifact references to borrowed bytes. It rejects missing, unexpected,
+oversized, or digest-mismatched artifacts. Coverage, a 16 MiB per-artifact ceiling, a 128 MiB
+aggregate ceiling, checked length arithmetic, and the maximum representable reference count are
+enforced before any supplied artifact is hashed. The resulting opaque proof retains the exact byte
+map and structural proof. This establishes digest conformance only; it does not validate report or
+probe semantics, authenticate a producer, approve target applicability, or assign trust.
+
 The document derives only `incomplete`, `blocked`, or `complete`. It does not carry a producer-
 selected certification scope or serialize a certification class, trust mode, publication status,
 or authority bit. Mapping structurally validated evidence to one of the classes above still

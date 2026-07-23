@@ -25,14 +25,14 @@ pub use candidate::{
 };
 pub use certification::{CertificationClass, PublicationStatus, TrustMode};
 pub use certification_evidence::{
-    CERTIFICATION_EVIDENCE_FORMAT_VERSION, CERTIFICATION_PROFILE_FORMAT_VERSION,
-    CertificationArtifactDigest, CertificationArtifactKind, CertificationArtifactRef,
-    CertificationCheckAssessment, CertificationCheckDimension, CertificationCheckStatus,
-    CertificationChecks, CertificationContractError, CertificationDocumentError,
-    CertificationEvidence, CertificationEvidenceDisposition, CertificationExpectedStatus,
-    CertificationProfile, CertificationProfileChecks, CertificationProfileClass,
-    CertificationProfileDigest, CertificationProfileValidationError, CertificationTarget,
-    MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
+    CERTIFICATION_EVIDENCE_FORMAT_VERSION, CERTIFICATION_FIXED_CHECK_COUNT,
+    CERTIFICATION_PROFILE_FORMAT_VERSION, CertificationArtifactDigest, CertificationArtifactKind,
+    CertificationArtifactRef, CertificationCheckAssessment, CertificationCheckDimension,
+    CertificationCheckStatus, CertificationChecks, CertificationContractError,
+    CertificationDocumentError, CertificationEvidence, CertificationEvidenceDisposition,
+    CertificationExpectedStatus, CertificationProfile, CertificationProfileChecks,
+    CertificationProfileClass, CertificationProfileDigest, CertificationProfileValidationError,
+    CertificationTarget, MAX_CERTIFICATION_DOCUMENT_BYTES, MAX_CERTIFICATION_EVIDENCE_REFS,
     MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES, MAX_CERTIFICATION_WORKFLOWS,
     StructurallyValidatedCertificationEvidence,
 };

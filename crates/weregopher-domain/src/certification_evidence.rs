@@ -22,6 +22,8 @@ use crate::{
 pub const CERTIFICATION_EVIDENCE_FORMAT_VERSION: &str = "1";
 /// Current serialized certification-profile contract version.
 pub const CERTIFICATION_PROFILE_FORMAT_VERSION: &str = "1";
+/// Number of mandatory fixed certification dimensions in every evidence/profile pair.
+pub const CERTIFICATION_FIXED_CHECK_COUNT: usize = 13;
 /// Maximum immutable evidence references retained for one certification check.
 pub const MAX_CERTIFICATION_EVIDENCE_REFS: usize = 64;
 /// Maximum application workflow checks retained in one certification document.
@@ -481,7 +483,7 @@ pub struct CertificationChecks {
 }
 
 impl CertificationChecks {
-    fn assessments(&self) -> [&CertificationCheckAssessment; 13] {
+    fn assessments(&self) -> [&CertificationCheckAssessment; CERTIFICATION_FIXED_CHECK_COUNT] {
         [
             &self.package_identity,
             &self.entry_point_resolution,
@@ -533,7 +535,10 @@ pub struct CertificationProfileChecks {
 }
 
 impl CertificationProfileChecks {
-    fn expectations(&self) -> [(CertificationCheckDimension, CertificationExpectedStatus); 13] {
+    fn expectations(
+        &self,
+    ) -> [(CertificationCheckDimension, CertificationExpectedStatus); CERTIFICATION_FIXED_CHECK_COUNT]
+    {
         [
             (
                 CertificationCheckDimension::PackageIdentity,
@@ -999,6 +1004,17 @@ impl CertificationEvidence {
     #[must_use]
     pub const fn workflows(&self) -> &BTreeMap<FeatureId, CertificationCheckAssessment> {
         &self.workflows
+    }
+
+    /// Iterates every referenced immutable artifact in deterministic check and workflow order.
+    ///
+    /// A shared artifact may appear more than once when it supports multiple checks.
+    pub fn artifact_references(&self) -> impl Iterator<Item = &CertificationArtifactRef> {
+        self.checks
+            .assessments()
+            .into_iter()
+            .chain(self.workflows.values())
+            .flat_map(|assessment| assessment.evidence().iter())
     }
 
     /// Derives a fail-closed evidence disposition without assigning a certification class.

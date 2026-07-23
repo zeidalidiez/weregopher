@@ -19,6 +19,7 @@ use weregopher_domain::{
 };
 
 mod bundle;
+mod certification_artifacts;
 mod emission;
 #[cfg(windows)]
 mod execution_authorization;
@@ -33,6 +34,12 @@ mod supervision;
 pub use bundle::{
     EmittedTransformArtifactBundle, TransformBundleError, TransformBundleLimits,
     assemble_transform_artifacts,
+};
+pub use certification_artifacts::{
+    CertificationArtifactVerificationError, CertificationArtifactVerificationLimits,
+    MAX_CERTIFICATION_ARTIFACT_BYTES, MAX_CERTIFICATION_ARTIFACT_REFERENCES,
+    MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES, VerifiedCertificationArtifacts,
+    verify_certification_artifacts,
 };
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,

@@ -6604,12 +6604,21 @@ deserialization, and compact format-v1 bytes plus their SHA-256 identity are fro
 vector. Aggregate fields identify external canonical descriptors; a later trusted verifier must
 retrieve, validate, and authenticate those descriptor bytes before relying on them.
 
-Local class assignment and local-only receipt publication do not validate artifact semantics,
-authenticate a runner, authorize transformation or execution, or establish durable registry,
-signature, or remote-revocation trust. Concrete certification probes, semantic report parsing,
-runner authentication and run attestation, authenticated registry publication, durable policy/receipt
-persistence, and the disposable-state runner remain separate layers. Parsing or hashing a runner
-identity does not prove that a run occurred, establish freshness, or bind any report to that runner.
+The generation-aware local runner policy described by
+[ADR 0034](../adr/0034-generation-aware-local-certification-runner-policy.md) may approve one exact
+canonical runner identity under trusted in-process configuration. The opaque approval consumes and
+retains the identity document, records its policy revision and generation, and fails closed after
+replacement, revocation, store loss, or synchronization failure. This currentness check is
+point-in-time; any later attestation or effect must retain the runner-policy guard through its own
+commit point.
+
+Local class assignment, local-only receipt publication, and local runner-identity approval do not
+validate artifact semantics, authenticate external component descriptors, prove a run, establish
+freshness, authorize transformation or execution, or establish durable registry, signature, or
+remote-revocation trust. Concrete certification probes, component-descriptor verification, semantic
+report parsing, per-run attestation, authenticated registry publication, durable policy/receipt
+persistence, and the disposable-state runner remain separate layers. Parsing, hashing, or locally
+approving a runner identity does not bind any report to that runner.
 
 ## 35.6 Stable adapter gates
 

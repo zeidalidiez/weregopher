@@ -4,6 +4,10 @@
 - Date: 2026-07-23
 - Extends: [ADR 0028](0028-bounded-non-authorizing-certification-evidence.md), [ADR 0029](0029-canonical-certification-profiles.md), and [ADR 0030](0030-bounded-certification-artifact-verification.md)
 
+> Extended by [ADR 0034](0034-generation-aware-local-certification-runner-policy.md): exact local
+> runner-identity approval now exists, while component verification and per-run attestation remain
+> separate later boundaries.
+
 ## Context
 
 Canonical profiles, structurally matching evidence, and exact referenced artifact bytes are descriptive inputs. None authenticates who approved the profile or evidence, establishes target applicability, or converts a producer-declared profile class into the trusted `CertificationClass` vocabulary.

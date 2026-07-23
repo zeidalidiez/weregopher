@@ -2,7 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-07-23
-- Extends: [ADR 0028](0028-bounded-non-authorizing-certification-evidence.md), [ADR 0031](0031-generation-aware-local-certification-policy.md)
+- Extends: [ADR 0028](0028-bounded-non-authorizing-certification-evidence.md), [ADR 0031](0031-generation-aware-local-certification-policy.md), and [ADR 0032](0032-atomic-local-certification-publication.md)
+
+> Extended by [ADR 0034](0034-generation-aware-local-certification-runner-policy.md): trusted local
+> configuration can now approve one exact manifest identity under generation-aware replacement and
+> revocation without treating that approval as component authentication or run attestation.
 
 ## Context
 

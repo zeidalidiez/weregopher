@@ -9,7 +9,9 @@
 //! directory identities for a later consumer. A generation-aware local policy may conditionally
 //! assign a trusted certification class to exact verified certification artifacts, and an atomic
 //! bounded in-memory boundary can publish a local-only historical receipt while that policy remains
-//! current through commit. None of these boundaries authenticates adapter signatures, prevents
+//! current through commit. A separate generation-aware policy can approve one exact canonical
+//! certification-runner identity without proving a run or authenticating the external component
+//! descriptors it names. None of these boundaries authenticates adapter signatures, prevents
 //! unrestricted same-user mutation, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
@@ -26,6 +28,7 @@ mod bundle;
 mod certification_artifacts;
 mod certification_policy;
 mod certification_publication;
+mod certification_runner_policy;
 mod emission;
 #[cfg(windows)]
 mod execution_authorization;
@@ -57,6 +60,12 @@ pub use certification_publication::{
     LocalCertificationPublicationReceipt, LocalCertificationPublicationStore,
     MAX_LOCAL_CERTIFICATION_PUBLICATIONS, PreparedLocalCertificationPublication,
     prepare_local_certification_publication, publish_local_certification,
+};
+pub use certification_runner_policy::{
+    CertificationRunnerPolicyError, CertificationRunnerPolicyRevisionDigest,
+    CertificationRunnerPolicyRevocationDigest, LocalCertificationRunnerPolicy,
+    LocalCertificationRunnerPolicyStore, LocallyApprovedCertificationRunner,
+    approve_local_certification_runner,
 };
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,

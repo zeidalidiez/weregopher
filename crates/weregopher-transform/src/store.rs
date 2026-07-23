@@ -290,8 +290,9 @@ pub struct ManagedArtifactLease<'store> {
 #[cfg(windows)]
 #[must_use = "retain the executable capability until a higher-level authorizer consumes it"]
 pub struct ManagedArtifactExecutable<'lease, 'store> {
-    _lease: &'lease ManagedArtifactLease<'store>,
+    lease: &'lease ManagedArtifactLease<'store>,
     digest: Sha256Digest,
+    max_path_components: usize,
     _locked: LockedExecutable,
 }
 
@@ -301,6 +302,27 @@ impl ManagedArtifactExecutable<'_, '_> {
     #[must_use]
     pub const fn digest(&self) -> Sha256Digest {
         self.digest
+    }
+
+    /// Returns the exact managed manifest identity retained by the complete lease.
+    #[must_use]
+    pub const fn manifest_digest(&self) -> Sha256Digest {
+        self.lease.manifest_digest
+    }
+
+    /// Revalidates the retained managed root and identity-matches a fresh direct path lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MaterializationStoreError`] when the root, manifest membership, or exact blob
+    /// identity no longer matches this capability.
+    pub fn verify_current(&self) -> Result<(), MaterializationStoreError> {
+        self.lease.store.lease.verify_root_path()?;
+        let _current = self
+            .lease
+            .platform
+            .lock_executable(&self.digest, self.max_path_components)?;
+        self.lease.store.lease.verify_root_path()
     }
 }
 
@@ -389,8 +411,9 @@ impl<'store> ManagedArtifactLease<'store> {
         let locked = self.platform.lock_executable(digest, max_path_components)?;
         self.store.lease.verify_root_path()?;
         Ok(ManagedArtifactExecutable {
-            _lease: self,
+            lease: self,
             digest: *digest,
+            max_path_components,
             _locked: locked,
         })
     }

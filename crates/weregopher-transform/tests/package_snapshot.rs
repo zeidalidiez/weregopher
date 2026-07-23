@@ -489,6 +489,7 @@ fn snapshot_preserves_asar_native_module_and_executable_bytes()
             .sha256
     );
     assert_eq!(executable.normalized_path(), "helper.exe");
+    executable.verify_current_view()?;
     assert!(
         !format!("{executable:?}")
             .contains(&snapshot.unrestricted_physical_root().display().to_string())

@@ -482,6 +482,7 @@ fn assert_verified_managed_lease(
             .ok_or("leased manifest digest must have a path")?;
         let executable = lease.lock_executable(digest, 64)?;
         assert_eq!(executable.digest(), *digest);
+        executable.verify_current()?;
         assert!(!format!("{executable:?}").contains(&path.display().to_string()));
         assert_eq!(std::fs::read(path)?, *expected);
         assert!(std::fs::write(path, b"tamper while leased").is_err());

@@ -141,7 +141,7 @@ pub struct PackageSnapshotFileReader {
 #[cfg(windows)]
 #[must_use = "retain the executable capability until a higher-level authorizer consumes it"]
 pub struct PackageSnapshotExecutable<'lease, 'store> {
-    _lease: &'lease PackageSnapshotLease<'store>,
+    lease: &'lease PackageSnapshotLease<'store>,
     normalized_path: String,
     digest: Sha256Digest,
     _locked: LockedExecutable,
@@ -159,6 +159,22 @@ impl PackageSnapshotExecutable<'_, '_> {
     #[must_use]
     pub const fn digest(&self) -> Sha256Digest {
         self.digest
+    }
+
+    /// Returns the exact package-tree manifest identity retained by the complete lease.
+    #[must_use]
+    pub const fn package_tree_merkle(&self) -> Sha256Digest {
+        self.lease.package_tree_merkle
+    }
+
+    /// Revalidates the complete current manifest view while this executable remains locked.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError`] when the retained managed root, a declared file identity,
+    /// exact file bytes, directory identity, or visible membership no longer matches.
+    pub fn verify_current_view(&self) -> Result<(), PackageSnapshotError> {
+        self.lease.verify_current_view()
     }
 }
 
@@ -365,7 +381,7 @@ impl<'store> PackageSnapshotLease<'store> {
                 .lock_executable(&self.root, normalized_path, max_path_components)?;
         self.store.lease.verify_root_path()?;
         Ok(PackageSnapshotExecutable {
-            _lease: self,
+            lease: self,
             normalized_path: normalized_path.to_owned(),
             digest,
             _locked: locked,

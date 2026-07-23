@@ -1707,7 +1707,7 @@ artifact-source, executable, artifact-trust, and provenance identities. A manage
 equal the role-named executable digest. Hostile readers MUST enforce the contract's outer document
 byte ceiling before Serde allocation, and package locators MUST reject Windows-ambiguous names.
 Parsing and content-addressing either document remains non-authorizing. See
-[ADR-0023](../adr/0023-bounded-execution-target-and-resolution-contracts.md).
+[ADR-0026](../adr/0026-execution-contract-v2-and-pre-authorized-launch-plans.md).
 
 The initial Windows capability bridge binds a locked executable path back to the full-width file
 identity already retained by its package-snapshot or managed-manifest lease. Package resolution

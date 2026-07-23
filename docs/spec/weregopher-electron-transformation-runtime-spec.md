@@ -1725,10 +1725,22 @@ The resulting authorization capability MUST be opaque, non-cloneable, non-serial
 exact executable and its complete launch policy, and bind the issuing policy generation. Local and
 developer trust are the only implemented initial modes; developer mode MUST use disposable state.
 Registry and forensic modes MUST fail closed until their independent authentication and approval
-engines exist. Issuance is still not launch: a later one-shot consumer MUST hold policy currentness,
-repeat retained-view validation, establish containment, create suspended, assign, and resume in that
-order. See
+engines exist. Issuance is still not launch. The Windows one-shot consumer MUST hold the issuing
+policy read lock, repeat retained-view validation, create the kill-on-close Job, create the exact
+retained executable suspended, assign and verify Job membership, and only then resume the primary
+thread. It MUST consume the authorization by value, retain the complete containing-artifact lease in
+the returned process-tree owner, and fail before resume on every policy, posture, view, containment,
+creation, assignment, or verification error. The initial consumer MUST reject broker-mediated and
+OS-contained targets because its Job Object is not an enforcing security boundary. See
 [ADR-0024](../adr/0024-revocation-current-local-live-execution-authorization.md).
+
+The returned owner MUST preserve the authorization-context digest, target identity, exact Job
+limits, and issuing policy generation. A supervisor MUST be able to recheck revocation currentness
+and MUST terminate the complete Job tree before permitting further privileged effects after that
+check fails. The check surface does not itself provide continuous monitoring. Retained Windows
+directory handles still do not seal child namespaces, and this launch ordering MUST NOT be described
+as an OS sandbox or persistent package-tree immutability. See
+[ADR-0025](../adr/0025-atomic-authorization-consumption-and-job-owned-launch.md).
 
 Execution authorization, Job Object ownership, suspended process creation, process resume, runtime
 supervision, security posture, efficiency, and certification remain distinct decisions and evidence

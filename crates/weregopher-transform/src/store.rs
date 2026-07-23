@@ -293,7 +293,7 @@ pub struct ManagedArtifactExecutable<'lease, 'store> {
     lease: &'lease ManagedArtifactLease<'store>,
     digest: Sha256Digest,
     max_path_components: usize,
-    _locked: LockedExecutable,
+    locked: LockedExecutable,
 }
 
 #[cfg(windows)]
@@ -323,6 +323,15 @@ impl ManagedArtifactExecutable<'_, '_> {
             .platform
             .lock_executable(&self.digest, self.max_path_components)?;
         self.lease.store.lease.verify_root_path()
+    }
+}
+
+#[cfg(windows)]
+impl<'lease, 'store> ManagedArtifactExecutable<'lease, 'store> {
+    pub(crate) fn into_launch_parts(
+        self,
+    ) -> (&'lease ManagedArtifactLease<'store>, LockedExecutable) {
+        (self.lease, self.locked)
     }
 }
 
@@ -414,7 +423,7 @@ impl<'store> ManagedArtifactLease<'store> {
             lease: self,
             digest: *digest,
             max_path_components,
-            _locked: locked,
+            locked,
         })
     }
 }

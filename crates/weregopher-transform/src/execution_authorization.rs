@@ -6,8 +6,10 @@
 //! an executable from an untrusted path.
 
 use std::{
-    fmt,
+    ffi::OsString,
+    fmt, io,
     sync::{Arc, RwLock, Weak},
+    time::Duration,
 };
 
 use sha2::{Digest as _, Sha256};
@@ -15,12 +17,23 @@ use thiserror::Error;
 use weregopher_domain::{
     AdapterId, AnalysisDisposition, ApplicationFamilyId, CompatibilityAnalysis,
     EffectiveSecurityPosture, ExecutionArgument, ExecutionArtifactLocator, ExecutionArtifactSource,
+    ExecutionConsolePolicy, ExecutionEnvironmentPolicy, ExecutionInheritedHandlePolicy,
     ExecutionLaunchPolicy, ExecutionResolutionEvidence, ExecutionResourceLimits,
-    ExecutionStateMode, ExecutionTargetContract, ExecutionTargetId, GeneratedExecutionOverlay,
+    ExecutionStateMode, ExecutionTargetContract, ExecutionTargetId,
+    ExecutionWorkingDirectoryPolicy, GeneratedExecutionOverlay, MAX_EXECUTION_ARGUMENTS,
     Sha256Digest, StructurallyValidatedExecutionOverlay, TrustMode,
 };
+use weregopher_windows::{
+    JobLimits, KillOnCloseJob, LockedExecutable, OwnedJobProcess, ProcessLaunchLimits,
+};
 
-use crate::{ManagedArtifactExecutable, PackageSnapshotExecutable};
+use crate::{
+    ManagedArtifactExecutable, ManagedArtifactLease, PackageSnapshotExecutable,
+    PackageSnapshotLease,
+};
+
+const WINDOWS_MAX_COMMAND_LINE_UNITS: usize = 32_767;
+const WINDOWS_MAX_SINGLE_VALUE_UNITS: usize = 32_766;
 
 /// Role-named immutable identities authenticated by one local execution policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -361,6 +374,45 @@ impl RetainedExecutionArtifact<'_, '_> {
     }
 }
 
+enum RetainedExecutionLease<'lease, 'store> {
+    PackageSnapshot {
+        _lease: &'lease PackageSnapshotLease<'store>,
+    },
+    ManagedArtifact {
+        _lease: &'lease ManagedArtifactLease<'store>,
+    },
+}
+
+impl RetainedExecutionLease<'_, '_> {
+    const fn source(&self) -> ExecutionArtifactSource {
+        match self {
+            Self::PackageSnapshot { .. } => ExecutionArtifactSource::PackageSnapshot,
+            Self::ManagedArtifact { .. } => ExecutionArtifactSource::ManagedArtifact,
+        }
+    }
+}
+
+impl<'lease, 'store> RetainedExecutionArtifact<'lease, 'store> {
+    fn into_launch_parts(self) -> (RetainedExecutionLease<'lease, 'store>, LockedExecutable) {
+        match self {
+            Self::PackageSnapshot(executable) => {
+                let (lease, locked) = executable.into_launch_parts();
+                (
+                    RetainedExecutionLease::PackageSnapshot { _lease: lease },
+                    locked,
+                )
+            }
+            Self::ManagedArtifact(executable) => {
+                let (lease, locked) = executable.into_launch_parts();
+                (
+                    RetainedExecutionLease::ManagedArtifact { _lease: lease },
+                    locked,
+                )
+            }
+        }
+    }
+}
+
 /// Named inputs required for one live authorization decision.
 pub struct ExecutionAuthorizationRequest<'input, 'overlay, 'authority, 'lease, 'store> {
     /// Structural proof over the exact generated overlay and authority object.
@@ -489,14 +541,280 @@ impl AuthorizedExecution<'_, '_> {
         let state = store
             .read()
             .map_err(|_| ExecutionAuthorizationError::PolicyStorePoisoned)?;
-        if state.revocation_evidence_digest.is_some() {
-            return Err(ExecutionAuthorizationError::PolicyRevoked);
-        }
-        if state.generation != self.policy_generation {
-            return Err(ExecutionAuthorizationError::PolicyChanged);
-        }
-        Ok(())
+        verify_policy_state(&state, self.policy_generation)
     }
+}
+
+fn verify_policy_state(
+    state: &ExecutionPolicyState,
+    expected_generation: u64,
+) -> Result<(), ExecutionAuthorizationError> {
+    if state.revocation_evidence_digest.is_some() {
+        return Err(ExecutionAuthorizationError::PolicyRevoked);
+    }
+    if state.generation != expected_generation {
+        return Err(ExecutionAuthorizationError::PolicyChanged);
+    }
+    Ok(())
+}
+
+/// One resumed process tree created by consuming an exact live authorization.
+///
+/// The complete containing-artifact lease remains borrowed for this owner's lifetime. Dropping the
+/// owner closes the kill-on-close Job Object and terminates any surviving process tree.
+#[must_use = "dropping the owner terminates its Job-contained process tree"]
+pub struct SupervisedExecution<'lease, 'store> {
+    process: OwnedJobProcess,
+    target_id: ExecutionTargetId,
+    trust_mode: TrustMode,
+    launch_policy: ExecutionLaunchPolicy,
+    authorization_context_digest: Sha256Digest,
+    retained_source: RetainedExecutionLease<'lease, 'store>,
+    policy_store: Weak<RwLock<ExecutionPolicyState>>,
+    policy_generation: u64,
+}
+
+impl fmt::Debug for SupervisedExecution<'_, '_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SupervisedExecution")
+            .field("process_id", &self.process.id())
+            .field("target_id", &self.target_id)
+            .field("trust_mode", &self.trust_mode)
+            .field("argument_count", &self.launch_policy.arguments().len())
+            .field(
+                "authorization_context_digest",
+                &self.authorization_context_digest,
+            )
+            .field("artifact_source", &self.retained_source.source())
+            .field("job_limits", &self.process.job_limits())
+            .finish_non_exhaustive()
+    }
+}
+
+impl SupervisedExecution<'_, '_> {
+    /// Returns the Windows process identifier captured during suspended creation.
+    #[must_use]
+    pub const fn id(&self) -> u32 {
+        self.process.id()
+    }
+
+    /// Returns the exact target identifier whose authorization was consumed.
+    #[must_use]
+    pub const fn target_id(&self) -> &ExecutionTargetId {
+        &self.target_id
+    }
+
+    /// Returns the authenticated trust mode under which this process was authorized.
+    #[must_use]
+    pub const fn trust_mode(&self) -> TrustMode {
+        self.trust_mode
+    }
+
+    /// Returns the complete exact launch policy consumed to create this process.
+    #[must_use]
+    pub const fn launch_policy(&self) -> &ExecutionLaunchPolicy {
+        &self.launch_policy
+    }
+
+    /// Returns the decision identity bound to this process tree.
+    #[must_use]
+    pub const fn authorization_context_digest(&self) -> Sha256Digest {
+        self.authorization_context_digest
+    }
+
+    /// Returns the exact limits enforced by the owned Job Object.
+    #[must_use]
+    pub const fn job_limits(&self) -> JobLimits {
+        self.process.job_limits()
+    }
+
+    /// Rechecks whether the trust and revocation root still permits this running process tree.
+    ///
+    /// This method does not terminate the process itself. A supervisor must treat every error as a
+    /// revocation signal and call [`Self::terminate`] before permitting further privileged effects.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed policy error after revocation, replacement, store loss, or lock poison.
+    pub fn verify_current_policy(&self) -> Result<(), ExecutionAuthorizationError> {
+        let store = self
+            .policy_store
+            .upgrade()
+            .ok_or(ExecutionAuthorizationError::PolicyStoreUnavailable)?;
+        let state = store
+            .read()
+            .map_err(|_| ExecutionAuthorizationError::PolicyStorePoisoned)?;
+        verify_policy_state(&state, self.policy_generation)
+    }
+
+    /// Reports whether Windows still associates the primary process with its owned Job Object.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error when membership cannot be queried.
+    pub fn is_in_job(&self) -> io::Result<bool> {
+        self.process.is_in_job()
+    }
+
+    /// Waits for at most `timeout` and returns the primary-process exit code when available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error when the duration exceeds the Windows timeout range, or the
+    /// operating-system error from waiting or querying the process.
+    pub fn wait_for(&self, timeout: Duration) -> io::Result<Option<u32>> {
+        self.process.wait_for(timeout)
+    }
+
+    /// Terminates the complete owned process tree with the supplied exit code.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error when Windows cannot terminate the Job Object.
+    pub fn terminate(&self, exit_code: u32) -> io::Result<()> {
+        self.process.terminate(exit_code)
+    }
+}
+
+/// Consumes one current authorization into atomically Job-owned suspended process creation.
+///
+/// The issuing policy generation is held under a read lock from the final currentness check through
+/// retained-view verification, Job creation, process creation, membership verification, and primary
+/// thread resume. Format-v1 empty-environment/no-inheritance/no-console/current-directory semantics
+/// are implemented by the Windows launch primitive. This initial consumer accepts only
+/// [`EffectiveSecurityPosture::VendorEquivalentFullTrust`]; brokered or OS-contained targets require
+/// a different enforcing launch boundary.
+///
+/// The retained executable is moved directly into process creation and is never reopened from an
+/// untrusted path. Package directory retention still does not prevent a same-user process from
+/// inserting a new child after manifest verification and is not an OS sandbox claim.
+///
+/// # Errors
+///
+/// Returns [`SupervisedExecutionError`] without resuming a process when policy, current-view,
+/// security-posture, resource-limit, Job creation, or suspended-launch validation fails.
+pub fn launch_authorized_execution<'lease, 'store>(
+    authorization: AuthorizedExecution<'lease, 'store>,
+) -> Result<SupervisedExecution<'lease, 'store>, SupervisedExecutionError> {
+    let prepared = prepare_authorized_launch(&authorization)?;
+    let policy_store = authorization
+        .policy_store
+        .upgrade()
+        .ok_or(ExecutionAuthorizationError::PolicyStoreUnavailable)?;
+    let policy_state = policy_store
+        .read()
+        .map_err(|_| ExecutionAuthorizationError::PolicyStorePoisoned)?;
+    verify_policy_state(&policy_state, authorization.policy_generation)?;
+    authorization.retained_artifact.verify_current()?;
+
+    let job = KillOnCloseJob::create(prepared.job_limits)
+        .map_err(SupervisedExecutionError::JobCreation)?;
+    let AuthorizedExecution {
+        target_id,
+        trust_mode,
+        launch_policy,
+        authorization_context_digest,
+        policy_store,
+        policy_generation,
+        retained_artifact,
+    } = authorization;
+    let (retained_source, executable) = retained_artifact.into_launch_parts();
+    let process = job
+        .launch(executable, &prepared.arguments, prepared.process_limits)
+        .map_err(SupervisedExecutionError::ProcessLaunch)?;
+    drop(policy_state);
+
+    Ok(SupervisedExecution {
+        process,
+        target_id,
+        trust_mode,
+        launch_policy,
+        authorization_context_digest,
+        retained_source,
+        policy_store,
+        policy_generation,
+    })
+}
+
+struct PreparedLaunch {
+    arguments: Vec<OsString>,
+    job_limits: JobLimits,
+    process_limits: ProcessLaunchLimits,
+}
+
+fn prepare_authorized_launch(
+    authorization: &AuthorizedExecution<'_, '_>,
+) -> Result<PreparedLaunch, SupervisedExecutionError> {
+    if authorization.security_posture() != EffectiveSecurityPosture::VendorEquivalentFullTrust {
+        return Err(SupervisedExecutionError::UnsupportedSecurityPosture);
+    }
+    let launch_policy = authorization.launch_policy();
+    if launch_policy.environment() != ExecutionEnvironmentPolicy::Empty
+        || launch_policy.inherited_handles() != ExecutionInheritedHandlePolicy::None
+        || launch_policy.console() != ExecutionConsolePolicy::None
+        || launch_policy.working_directory() != ExecutionWorkingDirectoryPolicy::ExecutableParent
+    {
+        return Err(SupervisedExecutionError::UnsupportedLaunchSemantics);
+    }
+    let mut arguments = Vec::new();
+    arguments
+        .try_reserve_exact(authorization.arguments().len())
+        .map_err(|_| SupervisedExecutionError::ArgumentAllocationFailed)?;
+    arguments.extend(
+        authorization
+            .arguments()
+            .iter()
+            .map(|argument| OsString::from(argument.as_str())),
+    );
+
+    let resources = authorization.resource_limits();
+    let job_limits = JobLimits::new(
+        resources.active_process_limit(),
+        resources.process_memory_limit_bytes(),
+        resources.job_memory_limit_bytes(),
+    )
+    .map_err(SupervisedExecutionError::InvalidJobLimits)?;
+    let process_limits = ProcessLaunchLimits::new(
+        MAX_EXECUTION_ARGUMENTS,
+        WINDOWS_MAX_SINGLE_VALUE_UNITS,
+        WINDOWS_MAX_COMMAND_LINE_UNITS,
+    )
+    .map_err(SupervisedExecutionError::InvalidProcessLimits)?;
+    Ok(PreparedLaunch {
+        arguments,
+        job_limits,
+        process_limits,
+    })
+}
+
+/// Failure to consume a live authorization into atomically contained process creation.
+#[derive(Debug, Error)]
+pub enum SupervisedExecutionError {
+    /// The authorization is no longer current or its retained view failed final verification.
+    #[error(transparent)]
+    Authorization(#[from] ExecutionAuthorizationError),
+    /// The current primitive cannot honestly implement a brokered or OS-contained posture.
+    #[error("authorized security posture requires an unavailable enforcing launch boundary")]
+    UnsupportedSecurityPosture,
+    /// The target requests launch behavior not implemented by the current Windows primitive.
+    #[error("authorized launch semantics require an unavailable enforcing launch boundary")]
+    UnsupportedLaunchSemantics,
+    /// Bounded argument storage could not be allocated.
+    #[error("authorized launch argument allocation failed")]
+    ArgumentAllocationFailed,
+    /// Exact target resource limits cannot be represented by the Windows Job API.
+    #[error("authorized Job Object limits are invalid")]
+    InvalidJobLimits(#[source] io::Error),
+    /// The fixed process-launch bounds cannot be represented by the Windows launch API.
+    #[error("authorized process launch limits are invalid")]
+    InvalidProcessLimits(#[source] io::Error),
+    /// Windows could not create or configure the required kill-on-close Job Object.
+    #[error("authorized Job Object creation failed")]
+    JobCreation(#[source] io::Error),
+    /// Suspended process creation, atomic Job assignment, verification, or resume failed.
+    #[error("authorized suspended process launch failed")]
+    ProcessLaunch(#[source] io::Error),
 }
 
 /// Authenticates and resolves one exact retained executable into a conditional authorization.

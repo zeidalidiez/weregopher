@@ -41,7 +41,8 @@ pub use execution_authorization::{
     AuthorizedExecution, ExecutionAuthorityPins, ExecutionAuthorizationError,
     ExecutionAuthorizationLimits, ExecutionAuthorizationRequest, ExecutionContextPins,
     ExecutionPolicyEvidence, ExecutionTargetPins, LocalExecutionPolicy, LocalExecutionPolicyStore,
-    RetainedExecutionArtifact, authorize_execution,
+    RetainedExecutionArtifact, SupervisedExecution, SupervisedExecutionError, authorize_execution,
+    launch_authorized_execution,
 };
 pub use materialization::{
     MaterializationManifest, MaterializationManifestError, MaterializationManifestLimits,

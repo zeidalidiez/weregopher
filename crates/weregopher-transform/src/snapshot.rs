@@ -144,7 +144,7 @@ pub struct PackageSnapshotExecutable<'lease, 'store> {
     lease: &'lease PackageSnapshotLease<'store>,
     normalized_path: String,
     digest: Sha256Digest,
-    _locked: LockedExecutable,
+    locked: LockedExecutable,
 }
 
 #[cfg(windows)]
@@ -175,6 +175,15 @@ impl PackageSnapshotExecutable<'_, '_> {
     /// exact file bytes, directory identity, or visible membership no longer matches.
     pub fn verify_current_view(&self) -> Result<(), PackageSnapshotError> {
         self.lease.verify_current_view()
+    }
+}
+
+#[cfg(windows)]
+impl<'lease, 'store> PackageSnapshotExecutable<'lease, 'store> {
+    pub(crate) fn into_launch_parts(
+        self,
+    ) -> (&'lease PackageSnapshotLease<'store>, LockedExecutable) {
+        (self.lease, self.locked)
     }
 }
 
@@ -384,7 +393,7 @@ impl<'store> PackageSnapshotLease<'store> {
             lease: self,
             normalized_path: normalized_path.to_owned(),
             digest,
-            _locked: locked,
+            locked,
         })
     }
 }

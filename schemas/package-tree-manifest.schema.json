@@ -91,7 +91,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Canonical immutable evidence assembled from pre-observed package records.",
+  "description": "Canonical package-tree identity assembled from pre-observed package records.\n\nThe manifest binds its ordered records and Merkle root, but does not by itself\nprove that acquisition used an immutable filesystem snapshot. That provenance\nremains a separate property of the producer.",
   "properties": {
     "files": {
       "description": "Canonically sorted included file/link records.",

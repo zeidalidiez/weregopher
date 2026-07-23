@@ -7,8 +7,9 @@ use thiserror::Error;
 use weregopher_domain::Sha256Digest;
 
 use crate::{
-    MAX_NORMALIZED_PACKAGE_PATH_CHARS, MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES,
-    PACKAGE_TREE_FORMAT_VERSION, PackageFileKind, PackageFileRecord, PackageTreeManifest,
+    MAX_NORMALIZED_PACKAGE_PATH_CHARS, MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS,
+    MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES, PACKAGE_TREE_FORMAT_VERSION,
+    PackageFileKind, PackageFileRecord, PackageTreeManifest,
 };
 
 const FILE_HASH_DOMAIN: &[u8] = b"weregopher.package.file.v1\0";
@@ -116,13 +117,14 @@ fn reject_case_collision(
 
 pub(crate) fn validate_normalized_path(path: &str) -> Result<(), ManifestError> {
     let invalid_length = path.chars().count() > MAX_NORMALIZED_PACKAGE_PATH_CHARS;
+    let invalid_depth = path.split('/').count() > MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS;
     let invalid_character = path
         .chars()
         .any(|character| character.is_control() || matches!(character, '\\' | ':'));
     let invalid_segment = path
         .split('/')
         .any(|component| component.is_empty() || matches!(component, "." | ".."));
-    if invalid_length || invalid_character || invalid_segment {
+    if invalid_length || invalid_depth || invalid_character || invalid_segment {
         Err(ManifestError::InvalidPath {
             path: path.to_owned(),
         })

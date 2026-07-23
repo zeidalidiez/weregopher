@@ -934,6 +934,7 @@ dependencies = [
  "thiserror",
  "uuid",
  "weregopher-domain",
+ "weregopher-fingerprint",
  "weregopher-windows",
  "windows-sys",
 ]

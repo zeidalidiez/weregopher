@@ -14,6 +14,8 @@ pub const PACKAGE_TREE_FORMAT_VERSION: u16 = 1;
 
 /// Maximum Unicode scalar count accepted in one normalized package path.
 pub const MAX_NORMALIZED_PACKAGE_PATH_CHARS: usize = 32_767;
+/// Maximum root-relative components accepted in one normalized package path.
+pub const MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS: usize = 256;
 
 /// Maximum file/link records retained by one package-tree manifest.
 pub const MAX_PACKAGE_FILE_RECORDS: usize = 65_536;

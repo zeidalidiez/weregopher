@@ -1139,19 +1139,22 @@ Live mode MUST NOT:
 
 ## 15.2 Snapshot mode
 
-Snapshot mode creates a content-addressed immutable package representation:
+Snapshot mode creates a content-addressed package representation with an exact manifest-scoped
+identity:
 
 ```text
 store/
-└── sha256-<package-tree-merkle>/
-    ├── package.manifest.cbor
-    ├── package.metadata.json
-    ├── app.asar
-    ├── app.asar.unpacked/
-    ├── resources/
-    ├── helpers/
-    ├── native/
-    └── evidence/
+├── sha256/
+│   └── <fanout>/<content-digest-tail>
+└── package-views/
+    └── sha256-<package-tree-merkle>/
+        ├── tree/
+        │   ├── app.asar
+        │   ├── app.asar.unpacked/
+        │   ├── resources/
+        │   ├── helpers/
+        │   └── native/
+        └── evidence/              # future metadata/evidence namespace
 ```
 
 Snapshot implementation SHOULD:
@@ -1163,6 +1166,14 @@ Snapshot implementation SHOULD:
 - preserve timestamps only as evidence, not identity;
 - store source metadata separately from package bytes;
 - support garbage collection based on leases, pins, and retention policy.
+
+The physical `tree/` directory is not itself a same-user sandbox. A snapshot lease MUST verify exact
+file bytes, represented identities, and complete manifest membership before use, MUST stay alive for
+the complete operation, and SHOULD repeat verification at the closest available pre-use boundary.
+The runtime MUST NOT infer execution authority merely from the existence of a digest-named directory.
+Manifest-scoped VFS operations are the stronger logical namespace; unrestricted same-user processes
+remain outside the initial snapshot threat boundary unless an independently tested OS sandbox says
+otherwise.
 
 ## 15.3 Auto mode
 

@@ -8,8 +8,8 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES, ManifestError, ObservationError,
-    PackageTreeManifest,
+    MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS, MAX_PACKAGE_FILE_RECORDS,
+    MAX_PACKAGE_RECORD_PATH_BYTES, ManifestError, ObservationError, PackageTreeManifest,
 };
 
 #[cfg(windows)]
@@ -18,9 +18,9 @@ use crate::PackageFileObservation;
 /// Hard ceiling for directory leases retained by one package-tree observation.
 pub const MAX_PACKAGE_TREE_DIRECTORIES: usize = MAX_PACKAGE_FILE_RECORDS;
 /// Hard ceiling for canonical path components below one package root.
-pub const MAX_PACKAGE_TREE_DEPTH: usize = 256;
+pub const MAX_PACKAGE_TREE_DEPTH: usize = MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS;
 
-/// Explicit resource limits for one complete package-tree observation.
+/// Explicit resource limits for one bounded live package-tree observation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PackageTreeObservationLimits {
     files: usize,

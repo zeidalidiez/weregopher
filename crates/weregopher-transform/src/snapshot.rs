@@ -1,0 +1,597 @@
+//! Content-addressed package snapshots composed outside vendor installations.
+//!
+//! A lease revalidates exact bytes, identities, and complete manifest membership. It does not turn
+//! ordinary Windows directories into an OS sandbox or prevent an unrestricted same-user process
+//! from adding a child after validation.
+
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
+
+#[cfg(windows)]
+use std::collections::BTreeSet;
+
+use thiserror::Error;
+use weregopher_domain::Sha256Digest;
+use weregopher_fingerprint::{
+    PackageTreeManifest, PackageTreeObservation, PackageTreeObservationError,
+};
+
+#[cfg(windows)]
+use weregopher_fingerprint::{MAX_PACKAGE_RECORD_PATH_BYTES, PackageFileKind};
+
+use crate::{ManagedArtifactStore, MaterializationStoreError};
+
+/// Independent bounds for publishing one observed package into an immutable managed view.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PackageSnapshotWriteLimits {
+    files: usize,
+    directories: usize,
+    file_bytes: u64,
+    total_bytes: u64,
+    temp_attempts: usize,
+}
+
+impl PackageSnapshotWriteLimits {
+    /// Constructs nonzero file, directory, per-file, aggregate-byte, and temporary-name limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError::InvalidLimits`] when any limit is zero.
+    pub const fn new(
+        max_files: usize,
+        max_directories: usize,
+        max_file_bytes: u64,
+        max_total_bytes: u64,
+        max_temp_attempts: usize,
+    ) -> Result<Self, PackageSnapshotError> {
+        if max_files == 0
+            || max_directories == 0
+            || max_file_bytes == 0
+            || max_total_bytes == 0
+            || max_temp_attempts == 0
+        {
+            Err(PackageSnapshotError::InvalidLimits)
+        } else {
+            Ok(Self {
+                files: max_files,
+                directories: max_directories,
+                file_bytes: max_file_bytes,
+                total_bytes: max_total_bytes,
+                temp_attempts: max_temp_attempts,
+            })
+        }
+    }
+}
+
+/// Independent bounds for reopening one already published package view.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PackageSnapshotLeaseLimits {
+    files: usize,
+    directories: usize,
+    file_bytes: u64,
+    total_bytes: u64,
+}
+
+impl PackageSnapshotLeaseLimits {
+    /// Constructs nonzero file, directory, per-file, and aggregate-byte limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError::InvalidLimits`] when any limit is zero.
+    pub const fn new(
+        max_files: usize,
+        max_directories: usize,
+        max_file_bytes: u64,
+        max_total_bytes: u64,
+    ) -> Result<Self, PackageSnapshotError> {
+        if max_files == 0 || max_directories == 0 || max_file_bytes == 0 || max_total_bytes == 0 {
+            Err(PackageSnapshotError::InvalidLimits)
+        } else {
+            Ok(Self {
+                files: max_files,
+                directories: max_directories,
+                file_bytes: max_file_bytes,
+                total_bytes: max_total_bytes,
+            })
+        }
+    }
+}
+
+/// A reverified package snapshot whose represented directories and files remain identity-locked.
+#[must_use = "keep the snapshot lease alive while its physical view path is in use"]
+pub struct PackageSnapshotLease<'store> {
+    store: &'store ManagedArtifactStore,
+    root: PathBuf,
+    package_tree_merkle: Sha256Digest,
+    file_count: usize,
+    directory_count: usize,
+    total_file_bytes: u64,
+    created_blobs: usize,
+    reused_blobs: usize,
+    created_links: usize,
+    reused_links: usize,
+    #[cfg(windows)]
+    platform: windows::WindowsPackageSnapshotLease,
+}
+
+impl fmt::Debug for PackageSnapshotLease<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PackageSnapshotLease")
+            .field("package_tree_merkle", &self.package_tree_merkle)
+            .field("file_count", &self.file_count)
+            .field("directory_count", &self.directory_count)
+            .field("total_file_bytes", &self.total_file_bytes)
+            .field("created_blobs", &self.created_blobs)
+            .field("reused_blobs", &self.reused_blobs)
+            .field("created_links", &self.created_links)
+            .field("reused_links", &self.reused_links)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PackageSnapshotLease<'_> {
+    /// Returns the exact package-tree identity represented by this view.
+    #[must_use]
+    pub const fn package_tree_merkle(&self) -> &Sha256Digest {
+        &self.package_tree_merkle
+    }
+
+    /// Returns the retained physical package-view root.
+    ///
+    /// The root contains only manifest members when the lease is created and whenever
+    /// [`Self::verify_current_view`] succeeds. The path is not an authorization capability or a
+    /// package-wide mutation lock against unrestricted same-user processes.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Revalidates retained identities, exact file bytes, and complete directory membership.
+    ///
+    /// Ordinary Windows directory handles do not prevent another same-user process from adding a
+    /// child beneath the view. Consumers should call this immediately before using the physical
+    /// root and keep the lease alive for the complete operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError`] when the managed root or any retained view identity,
+    /// content digest, entry kind, or complete membership no longer matches this lease.
+    pub fn verify_current_view(&self) -> Result<(), PackageSnapshotError> {
+        #[cfg(windows)]
+        {
+            self.store.lease.verify_root_path()?;
+            self.platform.verify_current(&self.root)?;
+            self.store.lease.verify_root_path()?;
+            Ok(())
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _configured_store_root = self.store.root();
+            Err(PackageSnapshotError::UnsupportedPlatform)
+        }
+    }
+
+    /// Returns the number of retained package files.
+    #[must_use]
+    pub const fn file_count(&self) -> usize {
+        self.file_count
+    }
+
+    /// Returns the number of retained directories, including the view root.
+    #[must_use]
+    pub const fn directory_count(&self) -> usize {
+        self.directory_count
+    }
+
+    /// Returns the logical aggregate package-file bytes.
+    #[must_use]
+    pub const fn total_file_bytes(&self) -> u64 {
+        self.total_file_bytes
+    }
+
+    /// Returns how many package content blobs this invocation created.
+    #[must_use]
+    pub const fn created_blobs(&self) -> usize {
+        self.created_blobs
+    }
+
+    /// Returns how many package content blobs this invocation reverified and reused.
+    #[must_use]
+    pub const fn reused_blobs(&self) -> usize {
+        self.reused_blobs
+    }
+
+    /// Returns how many package-tree hard links this invocation created.
+    #[must_use]
+    pub const fn created_links(&self) -> usize {
+        self.created_links
+    }
+
+    /// Returns how many package-tree hard links this invocation reverified and reused.
+    #[must_use]
+    pub const fn reused_links(&self) -> usize {
+        self.reused_links
+    }
+}
+
+impl ManagedArtifactStore {
+    /// Publishes an observed package into a content-addressed view and returns a retained lease.
+    ///
+    /// Every source file is addressed only through the observation's bounded exact-file reader.
+    /// Managed content blobs are copied or independently reverified before the package tree is
+    /// composed from same-store hard links. The source observation is reverified after publication.
+    /// No vendor path is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError`] when the source root does not match this store's configured
+    /// vendor root, limits fail, source or managed bytes change, paths are unsafe, publication fails,
+    /// or the completed tree cannot be independently leased.
+    pub fn snapshot_package<'store>(
+        &'store self,
+        package: &PackageTreeObservation,
+        limits: PackageSnapshotWriteLimits,
+    ) -> Result<PackageSnapshotLease<'store>, PackageSnapshotError> {
+        #[cfg(windows)]
+        {
+            if !package.has_source_root(self.vendor_root()) {
+                return Err(PackageSnapshotError::SourceRootMismatch);
+            }
+            let validated = validate_manifest(
+                package.manifest(),
+                limits.files,
+                limits.directories,
+                limits.file_bytes,
+                limits.total_bytes,
+            )?;
+            package.verify_current_tree()?;
+            windows::snapshot(self, package, limits, &validated)
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = (package, limits);
+            Err(PackageSnapshotError::UnsupportedPlatform)
+        }
+    }
+
+    /// Reopens and revalidates an existing package snapshot without consulting the vendor tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PackageSnapshotError`] when limits fail, the platform is unsupported, or any
+    /// expected directory or file is missing, unsafe, mutable, extra, or byte-inconsistent.
+    pub fn lease_package_snapshot<'store>(
+        &'store self,
+        manifest: &PackageTreeManifest,
+        limits: PackageSnapshotLeaseLimits,
+    ) -> Result<PackageSnapshotLease<'store>, PackageSnapshotError> {
+        #[cfg(windows)]
+        {
+            let validated = validate_manifest(
+                manifest,
+                limits.files,
+                limits.directories,
+                limits.file_bytes,
+                limits.total_bytes,
+            )?;
+            windows::lease_existing(self, manifest, &validated)
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = (manifest, limits);
+            Err(PackageSnapshotError::UnsupportedPlatform)
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+pub(super) struct ValidatedSnapshot {
+    directories: BTreeSet<String>,
+    directory_count: usize,
+    total_file_bytes: u64,
+}
+
+#[cfg(windows)]
+impl ValidatedSnapshot {
+    fn directory_count(&self) -> usize {
+        self.directory_count
+    }
+}
+
+#[cfg(windows)]
+fn validate_manifest(
+    manifest: &PackageTreeManifest,
+    max_files: usize,
+    max_directories: usize,
+    max_file_bytes: u64,
+    max_total_bytes: u64,
+) -> Result<ValidatedSnapshot, PackageSnapshotError> {
+    if manifest.files().len() > max_files {
+        return Err(PackageSnapshotError::FileLimitExceeded {
+            actual: manifest.files().len(),
+            max: max_files,
+        });
+    }
+    let mut directories = BTreeSet::new();
+    let mut directory_path_bytes = 0_usize;
+    let mut total_file_bytes = 0_u64;
+    for record in manifest.files() {
+        validate_windows_snapshot_path(&record.normalized_path)?;
+        if record.kind == PackageFileKind::SymbolicLink {
+            return Err(PackageSnapshotError::UnsupportedFileKind {
+                normalized_path: record.normalized_path.clone(),
+            });
+        }
+        if record.size > max_file_bytes {
+            return Err(PackageSnapshotError::FileTooLarge {
+                normalized_path: record.normalized_path.clone(),
+                actual_bytes: record.size,
+                max_bytes: max_file_bytes,
+            });
+        }
+        total_file_bytes = total_file_bytes
+            .checked_add(record.size)
+            .ok_or(PackageSnapshotError::TotalByteCountOverflow)?;
+        if total_file_bytes > max_total_bytes {
+            return Err(PackageSnapshotError::TotalBytesExceeded {
+                actual_bytes: total_file_bytes,
+                max_bytes: max_total_bytes,
+            });
+        }
+        let mut prefix = String::new();
+        prefix
+            .try_reserve_exact(record.normalized_path.len())
+            .map_err(|_| PackageSnapshotError::AllocationFailed {
+                resource: "snapshot directory prefix",
+            })?;
+        let component_count = record.normalized_path.split('/').count();
+        for component in record
+            .normalized_path
+            .split('/')
+            .take(component_count.saturating_sub(1))
+        {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(component);
+            if directories.contains(&prefix) {
+                continue;
+            }
+            let next_directory_count = directories
+                .len()
+                .checked_add(2)
+                .ok_or(PackageSnapshotError::DirectoryCountOverflow)?;
+            if next_directory_count > max_directories {
+                return Err(PackageSnapshotError::DirectoryLimitExceeded {
+                    actual: next_directory_count,
+                    max: max_directories,
+                });
+            }
+            directory_path_bytes = directory_path_bytes.checked_add(prefix.len()).ok_or(
+                PackageSnapshotError::DirectoryPathBytesExceeded {
+                    actual: usize::MAX,
+                    max: MAX_PACKAGE_RECORD_PATH_BYTES,
+                },
+            )?;
+            if directory_path_bytes > MAX_PACKAGE_RECORD_PATH_BYTES {
+                return Err(PackageSnapshotError::DirectoryPathBytesExceeded {
+                    actual: directory_path_bytes,
+                    max: MAX_PACKAGE_RECORD_PATH_BYTES,
+                });
+            }
+            let mut retained = String::new();
+            retained.try_reserve_exact(prefix.len()).map_err(|_| {
+                PackageSnapshotError::AllocationFailed {
+                    resource: "snapshot directory paths",
+                }
+            })?;
+            retained.push_str(&prefix);
+            directories.insert(retained);
+        }
+    }
+    let directory_count = directories
+        .len()
+        .checked_add(1)
+        .ok_or(PackageSnapshotError::DirectoryCountOverflow)?;
+    if directory_count > max_directories {
+        return Err(PackageSnapshotError::DirectoryLimitExceeded {
+            actual: directory_count,
+            max: max_directories,
+        });
+    }
+    Ok(ValidatedSnapshot {
+        directories,
+        directory_count,
+        total_file_bytes,
+    })
+}
+
+#[cfg(windows)]
+fn validate_windows_snapshot_path(normalized_path: &str) -> Result<(), PackageSnapshotError> {
+    for component in normalized_path.split('/') {
+        let stem = component
+            .split_once('.')
+            .map_or(component, |(stem, _extension)| stem)
+            .trim_end_matches([' ', '.']);
+        let uppercase = stem.to_ascii_uppercase();
+        let reserved = matches!(uppercase.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || uppercase.strip_prefix("COM").is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+            || uppercase.strip_prefix("LPT").is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            });
+        if component.ends_with([' ', '.']) || reserved {
+            return Err(PackageSnapshotError::UnsafeWindowsPath {
+                normalized_path: normalized_path.to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+mod windows;
+
+/// Failure publishing or leasing one managed package view.
+#[derive(Debug, Error)]
+pub enum PackageSnapshotError {
+    /// One or more caller-selected limits are zero.
+    #[error("package snapshot limits must be nonzero")]
+    InvalidLimits,
+    /// Package snapshots are not implemented on this platform.
+    #[error("package snapshots are currently supported only on Windows")]
+    UnsupportedPlatform,
+    /// The observed source root differs from the vendor root bound to the managed store.
+    #[error("package observation root does not match the managed store vendor root")]
+    SourceRootMismatch,
+    /// The package manifest exceeds the file-count limit.
+    #[error("package snapshot has {actual} files; limit is {max}")]
+    FileLimitExceeded {
+        /// Actual file count.
+        actual: usize,
+        /// Maximum permitted file count.
+        max: usize,
+    },
+    /// The package manifest exceeds the directory-count limit.
+    #[error("package snapshot has {actual} directories; limit is {max}")]
+    DirectoryLimitExceeded {
+        /// Actual directory count, including the root.
+        actual: usize,
+        /// Maximum permitted directory count.
+        max: usize,
+    },
+    /// A package file exceeds the per-file byte limit.
+    #[error("package file {normalized_path} has {actual_bytes} bytes; limit is {max_bytes}")]
+    FileTooLarge {
+        /// Canonical package-relative path.
+        normalized_path: String,
+        /// Observed bytes.
+        actual_bytes: u64,
+        /// Maximum permitted bytes.
+        max_bytes: u64,
+    },
+    /// Aggregate package bytes exceed the operation limit.
+    #[error("package snapshot has at least {actual_bytes} bytes; limit is {max_bytes}")]
+    TotalBytesExceeded {
+        /// Count when the limit was crossed.
+        actual_bytes: u64,
+        /// Maximum permitted aggregate bytes.
+        max_bytes: u64,
+    },
+    /// Package byte aggregation overflowed.
+    #[error("package snapshot byte count overflowed")]
+    TotalByteCountOverflow,
+    /// Implied directory counting overflowed.
+    #[error("package snapshot directory count overflowed")]
+    DirectoryCountOverflow,
+    /// Aggregate retained directory-path bytes exceed the canonical transport ceiling.
+    #[error("snapshot directory paths retain {actual} bytes; limit is {max}")]
+    DirectoryPathBytesExceeded {
+        /// Aggregate bytes retained when the limit was crossed.
+        actual: usize,
+        /// Maximum aggregate retained directory-path bytes.
+        max: usize,
+    },
+    /// Publication receipt counting overflowed.
+    #[error("package snapshot publication count overflowed")]
+    PublicationCountOverflow,
+    /// The current snapshot profile cannot reproduce this record kind.
+    #[error("unsupported package file kind at {normalized_path}")]
+    UnsupportedFileKind {
+        /// Canonical package-relative path.
+        normalized_path: String,
+    },
+    /// A canonical transport path is ambiguous under supported Windows path semantics.
+    #[error("package path is unsafe for a physical Windows snapshot: {normalized_path}")]
+    UnsafeWindowsPath {
+        /// Canonical package-relative path.
+        normalized_path: String,
+    },
+    /// A package file cannot be represented by the platform's I/O length type.
+    #[error("package file {normalized_path} is too large for platform I/O: {bytes} bytes")]
+    PlatformFileSizeUnsupported {
+        /// Canonical package-relative path.
+        normalized_path: String,
+        /// Declared file length.
+        bytes: u64,
+    },
+    /// A fixed managed content-addressed path could not be derived from its digest.
+    #[error("could not construct managed package-content path for {digest}")]
+    ContentPathConstructionFailed {
+        /// Digest whose fixed path could not be constructed.
+        digest: Sha256Digest,
+    },
+    /// Reading an identity-verified source file failed during snapshot publication.
+    #[error("could not read observed package source file {normalized_path}: {source}")]
+    SourceRead {
+        /// Canonical package-relative path.
+        normalized_path: String,
+        /// Underlying read failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Rehashed source bytes no longer match their observed digest.
+    #[error("observed package source bytes changed at {normalized_path}")]
+    SourceFileMismatch {
+        /// Canonical package-relative path.
+        normalized_path: String,
+    },
+    /// Reading or revalidating the observed source package failed.
+    #[error("package source observation failed")]
+    PackageSource(#[from] PackageTreeObservationError),
+    /// Managed content-addressed blob publication failed.
+    #[error("managed content publication failed")]
+    ManagedContent(#[from] MaterializationStoreError),
+    /// A Windows filesystem operation failed.
+    #[error("{operation} failed for {path}: {source}")]
+    Io {
+        /// Operation attempted.
+        operation: &'static str,
+        /// Affected managed path.
+        path: PathBuf,
+        /// Underlying I/O failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A managed view path encountered a reparse point.
+    #[error("managed package view contains a reparse point at {path}")]
+    ReparsePoint {
+        /// Affected path.
+        path: PathBuf,
+    },
+    /// A required managed view directory is not a direct directory.
+    #[error("managed package view path is not a directory: {path}")]
+    NotDirectory {
+        /// Affected path.
+        path: PathBuf,
+    },
+    /// A required managed view file is missing, unsafe, or byte-inconsistent.
+    #[error("managed package view file does not match its manifest: {normalized_path}")]
+    FileMismatch {
+        /// Canonical package-relative path.
+        normalized_path: String,
+    },
+    /// The managed package view contains missing or extra membership.
+    #[error("managed package view membership differs from its manifest")]
+    MembershipMismatch,
+    /// Bounded snapshot state could not be allocated.
+    #[error("could not allocate bounded package snapshot state for {resource}")]
+    AllocationFailed {
+        /// State being allocated.
+        resource: &'static str,
+    },
+}

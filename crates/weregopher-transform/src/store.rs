@@ -105,7 +105,9 @@ impl ManagedArtifactLeaseLimits {
 pub struct ManagedArtifactStore {
     root: PathBuf,
     #[cfg(windows)]
-    lease: windows::ManagedRootLease,
+    vendor_root: PathBuf,
+    #[cfg(windows)]
+    pub(crate) lease: windows::ManagedRootLease,
 }
 
 impl fmt::Debug for ManagedArtifactStore {
@@ -140,6 +142,7 @@ impl ManagedArtifactStore {
             let lease = windows::ManagedRootLease::open(root, vendor_root, limits.path_components)?;
             Ok(Self {
                 root: root.to_path_buf(),
+                vendor_root: vendor_root.to_path_buf(),
                 lease,
             })
         }
@@ -155,6 +158,11 @@ impl ManagedArtifactStore {
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn vendor_root(&self) -> &Path {
+        &self.vendor_root
     }
 
     /// Atomically creates or verifies every unique blob retained by one verified manifest.
@@ -388,7 +396,7 @@ fn digest(bytes: &[u8]) -> Sha256Digest {
 }
 
 #[cfg(windows)]
-mod windows;
+pub(crate) mod windows;
 
 /// Failure acquiring, publishing, or leasing a managed content-addressed artifact store.
 #[derive(Debug, Error)]

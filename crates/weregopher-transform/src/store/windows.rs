@@ -3,7 +3,7 @@
 use std::{
     collections::{BTreeMap, btree_map::Entry},
     fs::{self, File, OpenOptions},
-    io::{Read as _, Seek as _, SeekFrom, Write as _},
+    io::{Cursor, Read as _, Seek as _, SeekFrom, Write as _},
     os::windows::fs::{MetadataExt as _, OpenOptionsExt as _},
     path::{Component, Path, PathBuf, Prefix},
 };
@@ -21,7 +21,7 @@ use super::{MaterializationReceipt, MaterializationStoreError, MaterializationWr
 use crate::{MaterializationManifest, materialization::content_path};
 
 #[derive(Debug)]
-pub(super) struct ManagedRootLease {
+pub(crate) struct ManagedRootLease {
     root: PathBuf,
     ancestors: Vec<FileIdentityLease>,
 }
@@ -80,7 +80,7 @@ impl ManagedRootLease {
         Ok(lease)
     }
 
-    fn verify_root_path(&self) -> Result<(), MaterializationStoreError> {
+    pub(crate) fn verify_root_path(&self) -> Result<(), MaterializationStoreError> {
         let current = open_direct_directory(&self.root)?;
         let retained = self
             .ancestors
@@ -158,6 +158,46 @@ pub(super) fn materialize(
         reused_blobs: reused,
         total_blob_bytes: total_bytes,
     })
+}
+
+pub(crate) fn publish_reader(
+    lease: &ManagedRootLease,
+    digest: &Sha256Digest,
+    expected_bytes: usize,
+    reader: &mut dyn std::io::Read,
+    temp_attempts: usize,
+) -> Result<Publication, MaterializationStoreError> {
+    lease.verify_root_path()?;
+    let content_root_path = lease.root.join("sha256");
+    let _content_root_lease = ensure_direct_directory(&content_root_path)?;
+    let relative = content_path(digest).map_err(|_| {
+        MaterializationStoreError::ContentPathConstructionFailed { digest: *digest }
+    })?;
+    let fanout = relative
+        .get(7..9)
+        .ok_or(MaterializationStoreError::ContentPathConstructionFailed { digest: *digest })?;
+    let filename = relative
+        .get(10..)
+        .ok_or(MaterializationStoreError::ContentPathConstructionFailed { digest: *digest })?;
+    let fanout_path = content_root_path.join(fanout);
+    let _fanout_lease = ensure_direct_directory(&fanout_path)?;
+    let destination = fanout_path.join(filename);
+    let publication = match open_existing_blob(&destination, digest)? {
+        Some(file) => {
+            let _verified = verify_blob(file, &destination, digest, expected_bytes)?;
+            Publication::Reused
+        }
+        None => stage_and_publish_reader(
+            &fanout_path,
+            &destination,
+            digest,
+            reader,
+            expected_bytes,
+            temp_attempts,
+        )?,
+    };
+    lease.verify_root_path()?;
+    Ok(publication)
 }
 
 pub(super) fn lease_manifest(
@@ -425,7 +465,7 @@ fn hash_exact(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Publication {
+pub(crate) enum Publication {
     Created,
     Reused,
 }
@@ -437,6 +477,25 @@ fn stage_and_publish(
     bytes: &[u8],
     temp_attempts: usize,
 ) -> Result<Publication, MaterializationStoreError> {
+    let mut reader = Cursor::new(bytes);
+    stage_and_publish_reader(
+        directory,
+        destination,
+        expected_digest,
+        &mut reader,
+        bytes.len(),
+        temp_attempts,
+    )
+}
+
+fn stage_and_publish_reader(
+    directory: &Path,
+    destination: &Path,
+    expected_digest: &Sha256Digest,
+    reader: &mut dyn std::io::Read,
+    expected_bytes: usize,
+    temp_attempts: usize,
+) -> Result<Publication, MaterializationStoreError> {
     let (temporary_path, temporary_file) =
         create_temporary_file(directory, expected_digest, temp_attempts)?;
     let result = stage_and_publish_inner(
@@ -444,7 +503,8 @@ fn stage_and_publish(
         &temporary_path,
         destination,
         expected_digest,
-        bytes,
+        reader,
+        expected_bytes,
     );
     let cleanup = fs::remove_file(&temporary_path);
     match cleanup {
@@ -454,6 +514,52 @@ fn stage_and_publish(
             source,
         }),
     }
+}
+
+fn copy_exact(
+    reader: &mut dyn std::io::Read,
+    writer: &mut File,
+    temporary_path: &Path,
+    expected_bytes: usize,
+) -> Result<(), MaterializationStoreError> {
+    let mut remaining = expected_bytes;
+    let mut buffer = [0_u8; 16 * 1024];
+    while remaining != 0 {
+        let request = remaining.min(buffer.len());
+        let read = reader
+            .read(&mut buffer[..request])
+            .map_err(|source| io_error("read package source", temporary_path, source))?;
+        if read == 0 {
+            return Err(io_error(
+                "read complete package source",
+                temporary_path,
+                std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "package source ended before its declared length",
+                ),
+            ));
+        }
+        writer
+            .write_all(&buffer[..read])
+            .map_err(|source| io_error("write temporary content file", temporary_path, source))?;
+        remaining -= read;
+    }
+    let mut extra = [0_u8; 1];
+    if reader
+        .read(&mut extra)
+        .map_err(|source| io_error("check package source length", temporary_path, source))?
+        != 0
+    {
+        return Err(io_error(
+            "check package source length",
+            temporary_path,
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "package source exceeded its declared length",
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn create_temporary_file(
@@ -500,15 +606,19 @@ fn stage_and_publish_inner(
     temporary_path: &Path,
     destination: &Path,
     expected_digest: &Sha256Digest,
-    bytes: &[u8],
+    reader: &mut dyn std::io::Read,
+    expected_bytes: usize,
 ) -> Result<Publication, MaterializationStoreError> {
-    temporary_file
-        .write_all(bytes)
-        .map_err(|source| io_error("write temporary content file", temporary_path, source))?;
+    copy_exact(reader, &mut temporary_file, temporary_path, expected_bytes)?;
     temporary_file
         .sync_all()
         .map_err(|source| io_error("flush temporary content file", temporary_path, source))?;
-    let temporary_file = verify_blob(temporary_file, temporary_path, expected_digest, bytes.len())?;
+    let temporary_file = verify_blob(
+        temporary_file,
+        temporary_path,
+        expected_digest,
+        expected_bytes,
+    )?;
     let transition_file =
         open_published_link(temporary_path, expected_digest)?.ok_or_else(|| {
             io_error(
@@ -540,7 +650,7 @@ fn stage_and_publish_inner(
             ),
         )
     })?;
-    let locked_file = verify_blob(locked_file, temporary_path, expected_digest, bytes.len())?;
+    let locked_file = verify_blob(locked_file, temporary_path, expected_digest, expected_bytes)?;
     let temporary_identity = FileIdentityLease::from_file(locked_file).map_err(|source| {
         io_error(
             "read locked temporary content identity",
@@ -567,7 +677,7 @@ fn stage_and_publish_inner(
                     ),
                 )
             })?;
-            let published = verify_blob(published, destination, expected_digest, bytes.len())?;
+            let published = verify_blob(published, destination, expected_digest, expected_bytes)?;
             let published_identity = FileIdentityLease::from_file(published).map_err(|source| {
                 io_error("read published content identity", destination, source)
             })?;
@@ -589,7 +699,7 @@ fn stage_and_publish_inner(
                     ),
                 )
             })?;
-            let _verified = verify_blob(existing, destination, expected_digest, bytes.len())?;
+            let _verified = verify_blob(existing, destination, expected_digest, expected_bytes)?;
             Ok(Publication::Reused)
         }
         Err(source) => Err(io_error(
@@ -609,5 +719,50 @@ fn io_error(
         operation,
         path: path.to_path_buf(),
         source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn exact_reader_copy_rejects_short_and_surplus_streams()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempdir()?;
+
+        let exact_path = fixture.path().join("exact.bin");
+        let mut exact_file = File::create(&exact_path)?;
+        copy_exact(&mut Cursor::new(b"exact"), &mut exact_file, &exact_path, 5)?;
+        drop(exact_file);
+        assert_eq!(fs::read(&exact_path)?, b"exact");
+
+        let short_path = fixture.path().join("short.bin");
+        let mut short_file = File::create(&short_path)?;
+        assert!(matches!(
+            copy_exact(
+                &mut Cursor::new(b"short"),
+                &mut short_file,
+                &short_path,
+                6,
+            ),
+            Err(MaterializationStoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::UnexpectedEof
+        ));
+
+        let surplus_path = fixture.path().join("surplus.bin");
+        let mut surplus_file = File::create(&surplus_path)?;
+        assert!(matches!(
+            copy_exact(
+                &mut Cursor::new(b"surplus"),
+                &mut surplus_file,
+                &surplus_path,
+                6,
+            ),
+            Err(MaterializationStoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::InvalidData
+        ));
+        Ok(())
     }
 }

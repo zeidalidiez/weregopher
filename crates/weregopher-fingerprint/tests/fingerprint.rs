@@ -59,6 +59,11 @@ fn noncanonical_record_paths_are_rejected() {
     assert!(
         build_package_manifest(vec![record(&too_long, 0x33, PackageFileKind::Regular)]).is_err()
     );
+
+    let too_deep = format!("{}file.js", "a/".repeat(256));
+    assert!(
+        build_package_manifest(vec![record(&too_deep, 0x33, PackageFileKind::Regular)]).is_err()
+    );
 }
 
 #[test]

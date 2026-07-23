@@ -2,13 +2,22 @@
 
 #![cfg(windows)]
 
-use std::{fs, io::Read as _, path::Path, process::Command};
+use std::{
+    fs::{self, OpenOptions},
+    io::Read as _,
+    os::windows::fs::OpenOptionsExt as _,
+    path::Path,
+    process::Command,
+};
 
 use tempfile::tempdir;
 use weregopher_fingerprint::{
     MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES, MAX_PACKAGE_TREE_DEPTH,
     MAX_PACKAGE_TREE_DIRECTORIES, ObservationError, PackageTreeObservationError,
     PackageTreeObservationLimits, observe_package_tree,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
 };
 
 #[test]
@@ -34,7 +43,7 @@ fn tree_observation_retains_a_complete_nested_regular_file_tree()
     assert_eq!(
         observation
             .manifest()
-            .files
+            .files()
             .iter()
             .map(|record| record.normalized_path.as_str())
             .collect::<Vec<_>>(),
@@ -62,6 +71,7 @@ fn tree_observation_reports_the_specific_file_limit() -> Result<(), Box<dyn std:
     fs::create_dir(&package)?;
     fs::write(package.join("first.js"), b"first")?;
     fs::write(package.join("second.js"), b"second")?;
+    fs::write(package.join("third.js"), b"third")?;
 
     assert!(matches!(
         observe_package_tree(
@@ -69,6 +79,28 @@ fn tree_observation_reports_the_specific_file_limit() -> Result<(), Box<dyn std:
             PackageTreeObservationLimits::new(1, 1, 2, 64, 128, 128)?,
         ),
         Err(PackageTreeObservationError::FileLimitExceeded { max: 1 })
+    ));
+    Ok(())
+}
+
+#[test]
+fn tree_observation_rejects_a_preexisting_writable_directory_handle()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempdir()?;
+    let package = fixture.path().join("package");
+    fs::create_dir(&package)?;
+    fs::write(package.join("main.js"), b"main")?;
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    let _writable_directory = options.open(&package)?;
+
+    assert!(matches!(
+        observe_package_tree(&package, generous_limits()?),
+        Err(PackageTreeObservationError::Io { .. })
     ));
     Ok(())
 }
@@ -126,7 +158,7 @@ fn tree_observation_accepts_an_empty_package_root() -> Result<(), Box<dyn std::e
     fs::create_dir(&package)?;
 
     let observation = observe_package_tree(&package, generous_limits()?)?;
-    assert!(observation.manifest().files.is_empty());
+    assert!(observation.manifest().is_empty());
     assert_eq!(observation.directory_count(), 1);
     observation.verify_current_tree()?;
     Ok(())

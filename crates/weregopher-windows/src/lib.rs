@@ -16,9 +16,11 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 
 mod job;
+mod path;
 mod process;
 
 pub use job::{JobLimits, KillOnCloseJob};
+pub use path::windows_ordinal_case_key;
 pub use process::{LockedExecutable, OwnedJobProcess, ProcessLaunchLimits};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

@@ -27,19 +27,21 @@ The initial acquisition profile accepts only direct regular files and directorie
 Observation proceeds as follows:
 
 1. require an absolute drive or UNC root with bounded component count;
-2. open every root ancestor from the volume/share toward the package root with `FILE_FLAG_OPEN_REPARSE_POINT` and no delete sharing;
+2. open every root ancestor from the volume/share toward the package root with `FILE_FLAG_OPEN_REPARSE_POINT` and no write or delete sharing;
 3. reject any opened ancestor or package directory that is not a direct non-reparse directory;
 4. enumerate entries iteratively within file, directory, depth, and path budgets;
 5. open every child directory directly and retain its full-width Windows file identity;
 6. observe each regular file through the existing bounded, direct, non-reparse file observer, retaining the exact handle and checking the aggregate byte budget;
 7. build the canonical package manifest from the retained file records;
-8. re-open and compare every directory identity, re-enumerate membership, and revalidate every retained file path before returning.
+8. re-open and compare every directory identity, re-enumerate membership, and revalidate every retained file path before returning;
+9. retain the absolute root once and retain package-relative normalized paths for entries, deriving absolute paths only for bounded operations; and
+10. derive collision keys with the invariant Windows uppercase mapping and reject DOS device aliases that use ASCII or superscript digits.
 
 The returned `PackageTreeObservation` owns the root-ancestor, directory, and file leases. Its debug representation includes only the Merkle identity, counts, byte total, and declared limits, not absolute source paths or normalized package paths. `verify_current_tree` repeats directory-membership and identity checks.
 
 `open_file` accepts only an exact canonical manifest path. It opens a fresh read-only direct handle, compares that handle with the retained full-width file identity, and wraps it in a bounded reader that starts at byte zero and does not expose the operating-system handle. This is the narrow capability through which the next managed-snapshot milestone can copy exact observed bytes without exposing or re-resolving an unverified source path.
 
-Directory handles permit reads and writes to children but deny deletion of the retained directories. File handles deny write and delete sharing. This is deliberate: the observation detects visible membership changes rather than claiming to freeze a vendor installation.
+Directory-object and file handles deny new write and delete opens to those retained objects. This rejects acquisition when a compatible writable object handle already exists, but it does not prevent namespace additions beneath a retained directory. The observation detects visible membership changes rather than claiming to freeze a vendor installation.
 
 ## Security and authority boundary
 
@@ -56,12 +58,14 @@ Windows behavior tests cover:
 - nested regular-file manifests and canonical path ordering;
 - an empty package root while rejecting unrepresentable nested empty directories;
 - retained file and root identities preventing write, rename, or replacement;
+- pre-existing writable directory-handle rejection;
 - exact manifest-path lookup returning a bounded identity-verified reader;
 - exact file-count error reporting;
 - zero and hard-ceiling limit rejection;
 - directory, depth, per-file, aggregate-file-byte, and aggregate-path-byte limits;
 - zero-byte files at an exactly consumed aggregate byte budget;
 - root and descendant junction rejection;
+- ASCII and superscript DOS-device-name rejection;
 - post-observation membership additions;
 - relative-root rejection; and
 - debug-path redaction.
@@ -74,5 +78,6 @@ A non-Windows contract test records that complete-tree observation is explicitly
 - Vendor installation bytes are read but never modified by this capability.
 - Reparse traversal, unsupported entries, unrepresentable directory state, and resource excess fail closed.
 - Handle consumption is bounded by the declared file and directory ceilings plus a fixed root-ancestor ceiling.
+- Root-path storage is constant per observation rather than multiplied by the entry count, and externally visible manifest accessors cannot desynchronize canonical records from their Merkle root.
 - Packages requiring symlink/reparse semantics or empty-directory preservation remain unsupported until a versioned entry contract exists.
 - Immutable managed package-view composition remains the next separate milestone.

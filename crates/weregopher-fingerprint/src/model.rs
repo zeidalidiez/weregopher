@@ -21,7 +21,11 @@ pub const MAX_PACKAGE_FILE_RECORDS: usize = 65_536;
 /// Maximum aggregate UTF-8 bytes retained across normalized package paths.
 pub const MAX_PACKAGE_RECORD_PATH_BYTES: usize = 16 * 1024 * 1024;
 
-/// Canonical immutable evidence assembled from pre-observed package records.
+/// Canonical package-tree identity assembled from pre-observed package records.
+///
+/// The manifest binds its ordered records and Merkle root, but does not by itself
+/// prove that acquisition used an immutable filesystem snapshot. That provenance
+/// remains a separate property of the producer.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackageTreeManifest {
@@ -29,10 +33,10 @@ pub struct PackageTreeManifest {
     #[schemars(range(min = 1, max = 1))]
     pub(crate) format_version: u16,
     /// Root directory Merkle digest.
-    pub package_tree_merkle: Sha256Digest,
+    pub(crate) package_tree_merkle: Sha256Digest,
     /// Canonically sorted included file/link records.
     #[schemars(length(max = 65_536))]
-    pub files: Vec<PackageFileRecord>,
+    pub(crate) files: Vec<PackageFileRecord>,
 }
 
 impl PackageTreeManifest {
@@ -40,6 +44,24 @@ impl PackageTreeManifest {
     #[must_use]
     pub const fn format_version(&self) -> u16 {
         self.format_version
+    }
+
+    /// Returns the canonical Merkle root bound to the ordered records.
+    #[must_use]
+    pub const fn package_tree_merkle(&self) -> &Sha256Digest {
+        &self.package_tree_merkle
+    }
+
+    /// Returns the canonically ordered package file records.
+    #[must_use]
+    pub fn files(&self) -> &[PackageFileRecord] {
+        &self.files
+    }
+
+    /// Reports whether the manifest contains no package file records.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.files.is_empty()
     }
 }
 

@@ -21,12 +21,12 @@ fn input_order_does_not_change_the_manifest() -> Result<(), Box<dyn std::error::
 
     assert_eq!(forward, reverse);
     assert_eq!(
-        forward.package_tree_merkle.to_string(),
+        forward.package_tree_merkle().to_string(),
         "sha256:ce4f446dff9a29e7098d5ad729aa87aa383ad88757d59de3b097efbe1c201231"
     );
     assert_eq!(
         forward
-            .files
+            .files()
             .iter()
             .map(|record| record.normalized_path.as_str())
             .collect::<Vec<_>>(),

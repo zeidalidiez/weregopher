@@ -213,6 +213,25 @@ impl PackageTreeObservation {
         self.total_file_bytes
     }
 
+    /// Reports whether this observation was acquired from exactly the supplied lexical root.
+    ///
+    /// This comparison intentionally does not resolve aliases or reopen the path. The Windows
+    /// observation retains the original root identity separately; consumers use this predicate to
+    /// bind capabilities that were configured for the same caller-selected package root.
+    #[must_use]
+    pub fn has_source_root(&self, root: &Path) -> bool {
+        #[cfg(windows)]
+        {
+            self.root == root
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = root;
+            false
+        }
+    }
+
     /// Opens a new bounded reader over one exact retained package file.
     ///
     /// `normalized_path` must exactly match a canonical manifest record. The new
@@ -247,9 +266,10 @@ impl PackageTreeObservation {
                 })?;
             let file = &self.files[index];
             let remaining = file.observation.record().size;
+            let filesystem_path = join_normalized(&self.root, normalized_path);
             let file = file
                 .observation
-                .open_current_file(&file.filesystem_path)
+                .open_current_file(&filesystem_path)
                 .map_err(|source| PackageTreeObservationError::FileObservation { source })?;
             Ok(PackageFileReader { file, remaining })
         }
@@ -324,15 +344,24 @@ pub fn observe_package_tree(
 
 #[cfg(windows)]
 struct ObservedTreeDirectory {
-    filesystem_path: PathBuf,
     normalized_path: String,
     identity_lease: weregopher_windows::FileIdentityLease,
 }
 
 #[cfg(windows)]
 struct ObservedTreeFile {
-    filesystem_path: PathBuf,
     observation: PackageFileObservation,
+}
+
+#[cfg(windows)]
+fn join_normalized(root: &Path, normalized_path: &str) -> PathBuf {
+    let mut path = root.to_path_buf();
+    for component in normalized_path.split('/') {
+        if !component.is_empty() {
+            path.push(component);
+        }
+    }
+    path
 }
 
 #[cfg(windows)]

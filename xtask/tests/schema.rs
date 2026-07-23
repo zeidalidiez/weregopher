@@ -25,6 +25,8 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "certification-class.schema.json",
         "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
+        "execution-resolution-evidence.schema.json",
+        "execution-target-contract.schema.json",
         "frame-header.schema.json",
         "generated-execution-overlay.schema.json",
         "generated-transform-overlay.schema.json",
@@ -69,6 +71,154 @@ fn execution_rebinding_schemas_are_exact_bounded_and_non_authorizing()
             .join("generated-execution-overlay.schema.json"),
     )?)?;
     assert_generated_execution_overlay_schema(&overlay)?;
+    Ok(())
+}
+
+#[test]
+fn execution_target_schemas_are_exact_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let target: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("execution-target-contract.schema.json"),
+    )?)?;
+    let resolution: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("execution-resolution-evidence.schema.json"),
+    )?)?;
+
+    assert_execution_target_schema(&target)?;
+    assert_execution_resolution_schema(&resolution)?;
+    Ok(())
+}
+
+fn assert_execution_target_schema(
+    target: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(target["additionalProperties"], false);
+    assert_required_properties(
+        target,
+        &[
+            "format_version",
+            "target_id",
+            "kind",
+            "artifact_locator",
+            "launch_policy",
+        ],
+    )?;
+    assert_eq!(
+        target["$defs"]["ExecutionTargetContractFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    let launch = &target["$defs"]["ExecutionLaunchPolicy"];
+    assert_eq!(launch["additionalProperties"], false);
+    assert_required_properties(
+        launch,
+        &[
+            "arguments",
+            "environment",
+            "inherited_handles",
+            "console",
+            "working_directory",
+            "security_posture",
+            "state_mode",
+            "resource_limits",
+            "policy_digests",
+        ],
+    )?;
+    assert_eq!(launch["properties"]["arguments"]["maxItems"], 64);
+    assert_eq!(
+        launch["properties"]["arguments"]["items"]["$ref"],
+        "#/$defs/ExecutionArgument"
+    );
+    assert_eq!(target["$defs"]["ExecutionArgument"]["maxLength"], 8192);
+    assert_execution_locator_schema(target)?;
+    assert_execution_policy_schema(target)?;
+    assert_no_live_authorization_fields(target);
+    Ok(())
+}
+
+fn assert_execution_locator_schema(
+    document: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let variants = document["$defs"]["ExecutionArtifactLocator"]["oneOf"]
+        .as_array()
+        .ok_or("execution artifact locator must be a closed union")?;
+    assert_eq!(variants.len(), 2);
+    for variant in variants {
+        assert_eq!(variant["additionalProperties"], false);
+        assert!(variant["properties"]["artifact_source"]["const"].is_string());
+    }
+    assert_eq!(
+        variants[0]["properties"]["normalized_path"]["maxLength"],
+        4096
+    );
+    assert_eq!(
+        variants[1]["properties"]["digest"]["$ref"],
+        "#/$defs/Sha256Digest"
+    );
+    Ok(())
+}
+
+fn assert_execution_policy_schema(
+    target: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let resources = &target["$defs"]["ExecutionResourceLimits"];
+    assert_eq!(resources["additionalProperties"], false);
+    assert_required_properties(
+        resources,
+        &[
+            "active_process_limit",
+            "process_memory_limit_bytes",
+            "job_memory_limit_bytes",
+        ],
+    )?;
+    for field in [
+        "active_process_limit",
+        "process_memory_limit_bytes",
+        "job_memory_limit_bytes",
+    ] {
+        assert_eq!(resources["properties"][field]["minimum"], 1);
+    }
+    let digests = &target["$defs"]["ExecutionPolicyDigests"];
+    assert_eq!(digests["additionalProperties"], false);
+    for field in [
+        "compatibility_analysis_digest",
+        "capability_policy_digest",
+        "state_policy_digest",
+        "user_policy_digest",
+    ] {
+        assert_eq!(digests["properties"][field]["$ref"], "#/$defs/Sha256Digest");
+    }
+    Ok(())
+}
+
+fn assert_execution_resolution_schema(
+    resolution: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(resolution["additionalProperties"], false);
+    assert_required_properties(
+        resolution,
+        &["format_version", "target_id", "artifact_locator", "digests"],
+    )?;
+    assert_eq!(
+        resolution["$defs"]["ExecutionResolutionFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    let digests = &resolution["$defs"]["ExecutionResolutionDigests"];
+    assert_eq!(digests["additionalProperties"], false);
+    for field in [
+        "execution_contract_digest",
+        "artifact_source_digest",
+        "executable_digest",
+        "artifact_trust_evidence_digest",
+        "provenance_evidence_digest",
+    ] {
+        assert_eq!(digests["properties"][field]["$ref"], "#/$defs/Sha256Digest");
+    }
+    assert_execution_locator_schema(resolution)?;
+    assert_no_live_authorization_fields(resolution);
     Ok(())
 }
 
@@ -293,6 +443,35 @@ fn assert_execution_overlay_is_non_authorizing(overlay: &serde_json::Value) {
         ] {
             assert!(properties.get(forbidden).is_none());
         }
+    }
+}
+
+fn assert_no_live_authorization_fields(value: &serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(properties) = object.get("properties") {
+                for forbidden in [
+                    "authority_authenticated",
+                    "authorization_token",
+                    "execution_authorized",
+                    "launch_authorized",
+                    "process_id",
+                    "revocation_current",
+                    "sandboxed",
+                ] {
+                    assert!(properties.get(forbidden).is_none());
+                }
+            }
+            for child in object.values() {
+                assert_no_live_authorization_fields(child);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                assert_no_live_authorization_fields(child);
+            }
+        }
+        _ => {}
     }
 }
 

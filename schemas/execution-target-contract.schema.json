@@ -1,0 +1,311 @@
+{
+  "$defs": {
+    "EffectiveSecurityPosture": {
+      "description": "The enforcement mechanism that actually constrains an executable component.",
+      "oneOf": [
+        {
+          "const": "broker_mediated",
+          "description": "Relevant host effects cross an enforcing Weregopher broker.",
+          "type": "string"
+        },
+        {
+          "const": "os_contained",
+          "description": "Independently tested operating-system controls constrain direct host access.",
+          "type": "string"
+        },
+        {
+          "const": "vendor_equivalent_full_trust",
+          "description": "The component can exercise the current Windows user's ordinary authority.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionArgument": {
+      "description": "One bounded fixed command-line argument.",
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "ExecutionArtifactLocator": {
+      "description": "Exact artifact locator interpreted only within the source declared by one target contract.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Exact manifest-allowlisted package-relative path.",
+          "properties": {
+            "artifact_source": {
+              "const": "package_snapshot",
+              "type": "string"
+            },
+            "normalized_path": {
+              "description": "Canonical forward-slash package-relative path.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "artifact_source",
+            "normalized_path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Exact blob in a retained managed-artifact manifest.",
+          "properties": {
+            "artifact_source": {
+              "const": "managed_artifact",
+              "type": "string"
+            },
+            "digest": {
+              "$ref": "#/$defs/Sha256Digest",
+              "description": "Content identity of the executable blob."
+            }
+          },
+          "required": [
+            "artifact_source",
+            "digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExecutionConsolePolicy": {
+      "description": "Fixed console policy for execution-target format version 1.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Create no console window.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionEnvironmentPolicy": {
+      "description": "Fixed empty-environment policy for execution-target format version 1.",
+      "oneOf": [
+        {
+          "const": "empty",
+          "description": "Launch with an explicit empty Unicode environment block.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionInheritedHandlePolicy": {
+      "description": "Fixed inherited-handle policy for execution-target format version 1.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Inherit no process handles.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionLaunchPolicy": {
+      "additionalProperties": false,
+      "description": "Fixed bounded launch and policy requirements from one static target contract.",
+      "properties": {
+        "arguments": {
+          "items": {
+            "$ref": "#/$defs/ExecutionArgument"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "console": {
+          "$ref": "#/$defs/ExecutionConsolePolicy"
+        },
+        "environment": {
+          "$ref": "#/$defs/ExecutionEnvironmentPolicy"
+        },
+        "inherited_handles": {
+          "$ref": "#/$defs/ExecutionInheritedHandlePolicy"
+        },
+        "policy_digests": {
+          "$ref": "#/$defs/ExecutionPolicyDigests"
+        },
+        "resource_limits": {
+          "$ref": "#/$defs/ExecutionResourceLimits"
+        },
+        "security_posture": {
+          "$ref": "#/$defs/EffectiveSecurityPosture"
+        },
+        "state_mode": {
+          "$ref": "#/$defs/ExecutionStateMode"
+        },
+        "working_directory": {
+          "$ref": "#/$defs/ExecutionWorkingDirectoryPolicy"
+        }
+      },
+      "required": [
+        "arguments",
+        "environment",
+        "inherited_handles",
+        "console",
+        "working_directory",
+        "security_posture",
+        "state_mode",
+        "resource_limits",
+        "policy_digests"
+      ],
+      "type": "object"
+    },
+    "ExecutionPolicyDigests": {
+      "additionalProperties": false,
+      "description": "Role-named policy artifact identities referenced by one exact launch policy.",
+      "properties": {
+        "capability_policy_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Resolved capability-manifest/policy identity."
+        },
+        "compatibility_analysis_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Complete compatibility-analysis document identity."
+        },
+        "state_policy_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Resolved state policy identity."
+        },
+        "user_policy_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Current user-policy/consent identity."
+        }
+      },
+      "required": [
+        "compatibility_analysis_digest",
+        "capability_policy_digest",
+        "state_policy_digest",
+        "user_policy_digest"
+      ],
+      "type": "object"
+    },
+    "ExecutionResourceLimits": {
+      "additionalProperties": false,
+      "description": "Exact bounded Job Object and process-memory requirements for one target.",
+      "properties": {
+        "active_process_limit": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "job_memory_limit_bytes": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "process_memory_limit_bytes": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "active_process_limit",
+        "process_memory_limit_bytes",
+        "job_memory_limit_bytes"
+      ],
+      "type": "object"
+    },
+    "ExecutionStateMode": {
+      "description": "State namespace selected by one exact execution target contract.",
+      "oneOf": [
+        {
+          "const": "disposable",
+          "description": "Candidate validation uses isolated disposable state.",
+          "type": "string"
+        },
+        {
+          "const": "production",
+          "description": "A separately approved production-state policy is required.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionTargetContractFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ExecutionTargetId": {
+      "description": "A durable static execution-target identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ExecutionTargetKind": {
+      "description": "Supervisor-visible role of one statically declared execution target.",
+      "oneOf": [
+        {
+          "const": "main_runtime",
+          "description": "Weregopher-owned main runtime selected for one application.",
+          "type": "string"
+        },
+        {
+          "const": "vendor_helper",
+          "description": "Vendor executable designed to run independently from the desktop Electron entry point.",
+          "type": "string"
+        },
+        {
+          "const": "abi_island",
+          "description": "Minimal process retaining one bounded native ABI dependency set.",
+          "type": "string"
+        },
+        {
+          "const": "specialized_helper",
+          "description": "Purpose-specific media, overlay, or integration helper.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionWorkingDirectoryPolicy": {
+      "description": "Fixed current-directory policy for execution-target format version 1.",
+      "oneOf": [
+        {
+          "const": "executable_parent",
+          "description": "Use the retained executable's direct parent directory.",
+          "type": "string"
+        }
+      ]
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Complete static target contract referenced by an adapter execution authority.",
+  "properties": {
+    "artifact_locator": {
+      "$ref": "#/$defs/ExecutionArtifactLocator"
+    },
+    "format_version": {
+      "$ref": "#/$defs/ExecutionTargetContractFormatVersion"
+    },
+    "kind": {
+      "$ref": "#/$defs/ExecutionTargetKind"
+    },
+    "launch_policy": {
+      "$ref": "#/$defs/ExecutionLaunchPolicy"
+    },
+    "target_id": {
+      "$ref": "#/$defs/ExecutionTargetId"
+    }
+  },
+  "required": [
+    "format_version",
+    "target_id",
+    "kind",
+    "artifact_locator",
+    "launch_policy"
+  ],
+  "title": "ExecutionTargetContract",
+  "type": "object"
+}

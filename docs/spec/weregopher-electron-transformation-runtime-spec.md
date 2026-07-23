@@ -1696,6 +1696,14 @@ command-line, environment, capability, compatibility, state, and user-policy req
 package-view roots are not closed namespaces: execution-qualified package access MUST use
 manifest-scoped, identity-verified file capabilities rather than unrestricted traversal.
 
+Format-version-1 execution target contracts make the static artifact locator, fixed arguments,
+empty-environment/no-inherited-handle/no-console launch semantics, working-directory rule, effective
+security posture, state mode, Job/process resource ceilings, and exact compatibility, capability,
+state, and user-policy identities explicit and bounded. Separate generated resolution evidence binds
+the chosen locator to target-contract, artifact-source, executable, artifact-trust, and provenance
+identities. Parsing and content-addressing either document remains non-authorizing. See
+[ADR-0023](../adr/0023-bounded-execution-target-and-resolution-contracts.md).
+
 The initial Windows capability bridge binds a locked executable path back to the full-width file
 identity already retained by its package-snapshot or managed-manifest lease. Package resolution
 performs the manifest allowlist lookup before joining the physical root, and each executable

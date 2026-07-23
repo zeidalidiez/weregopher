@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "ExecutionArtifactLocator": {
+      "description": "Exact artifact locator interpreted only within the source declared by one target contract.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Exact manifest-allowlisted package-relative path.",
+          "properties": {
+            "artifact_source": {
+              "const": "package_snapshot",
+              "type": "string"
+            },
+            "normalized_path": {
+              "description": "Canonical forward-slash package-relative path.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "artifact_source",
+            "normalized_path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Exact blob in a retained managed-artifact manifest.",
+          "properties": {
+            "artifact_source": {
+              "const": "managed_artifact",
+              "type": "string"
+            },
+            "digest": {
+              "$ref": "#/$defs/Sha256Digest",
+              "description": "Content identity of the executable blob."
+            }
+          },
+          "required": [
+            "artifact_source",
+            "digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExecutionResolutionDigests": {
+      "additionalProperties": false,
+      "description": "Role-named generated resolution-evidence identities.",
+      "properties": {
+        "artifact_source_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Exact package-tree or managed-manifest identity."
+        },
+        "artifact_trust_evidence_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Exact signer, local-build trust, or equivalent artifact trust evidence identity."
+        },
+        "executable_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Exact executable byte identity."
+        },
+        "execution_contract_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Exact static target-contract identity."
+        },
+        "provenance_evidence_digest": {
+          "$ref": "#/$defs/Sha256Digest",
+          "description": "Exact artifact provenance evidence identity."
+        }
+      },
+      "required": [
+        "execution_contract_digest",
+        "artifact_source_digest",
+        "executable_digest",
+        "artifact_trust_evidence_digest",
+        "provenance_evidence_digest"
+      ],
+      "type": "object"
+    },
+    "ExecutionResolutionFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ExecutionTargetId": {
+      "description": "A durable static execution-target identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Generated exact resolution evidence for one static execution target.",
+  "properties": {
+    "artifact_locator": {
+      "$ref": "#/$defs/ExecutionArtifactLocator"
+    },
+    "digests": {
+      "$ref": "#/$defs/ExecutionResolutionDigests"
+    },
+    "format_version": {
+      "$ref": "#/$defs/ExecutionResolutionFormatVersion"
+    },
+    "target_id": {
+      "$ref": "#/$defs/ExecutionTargetId"
+    }
+  },
+  "required": [
+    "format_version",
+    "target_id",
+    "artifact_locator",
+    "digests"
+  ],
+  "title": "ExecutionResolutionEvidence",
+  "type": "object"
+}

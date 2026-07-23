@@ -11,6 +11,7 @@ mod compatibility;
 mod digest;
 mod discovery;
 mod execution;
+mod execution_target;
 mod ids;
 mod protocol;
 mod security;
@@ -39,6 +40,16 @@ pub use execution::{
     ExecutionOverlayBinding, ExecutionOverlayContext, ExecutionPlatform, ExecutionTargetKind,
     GeneratedExecutionOverlay, MAX_AUTHORIZED_EXECUTION_TARGETS, MAX_GENERATED_EXECUTION_BINDINGS,
     StructurallyValidatedExecutionOverlay,
+};
+pub use execution_target::{
+    EXECUTION_RESOLUTION_FORMAT_VERSION, EXECUTION_TARGET_CONTRACT_FORMAT_VERSION,
+    ExecutionArgument, ExecutionArtifactLocator, ExecutionConsolePolicy,
+    ExecutionEnvironmentPolicy, ExecutionInheritedHandlePolicy, ExecutionLaunchPolicy,
+    ExecutionPolicyDigests, ExecutionResolutionDigests, ExecutionResolutionEvidence,
+    ExecutionResourceLimits, ExecutionStateMode, ExecutionTargetContract,
+    ExecutionTargetContractError, ExecutionWorkingDirectoryPolicy,
+    MAX_EXECUTION_ARGUMENT_AGGREGATE_BYTES, MAX_EXECUTION_ARGUMENT_BYTES, MAX_EXECUTION_ARGUMENTS,
+    MAX_EXECUTION_PACKAGE_PATH_BYTES, MAX_EXECUTION_PACKAGE_PATH_COMPONENTS,
 };
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,

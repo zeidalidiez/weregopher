@@ -1673,6 +1673,34 @@ The analyzer MUST extract:
 - preload assignments;
 - feature flags where discoverable.
 
+### 19.3.1 Authority-nonexpanding execution-artifact rebinding
+
+The signed family adapter owns the finite set of execution targets that one adapter may nominate.
+A generated build overlay MUST NOT become a second authority source. Static execution authority MUST
+bind the exact adapter artifact and a bounded map of durable target identifiers to closed process
+roles, closed managed artifact-source classes, and complete target-contract digests. A generated
+overlay MAY select a subset of those targets, but it MUST NOT add a target, change its role or source
+class, or substitute its target contract.
+
+Generated execution evidence MUST bind the exact source fingerprint, package-tree Merkle identity,
+build descriptor, execution-environment descriptor, adapter identity, adapter content, and static
+execution-authority document. Each selected target MUST bind the containing package-tree or managed
+manifest, exact executable bytes, and exact external resolution evidence. For a package-snapshot
+target, the containing-artifact identity MUST equal the overlay's package-tree identity.
+
+Parsing or structurally validating these documents does not authenticate them and MUST NOT authorize
+execution or process launch. Before launch, a separate live authorization capability MUST retrieve,
+hash, authenticate, and revocation-check the adapter authority and target contracts; validate the
+resolution evidence; verify exact retained package or managed-artifact capabilities; and resolve
+command-line, environment, capability, compatibility, state, and user-policy requirements. Physical
+package-view roots are not closed namespaces: execution-qualified package access MUST use
+manifest-scoped, identity-verified file capabilities rather than unrestricted traversal.
+
+Execution authorization, Job Object ownership, suspended process creation, process resume, runtime
+supervision, security posture, efficiency, and certification remain distinct decisions and evidence
+boundaries. The canonical format-v1 Rust contracts and generated schemas are specified by
+[ADR-0021](../adr/0021-authority-nonexpanding-execution-artifact-rebinding.md).
+
 ## 19.4 Semantic module matching
 
 Raw filenames are weak signals because bundlers rename chunks.

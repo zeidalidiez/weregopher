@@ -165,6 +165,11 @@ stable_string_id!(
     "transform rule",
     "A durable static semantic-transform rule identifier."
 );
+stable_string_id!(
+    ExecutionTargetId,
+    "execution target",
+    "A durable static execution-target identifier."
+);
 stable_string_id!(ProfileId, "profile", "An application profile identifier.");
 stable_string_id!(
     ScenarioId,

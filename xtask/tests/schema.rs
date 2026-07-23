@@ -16,6 +16,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
     check_schemas(first.path())?;
 
     let expected = [
+        "adapter-execution-authority.schema.json",
         "adapter-transform-authority.schema.json",
         "build-fingerprint.schema.json",
         "call-context.schema.json",
@@ -25,6 +26,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "compatibility-analysis.schema.json",
         "effective-security-posture.schema.json",
         "frame-header.schema.json",
+        "generated-execution-overlay.schema.json",
         "generated-transform-overlay.schema.json",
         "package-tree-manifest.schema.json",
         "protocol-limits.schema.json",
@@ -44,6 +46,187 @@ fn schema_generation_is_complete_deterministic_and_checkable()
             document["$schema"],
             serde_json::json!("https://json-schema.org/draft/2020-12/schema")
         );
+    }
+    Ok(())
+}
+
+#[test]
+fn execution_rebinding_schemas_are_exact_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+
+    let authority: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("adapter-execution-authority.schema.json"),
+    )?)?;
+    assert_execution_authority_schema(&authority)?;
+
+    let overlay: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("generated-execution-overlay.schema.json"),
+    )?)?;
+    assert_generated_execution_overlay_schema(&overlay)?;
+    Ok(())
+}
+
+fn assert_execution_authority_schema(
+    authority: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        authority["$defs"]["ExecutionRebindingFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_required_properties(
+        authority,
+        &[
+            "format_version",
+            "adapter_id",
+            "family",
+            "adapter_content_digest",
+            "targets",
+        ],
+    )?;
+    let targets = &authority["properties"]["targets"];
+    assert_eq!(targets["minProperties"], 1);
+    assert_eq!(targets["maxProperties"], 64);
+    let target_schemas = targets["patternProperties"]
+        .as_object()
+        .ok_or("execution authority must constrain target identifiers")?;
+    assert_eq!(target_schemas.len(), 1);
+    assert_eq!(
+        target_schemas
+            .values()
+            .next()
+            .ok_or("execution authority target schema is missing")?["$ref"],
+        "#/$defs/AuthorizedExecutionTargetRef"
+    );
+    assert_eq!(authority["additionalProperties"], false);
+    let target = &authority["$defs"]["AuthorizedExecutionTargetRef"];
+    assert_eq!(target["additionalProperties"], false);
+    assert_required_properties(
+        target,
+        &["kind", "artifact_source", "execution_contract_digest"],
+    )?;
+    assert_eq!(
+        schema_string_constants(&authority["$defs"]["ExecutionArtifactSource"])?,
+        ["package_snapshot", "managed_artifact"]
+    );
+    assert_eq!(
+        schema_string_constants(&authority["$defs"]["ExecutionTargetKind"])?,
+        [
+            "main_runtime",
+            "vendor_helper",
+            "abi_island",
+            "specialized_helper"
+        ]
+    );
+    assert_eq!(
+        authority["properties"]["adapter_content_digest"]["$ref"],
+        "#/$defs/Sha256Digest"
+    );
+    assert_eq!(
+        target["properties"]["execution_contract_digest"]["$ref"],
+        "#/$defs/Sha256Digest"
+    );
+    Ok(())
+}
+
+fn assert_generated_execution_overlay_schema(
+    overlay: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_required_properties(
+        overlay,
+        &[
+            "format_version",
+            "platform",
+            "architecture",
+            "binding",
+            "bindings",
+        ],
+    )?;
+    assert_eq!(
+        schema_string_constants(&overlay["$defs"]["ExecutionPlatform"])?,
+        ["windows"]
+    );
+    assert_eq!(
+        schema_string_constants(&overlay["$defs"]["ExecutionArchitecture"])?,
+        ["x86_64"]
+    );
+    let bindings = &overlay["properties"]["bindings"];
+    assert_eq!(bindings["minProperties"], 1);
+    assert_eq!(bindings["maxProperties"], 64);
+    let binding_schemas = bindings["patternProperties"]
+        .as_object()
+        .ok_or("execution overlay must constrain target identifiers")?;
+    assert_eq!(binding_schemas.len(), 1);
+    assert_eq!(
+        binding_schemas
+            .values()
+            .next()
+            .ok_or("execution overlay binding schema is missing")?["$ref"],
+        "#/$defs/ExecutionArtifactBinding"
+    );
+    assert_eq!(overlay["additionalProperties"], false);
+    for definition in [
+        "ExecutionArtifactBinding",
+        "ExecutionAuthorityBinding",
+        "ExecutionOverlayBinding",
+    ] {
+        assert_eq!(overlay["$defs"][definition]["additionalProperties"], false);
+    }
+    let artifact = &overlay["$defs"]["ExecutionArtifactBinding"];
+    assert_required_properties(
+        artifact,
+        &[
+            "execution_contract_digest",
+            "artifact_source_digest",
+            "executable_digest",
+            "resolution_evidence_digest",
+        ],
+    )?;
+    for field in [
+        "execution_contract_digest",
+        "artifact_source_digest",
+        "executable_digest",
+        "resolution_evidence_digest",
+    ] {
+        assert_eq!(
+            artifact["properties"][field]["$ref"],
+            "#/$defs/Sha256Digest"
+        );
+    }
+    for forbidden in [
+        "arguments",
+        "capabilities",
+        "execution_authorized",
+        "launch_authorized",
+        "security_exceptions",
+    ] {
+        for properties in [
+            &overlay["properties"],
+            &overlay["$defs"]["ExecutionArtifactBinding"]["properties"],
+            &overlay["$defs"]["ExecutionAuthorityBinding"]["properties"],
+            &overlay["$defs"]["ExecutionOverlayBinding"]["properties"],
+        ] {
+            assert!(properties.get(forbidden).is_none());
+        }
+    }
+    Ok(())
+}
+
+fn assert_required_properties(
+    schema: &serde_json::Value,
+    expected: &[&str],
+) -> Result<(), &'static str> {
+    let required = schema["required"]
+        .as_array()
+        .ok_or("schema must declare required properties")?;
+    assert_eq!(required.len(), expected.len());
+    for property in expected {
+        assert!(required.iter().any(|value| value == property));
     }
     Ok(())
 }

@@ -10,6 +10,7 @@ mod certification;
 mod compatibility;
 mod digest;
 mod discovery;
+mod execution;
 mod ids;
 mod protocol;
 mod security;
@@ -31,10 +32,17 @@ pub use digest::{Sha256Digest, Sha256DigestError};
 pub use discovery::{
     CandidateInstallationEvidence, DerivedValue, DiscoveryConfidence, DiscoverySource,
 };
+pub use execution::{
+    AdapterExecutionAuthority, AuthorizedExecutionTargetRef, EXECUTION_REBINDING_FORMAT_VERSION,
+    ExecutionArchitecture, ExecutionArtifactBinding, ExecutionArtifactSource,
+    ExecutionAuthorityBinding, ExecutionContractError, ExecutionOverlayBinding, ExecutionPlatform,
+    ExecutionTargetKind, GeneratedExecutionOverlay, MAX_AUTHORIZED_EXECUTION_TARGETS,
+    MAX_GENERATED_EXECUTION_BINDINGS, StructurallyValidatedExecutionOverlay,
+};
 pub use ids::{
-    AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, FeatureId,
-    IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId, ScenarioId,
-    SourceUnitId, TraceId, TransformRuleId, UserActivationId, WindowId,
+    AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,
+    FeatureId, IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId,
+    ScenarioId, SourceUnitId, TraceId, TransformRuleId, UserActivationId, WindowId,
 };
 pub use protocol::{
     BufferStorage, CallAuthority, CallContext, ContentBlobId, FRAME_HEADER_LEN, FrameHeader,

@@ -6,15 +6,16 @@ use anyhow::{Context, Result, bail};
 use schemars::{JsonSchema, schema_for};
 use serde_json::{Value, json};
 use weregopher_domain::{
-    AdapterTransformAuthority, BuildFingerprint, CallContext, CandidateInstallationEvidence,
-    CandidateProfile, CertificationClass, CompatibilityAnalysis, EffectiveSecurityPosture,
-    FrameHeader, GeneratedTransformOverlay, ProtocolLimits, PublicationStatus, TrustMode,
-    WireValue,
+    AdapterExecutionAuthority, AdapterTransformAuthority, BuildFingerprint, CallContext,
+    CandidateInstallationEvidence, CandidateProfile, CertificationClass, CompatibilityAnalysis,
+    EffectiveSecurityPosture, FrameHeader, GeneratedExecutionOverlay, GeneratedTransformOverlay,
+    ProtocolLimits, PublicationStatus, TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 15] = [
+pub const SCHEMA_FILENAMES: [&str; 17] = [
+    "adapter-execution-authority.schema.json",
     "adapter-transform-authority.schema.json",
     "build-fingerprint.schema.json",
     "call-context.schema.json",
@@ -24,6 +25,7 @@ pub const SCHEMA_FILENAMES: [&str; 15] = [
     "compatibility-analysis.schema.json",
     "effective-security-posture.schema.json",
     "frame-header.schema.json",
+    "generated-execution-overlay.schema.json",
     "generated-transform-overlay.schema.json",
     "package-tree-manifest.schema.json",
     "protocol-limits.schema.json",
@@ -102,21 +104,23 @@ where
 
 fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
     Ok(vec![
-        schema_document::<AdapterTransformAuthority>(SCHEMA_FILENAMES[0])?,
-        schema_document::<BuildFingerprint>(SCHEMA_FILENAMES[1])?,
-        schema_document::<CallContext>(SCHEMA_FILENAMES[2])?,
-        schema_document::<CandidateInstallationEvidence>(SCHEMA_FILENAMES[3])?,
-        schema_document::<CandidateProfile>(SCHEMA_FILENAMES[4])?,
-        schema_document::<CertificationClass>(SCHEMA_FILENAMES[5])?,
-        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[6])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[7])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[8])?,
-        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[9])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[10])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[11])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[12])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[13])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[14])?,
+        schema_document::<AdapterExecutionAuthority>(SCHEMA_FILENAMES[0])?,
+        schema_document::<AdapterTransformAuthority>(SCHEMA_FILENAMES[1])?,
+        schema_document::<BuildFingerprint>(SCHEMA_FILENAMES[2])?,
+        schema_document::<CallContext>(SCHEMA_FILENAMES[3])?,
+        schema_document::<CandidateInstallationEvidence>(SCHEMA_FILENAMES[4])?,
+        schema_document::<CandidateProfile>(SCHEMA_FILENAMES[5])?,
+        schema_document::<CertificationClass>(SCHEMA_FILENAMES[6])?,
+        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[7])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[8])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[9])?,
+        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[10])?,
+        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[11])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[12])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[13])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[14])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[15])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[16])?,
     ])
 }
 

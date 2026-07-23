@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "AdapterId": {
+      "description": "A durable adapter identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ApplicationFamilyId": {
+      "description": "A durable application-family identifier, such as `openai.chatgpt`.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ExecutionArchitecture": {
+      "description": "Architecture accepted by execution-rebinding format version 1.",
+      "oneOf": [
+        {
+          "const": "x86_64",
+          "description": "AMD64/x86-64 under the initial release profile.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionArtifactBinding": {
+      "additionalProperties": false,
+      "description": "Generated evidence binding one static execution target to exact resolved artifacts.\n\nThe resolution-evidence artifact is expected to describe the resolved executable path, signer or\nprovenance checks, launch-policy resolution, and any other target-contract evidence. This record\nbinds its digest but does not interpret or trust those bytes.",
+      "properties": {
+        "artifact_source_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "executable_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "execution_contract_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "resolution_evidence_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        }
+      },
+      "required": [
+        "execution_contract_digest",
+        "artifact_source_digest",
+        "executable_digest",
+        "resolution_evidence_digest"
+      ],
+      "type": "object"
+    },
+    "ExecutionAuthorityBinding": {
+      "additionalProperties": false,
+      "description": "Immutable adapter-authority identities carried by one generated execution overlay.",
+      "properties": {
+        "adapter_content_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "adapter_execution_authority_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "adapter_id": {
+          "$ref": "#/$defs/AdapterId"
+        },
+        "family": {
+          "$ref": "#/$defs/ApplicationFamilyId"
+        }
+      },
+      "required": [
+        "family",
+        "adapter_id",
+        "adapter_content_digest",
+        "adapter_execution_authority_digest"
+      ],
+      "type": "object"
+    },
+    "ExecutionOverlayBinding": {
+      "additionalProperties": false,
+      "description": "Immutable identities binding generated execution evidence to one exact environment.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/ExecutionAuthorityBinding"
+        },
+        "build_descriptor_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "execution_environment_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "package_tree_merkle": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "source_build_fingerprint_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        }
+      },
+      "required": [
+        "source_build_fingerprint_digest",
+        "package_tree_merkle",
+        "execution_environment_digest",
+        "authority",
+        "build_descriptor_digest"
+      ],
+      "type": "object"
+    },
+    "ExecutionPlatform": {
+      "description": "Platform accepted by execution-rebinding format version 1.",
+      "oneOf": [
+        {
+          "const": "windows",
+          "description": "Microsoft Windows under the initial release profile.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExecutionRebindingFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Generated per-build execution-artifact resolution evidence.\n\nThis is structural, content-addressed evidence. It does not authenticate authority, prove that\nreferenced artifacts exist, grant capabilities, authorize execution, or authorize process launch.",
+  "properties": {
+    "architecture": {
+      "$ref": "#/$defs/ExecutionArchitecture"
+    },
+    "binding": {
+      "$ref": "#/$defs/ExecutionOverlayBinding"
+    },
+    "bindings": {
+      "additionalProperties": false,
+      "maxProperties": 64,
+      "minProperties": 1,
+      "patternProperties": {
+        "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$": {
+          "$ref": "#/$defs/ExecutionArtifactBinding"
+        }
+      },
+      "type": "object"
+    },
+    "format_version": {
+      "$ref": "#/$defs/ExecutionRebindingFormatVersion"
+    },
+    "platform": {
+      "$ref": "#/$defs/ExecutionPlatform"
+    }
+  },
+  "required": [
+    "format_version",
+    "platform",
+    "architecture",
+    "binding",
+    "bindings"
+  ],
+  "title": "GeneratedExecutionOverlay",
+  "type": "object"
+}

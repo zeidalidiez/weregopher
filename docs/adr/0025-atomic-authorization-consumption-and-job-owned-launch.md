@@ -45,5 +45,5 @@ The Windows command-line ceiling is a runtime transport limit, not authority. Th
 - Broker-mediated and OS-contained targets fail closed at this boundary until corresponding enforcing launch implementations exist.
 - Job Objects remain lifecycle and accounting controls, not sandboxes.
 - A retained Windows directory handle still does not prevent a same-user process from inserting a new child after manifest verification. Package-manifest current-view evidence therefore remains point-in-time and must not be described as a sealed namespace.
-- The authorization-context digest identifies logical decision equivalence, not a physical path, lock instance, or ambient dependency namespace; exact launch capabilities remain attached to the opaque process owner instead.
+- The authorization-context digest identifies logical decision equivalence, not a physical path, lock instance, or ambient dependency namespace. Exact path and lock-instance capabilities remain attached to the opaque process owner; the `vendor_default_ambient` dependency namespace is neither capability-retained nor sealed or digest-bound.
 - Registry trust, forensic override approval, durable supervisor protocol integration, graceful shutdown, and certification evidence remain separate milestones.

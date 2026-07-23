@@ -1768,9 +1768,10 @@ confirmation. A terminal report MUST preserve the exact target and authorization
 and MUST NOT become serialized authority or certification evidence.
 
 The authorization-context digest identifies the logical authorization decision. It MUST NOT be
-described as an exact physical-launch identity: local absolute paths, Windows lock-instance identity,
-and the ambient dependency namespace remain attached to opaque live capabilities rather than that
-digest.
+described as an exact physical-launch identity. Local absolute paths and Windows lock-instance
+identity remain attached to opaque live capabilities rather than that digest. Under
+`vendor_default_ambient`, the ambient dependency namespace is neither capability-retained nor sealed
+or digest-bound.
 
 This bounded lifecycle owner is not yet an `AppInstanceId`, `RuntimeId`, workflow, user-activation,
 or state-lease owner and MUST NOT be represented as a complete production application supervisor.

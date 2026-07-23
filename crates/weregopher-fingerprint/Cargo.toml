@@ -13,7 +13,11 @@ schemars.workspace = true
 serde.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+walkdir.workspace = true
 weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }

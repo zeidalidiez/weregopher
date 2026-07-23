@@ -7,6 +7,8 @@ mod builder;
 mod classifier;
 mod model;
 mod observation;
+mod options;
+mod scanner;
 
 pub use acquisition::{
     MAX_PACKAGE_TREE_DEPTH, MAX_PACKAGE_TREE_DIRECTORIES, PackageFileReader,
@@ -23,3 +25,5 @@ pub use model::{
 pub use observation::{
     ObservationError, ObservationLimits, PackageFileObservation, observe_package_file,
 };
+pub use options::{DEFAULT_MAX_ENTRIES, FingerprintOptions, FingerprintOptionsError};
+pub use scanner::{FingerprintError, fingerprint_package};

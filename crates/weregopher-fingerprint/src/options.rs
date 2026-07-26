@@ -9,14 +9,20 @@ pub const DEFAULT_MAX_ENTRIES: usize = 1_000_000;
 ///
 /// Selective exclusions are deliberately unavailable until a signed mutable-path
 /// policy can prove that omitted paths cannot contain executable or identity-bearing
-/// package content.
+/// package content. The caller-selected aggregate entry limit is additional to the
+/// fixed format-v1 record, normalized-path, and aggregate path-byte ceilings.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FingerprintOptions {
     pub(crate) max_entries: usize,
 }
 
 impl FingerprintOptions {
-    /// Replaces the complete-tree entry budget. Zero is rejected.
+    /// Replaces the complete-tree aggregate entry budget. Zero is rejected.
+    ///
+    /// A larger value does not relax the canonical manifest ceilings. Scanning
+    /// still rejects more than 65,536 file/link records, paths deeper than 256
+    /// components or longer than 32,767 scalars, and aggregate normalized entry
+    /// paths larger than 16 MiB.
     ///
     /// # Errors
     ///

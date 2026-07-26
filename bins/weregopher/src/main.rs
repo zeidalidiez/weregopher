@@ -97,7 +97,7 @@ struct FingerprintArguments {
     /// Package machine architecture.
     #[arg(long, value_enum)]
     architecture: CliArchitecture,
-    /// Maximum files and directories before failing closed.
+    /// Maximum aggregate files/directories; canonical format-v1 hard limits still apply.
     #[arg(long, default_value_t = DEFAULT_MAX_ENTRIES)]
     max_entries: usize,
 }

@@ -96,6 +96,30 @@ fn fingerprint_command_rejects_uncertified_path_exclusions()
 }
 
 #[test]
+fn fingerprint_command_rejects_unrepresentable_empty_directories()
+-> Result<(), Box<dyn std::error::Error>> {
+    let package = tempdir()?;
+    fs::create_dir(package.path().join("empty"))?;
+
+    let output = Command::new(env!("CARGO_BIN_EXE_weregopher"))
+        .arg("fingerprint")
+        .arg(package.path())
+        .args([
+            "--family",
+            "openai.chatgpt",
+            "--installation-kind",
+            "portable",
+            "--architecture",
+            "x86_64",
+        ])
+        .output()?;
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unrepresentable empty directory"));
+    Ok(())
+}
+
+#[test]
 fn fingerprint_command_reports_a_closed_stdout_without_panicking()
 -> Result<(), Box<dyn std::error::Error>> {
     let package = tempdir()?;

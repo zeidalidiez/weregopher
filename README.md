@@ -47,6 +47,7 @@ never makes an application compatible by itself.
 | --- | --- |
 | Domain and protocol contracts | Implemented in Rust with deterministic JSON Schemas, including bounded execution-target and generated resolution-evidence documents |
 | Package manifest construction | Deterministic construction from pre-observed file records, with read-only public accessors, closed transport objects, a 256-component path ceiling, a 65,536-record ceiling, and a 16 MiB aggregate normalized-path budget |
+| Portable package fingerprint scan | Complete two-pass file/link scanning validates canonical path syntax and fixed record/path ceilings before hashing or retention, rejects non-root empty directories that format v1 cannot encode, and emits manifests only through the canonical builder; this is stable observational evidence, not an immutable snapshot or retained build lease |
 | Windows file observation | Bounded direct-file hashing with retained handle identity checks |
 | Windows package-tree observation | Bounded iterative traversal retains every root-ancestor, directory, and regular-file identity and can reopen exact manifest files through bounded identity-verified readers; denies writable retained-directory handles and rejects reparse points, unsupported or ambiguous entries, Windows ordinal case collisions, non-root empty directories, and visible membership changes; this is a live observation, not an atomic snapshot |
 | Installed-app discovery | Known locations, uninstall registry, and Windows package catalog |

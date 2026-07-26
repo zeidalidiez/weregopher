@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Negotiated heartbeat bounds for one session.",
+  "properties": {
+    "interval_millis": {
+      "format": "uint32",
+      "maximum": 60000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "timeout_millis": {
+      "format": "uint32",
+      "maximum": 60000,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "interval_millis",
+    "timeout_millis"
+  ],
+  "title": "HeartbeatPolicy",
+  "type": "object"
+}

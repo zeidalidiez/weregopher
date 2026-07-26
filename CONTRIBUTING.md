@@ -15,10 +15,15 @@ Read `AGENTS.md`, the relevant architecture decisions, and the affected specific
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+cargo test --workspace --all-targets --all-features
 ```
 
 Generated schemas must be reproducible and clean after `cargo xtask schema` once the schema generator is introduced.
+
+Windows protocol and process changes also follow the
+[runtime protocol testing matrix](docs/testing/runtime-protocol-matrix.md). Linux
+Cargo under WSL is not native Windows evidence; use the documented PowerShell/native
+Cargo lane with a separate Windows target directory.
 
 ## Licensing contributions
 

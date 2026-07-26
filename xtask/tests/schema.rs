@@ -37,11 +37,28 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "frame-header.schema.json",
         "generated-execution-overlay.schema.json",
         "generated-transform-overlay.schema.json",
+        "heartbeat-policy.schema.json",
         "local-certification-ledger-record.schema.json",
         "local-certification-run-attestation.schema.json",
         "package-tree-manifest.schema.json",
+        "protocol-features.schema.json",
         "protocol-limits.schema.json",
+        "protocol-reject.schema.json",
+        "protocol-version.schema.json",
+        "protocol-version-range.schema.json",
         "publication-status.schema.json",
+        "runtime-backend-identity.schema.json",
+        "runtime-call.schema.json",
+        "runtime-call-error.schema.json",
+        "runtime-call-result.schema.json",
+        "runtime-cancel.schema.json",
+        "runtime-event.schema.json",
+        "runtime-hello.schema.json",
+        "runtime-shutdown.schema.json",
+        "runtime-stream-data.schema.json",
+        "runtime-stream-open.schema.json",
+        "runtime-stream-window.schema.json",
+        "runtime-welcome.schema.json",
         "trust-mode.schema.json",
         "wire-value.schema.json",
     ];
@@ -58,6 +75,81 @@ fn schema_generation_is_complete_deterministic_and_checkable()
             serde_json::json!("https://json-schema.org/draft/2020-12/schema")
         );
     }
+    Ok(())
+}
+
+#[test]
+fn runtime_protocol_schemas_are_closed_and_expose_static_bounds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    for filename in [
+        "heartbeat-policy.schema.json",
+        "protocol-features.schema.json",
+        "protocol-reject.schema.json",
+        "protocol-version.schema.json",
+        "protocol-version-range.schema.json",
+        "runtime-backend-identity.schema.json",
+        "runtime-call.schema.json",
+        "runtime-call-error.schema.json",
+        "runtime-call-result.schema.json",
+        "runtime-cancel.schema.json",
+        "runtime-event.schema.json",
+        "runtime-hello.schema.json",
+        "runtime-shutdown.schema.json",
+        "runtime-stream-data.schema.json",
+        "runtime-stream-open.schema.json",
+        "runtime-stream-window.schema.json",
+        "runtime-welcome.schema.json",
+    ] {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.path().join(filename))?)?;
+        assert_eq!(
+            document["additionalProperties"], false,
+            "schema {filename} must be closed"
+        );
+    }
+
+    let hello: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.path().join("runtime-hello.schema.json"))?)?;
+    assert_eq!(hello["properties"]["nonce_proof"]["minItems"], 32);
+    assert_eq!(hello["properties"]["nonce_proof"]["maxItems"], 32);
+    assert_eq!(
+        hello["$defs"]["ProtocolVersion"]["properties"]["major"]["minimum"],
+        1
+    );
+    assert_eq!(
+        hello["$defs"]["ProtocolLimits"]["additionalProperties"],
+        false
+    );
+
+    let backend: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("runtime-backend-identity.schema.json"),
+    )?)?;
+    assert_eq!(
+        backend["properties"]["version"]["x-weregopher-maxUtf8Bytes"],
+        128
+    );
+
+    let reject: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("protocol-reject.schema.json"),
+    )?)?;
+    assert_eq!(
+        reject["properties"]["detail"]["x-weregopher-maxUtf8Bytes"],
+        512
+    );
+
+    let call: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.path().join("runtime-call.schema.json"))?)?;
+    assert_eq!(call["$defs"]["CallContext"]["additionalProperties"], false);
+
+    let cancel: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.path().join("runtime-cancel.schema.json"))?)?;
+    assert_eq!(cancel["properties"]["request_id"]["minimum"], 1);
+    let stream_open: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("runtime-stream-open.schema.json"),
+    )?)?;
+    assert_eq!(stream_open["properties"]["initial_credit"]["minimum"], 1);
     Ok(())
 }
 

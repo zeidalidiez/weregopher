@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "RuntimeShutdownReason": {
+      "description": "Reason for a graceful protocol shutdown.",
+      "oneOf": [
+        {
+          "const": "application_exit",
+          "description": "Normal application lifecycle completion.",
+          "type": "string"
+        },
+        {
+          "const": "host_shutdown",
+          "description": "Host is shutting down the runtime.",
+          "type": "string"
+        },
+        {
+          "const": "worker_shutdown",
+          "description": "Worker requested orderly termination.",
+          "type": "string"
+        },
+        {
+          "const": "policy_revoked",
+          "description": "Negotiated policy was revoked.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Graceful shutdown request.",
+  "properties": {
+    "reason": {
+      "$ref": "#/$defs/RuntimeShutdownReason",
+      "description": "Stable shutdown category."
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "title": "RuntimeShutdown",
+  "type": "object"
+}

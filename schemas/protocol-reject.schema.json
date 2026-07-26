@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "ProtocolRejectCode": {
+      "description": "Stable connection-rejection category.",
+      "oneOf": [
+        {
+          "const": "version_mismatch",
+          "description": "No protocol version overlaps.",
+          "type": "string"
+        },
+        {
+          "const": "identity_mismatch",
+          "description": "Runtime, application, backend, or process identity mismatched.",
+          "type": "string"
+        },
+        {
+          "const": "peer_rejected",
+          "description": "Peer process or user validation failed.",
+          "type": "string"
+        },
+        {
+          "const": "nonce_rejected",
+          "description": "Nonce-possession proof failed.",
+          "type": "string"
+        },
+        {
+          "const": "limits_rejected",
+          "description": "Requested limits were invalid.",
+          "type": "string"
+        },
+        {
+          "const": "features_rejected",
+          "description": "Required additive features were unavailable.",
+          "type": "string"
+        },
+        {
+          "const": "malformed_handshake",
+          "description": "The encoded handshake was malformed.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Bounded non-secret connection rejection.",
+  "properties": {
+    "code": {
+      "$ref": "#/$defs/ProtocolRejectCode"
+    },
+    "detail": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string",
+      "x-weregopher-maxUtf8Bytes": 512
+    }
+  },
+  "required": [
+    "code",
+    "detail"
+  ],
+  "title": "ProtocolReject",
+  "type": "object"
+}

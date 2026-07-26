@@ -6,6 +6,7 @@
       "type": "string"
     },
     "CallAuthority": {
+      "additionalProperties": false,
       "description": "Host-issued authority references attached to a call.",
       "properties": {
         "capability": {
@@ -39,6 +40,7 @@
       "type": "string"
     },
     "FrameIdentity": {
+      "additionalProperties": false,
       "description": "Renderer frame identity, including navigation generation.",
       "properties": {
         "frame_id": {
@@ -88,6 +90,7 @@
       "type": "object"
     },
     "OriginIdentity": {
+      "additionalProperties": false,
       "description": "Origin identity observed by the renderer backend rather than supplied by page code.",
       "properties": {
         "opaque": {
@@ -156,6 +159,7 @@
       "type": "string"
     },
     "WorldIdentity": {
+      "additionalProperties": false,
       "description": "Identity of a script world and its destruction/recreation generation.",
       "properties": {
         "frame": {
@@ -191,6 +195,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "Authoritative context attached to a worker-to-host operation.",
   "properties": {
     "app": {

@@ -181,6 +181,11 @@ stable_string_id!(
     "scenario state root",
     "A logical disposable-state root within one certification scenario."
 );
+stable_string_id!(
+    RuntimeBackendId,
+    "runtime backend",
+    "A durable JavaScript-runtime or synthetic-fixture backend identifier."
+);
 
 macro_rules! uuid_id {
     ($name:ident, $doc:literal) => {

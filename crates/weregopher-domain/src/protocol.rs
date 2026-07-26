@@ -255,6 +255,7 @@ pub enum FrameHeaderError {
 
 /// Negotiated allocation and concurrency limits for one authenticated connection.
 #[derive(Clone, Copy, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProtocolLimits {
     /// Maximum encoded payload bytes in one frame.
     #[schemars(range(min = 1))]
@@ -373,6 +374,7 @@ pub enum ProtocolLimitError {
 
 /// Host-issued authority references attached to a call.
 #[derive(Clone, Debug, Default, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CallAuthority {
     /// Capability grant selected and validated by the receiving host.
     pub capability: Option<CapabilityGrantId>,
@@ -382,6 +384,7 @@ pub struct CallAuthority {
 
 /// Authoritative context attached to a worker-to-host operation.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CallContext {
     /// Owning application launch.
     pub app: AppInstanceId,
@@ -401,6 +404,7 @@ pub struct CallContext {
 
 /// Origin identity observed by the renderer backend rather than supplied by page code.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OriginIdentity {
     /// Canonical serialized origin, or an implementation-assigned opaque identifier.
     pub serialized: String,
@@ -410,6 +414,7 @@ pub struct OriginIdentity {
 
 /// Renderer frame identity, including navigation generation.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FrameIdentity {
     /// Owning renderer.
     pub renderer: RendererId,
@@ -441,6 +446,7 @@ pub enum ScriptWorldKind {
 
 /// Identity of a script world and its destruction/recreation generation.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorldIdentity {
     /// Owning frame identity.
     pub frame: FrameIdentity,
@@ -488,6 +494,7 @@ pub enum ObjectKind {
 
 /// Generation-protected, application-scoped remote object reference.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectHandle {
     /// Owning application launch.
     pub app: AppInstanceId,
@@ -501,6 +508,7 @@ pub struct ObjectHandle {
 
 /// Generation-protected opaque protocol handle.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OpaqueHandle {
     /// Owning application launch.
     pub app: AppInstanceId,
@@ -508,6 +516,18 @@ pub struct OpaqueHandle {
     pub id: u64,
     /// Reuse generation.
     pub generation: u32,
+}
+
+impl OpaqueHandle {
+    /// Constructs an application-scoped opaque handle.
+    #[must_use]
+    pub const fn new(app: AppInstanceId, id: u64, generation: u32) -> Self {
+        Self {
+            app,
+            id,
+            generation,
+        }
+    }
 }
 
 /// Remote callable-function handle.
@@ -523,6 +543,7 @@ pub type StreamHandle = OpaqueHandle;
 
 /// Content-addressed immutable blob reference.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContentBlobId {
     /// Blob content digest.
     pub sha256: Sha256Digest,
@@ -532,11 +553,13 @@ pub struct ContentBlobId {
 
 /// Storage backing for bytes or a typed array.
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BufferStorage {
     /// Bounded bytes carried in the containing message.
     Inline {
         /// Inline byte content.
+        #[schemars(with = "Vec<u8>")]
+        #[serde(with = "serde_bytes")]
         value: Vec<u8>,
     },
     /// Authenticated broker-created shared mapping.
@@ -586,6 +609,7 @@ pub enum TypedArrayKind {
 
 /// One ordered JavaScript object property in a serialized graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct WireObjectEntry {
     /// Property key.
     pub key: String,
@@ -595,6 +619,7 @@ pub struct WireObjectEntry {
 
 /// JavaScript-visible error shape plus an internal classification.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct WireError {
     /// JavaScript error constructor/name.
     pub name: String,
@@ -614,7 +639,7 @@ pub struct WireError {
 
 /// Backend-neutral semantic value model for worker, host, helper, and renderer bridges.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireValue {
     /// JavaScript `undefined`.
     Undefined,
@@ -649,6 +674,8 @@ pub enum WireValue {
         /// Whether the mathematical integer is negative.
         negative: bool,
         /// Unsigned magnitude encoded most-significant byte first.
+        #[schemars(with = "Vec<u8>")]
+        #[serde(with = "serde_bytes")]
         magnitude_be: Vec<u8>,
     },
     /// UTF-8 string.
@@ -659,6 +686,8 @@ pub enum WireValue {
     /// Bounded inline byte sequence.
     Bytes {
         /// Byte content.
+        #[schemars(with = "Vec<u8>")]
+        #[serde(with = "serde_bytes")]
         value: Vec<u8>,
     },
     /// Ordered array values.

@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "AppInstanceId": {
+      "description": "A unique application launch identity.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "OpaqueHandle": {
+      "additionalProperties": false,
+      "description": "Generation-protected opaque protocol handle.",
+      "properties": {
+        "app": {
+          "$ref": "#/$defs/AppInstanceId",
+          "description": "Owning application launch."
+        },
+        "generation": {
+          "description": "Reuse generation.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "Application-scoped handle number.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "app",
+        "id",
+        "generation"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Grants additional byte credit to one stream.",
+  "properties": {
+    "additional_credit": {
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "stream": {
+      "$ref": "#/$defs/OpaqueHandle"
+    }
+  },
+  "required": [
+    "stream",
+    "additional_credit"
+  ],
+  "title": "RuntimeStreamWindow",
+  "type": "object"
+}

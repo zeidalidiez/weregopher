@@ -1,0 +1,246 @@
+{
+  "$defs": {
+    "AppInstanceId": {
+      "description": "A unique application launch identity.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "ProtocolFeatures": {
+      "additionalProperties": false,
+      "description": "Additive features negotiated for one protocol session.",
+      "properties": {
+        "calls": {
+          "description": "Asynchronous calls and results.",
+          "type": "boolean"
+        },
+        "cancellation": {
+          "description": "Idempotent request cancellation.",
+          "type": "boolean"
+        },
+        "credit_streams": {
+          "description": "Credit-controlled byte streams.",
+          "type": "boolean"
+        },
+        "events": {
+          "description": "Ordered connection events.",
+          "type": "boolean"
+        },
+        "shared_buffers": {
+          "description": "Authenticated duplicated shared-buffer handles.",
+          "type": "boolean"
+        },
+        "sync_lane": {
+          "description": "Strict single-outstanding-call synchronous lane.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "calls",
+        "cancellation",
+        "events",
+        "credit_streams",
+        "sync_lane",
+        "shared_buffers"
+      ],
+      "type": "object"
+    },
+    "ProtocolLimits": {
+      "additionalProperties": false,
+      "description": "Negotiated allocation and concurrency limits for one authenticated connection.",
+      "properties": {
+        "max_frame_bytes": {
+          "description": "Maximum encoded payload bytes in one frame.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_graph_nodes": {
+          "description": "Maximum nodes in one serialized object graph.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_inline_buffer_bytes": {
+          "description": "Maximum bytes carried inline rather than streamed or shared.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_listener_count": {
+          "description": "Maximum connection-owned event listeners.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_object_depth": {
+          "description": "Maximum nested object/array depth.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_open_streams": {
+          "description": "Maximum concurrently open streams.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_pending_requests": {
+          "description": "Maximum unresolved request/response operations.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_remote_handles": {
+          "description": "Maximum live remote handles.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_string_bytes": {
+          "description": "Maximum UTF-8 bytes in one string.",
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "max_graph_nodes",
+        "max_object_depth",
+        "max_string_bytes",
+        "max_inline_buffer_bytes",
+        "max_pending_requests",
+        "max_remote_handles",
+        "max_open_streams",
+        "max_listener_count"
+      ],
+      "type": "object"
+    },
+    "ProtocolVersion": {
+      "additionalProperties": false,
+      "description": "One negotiated protocol version.",
+      "properties": {
+        "major": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "minor": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    },
+    "ProtocolVersionRange": {
+      "additionalProperties": false,
+      "description": "Inclusive range of protocol versions supported by one endpoint.",
+      "properties": {
+        "maximum": {
+          "$ref": "#/$defs/ProtocolVersion"
+        },
+        "minimum": {
+          "$ref": "#/$defs/ProtocolVersion"
+        }
+      },
+      "required": [
+        "minimum",
+        "maximum"
+      ],
+      "type": "object"
+    },
+    "RuntimeBackendId": {
+      "description": "A durable JavaScript-runtime or synthetic-fixture backend identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    },
+    "RuntimeBackendIdentity": {
+      "additionalProperties": false,
+      "description": "Exact worker backend identity presented during connection setup.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RuntimeBackendId"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+          "x-weregopher-maxUtf8Bytes": 128
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "type": "object"
+    },
+    "RuntimeId": {
+      "description": "A unique worker-runtime identity.",
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Worker-to-host connection initiation.",
+  "properties": {
+    "app": {
+      "$ref": "#/$defs/AppInstanceId"
+    },
+    "backend": {
+      "$ref": "#/$defs/RuntimeBackendIdentity"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/ProtocolFeatures"
+    },
+    "nonce_proof": {
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "protocol_range": {
+      "$ref": "#/$defs/ProtocolVersionRange"
+    },
+    "requested_limits": {
+      "$ref": "#/$defs/ProtocolLimits"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RuntimeId"
+    }
+  },
+  "required": [
+    "runtime",
+    "app",
+    "backend",
+    "protocol_range",
+    "nonce_proof",
+    "capabilities",
+    "requested_limits"
+  ],
+  "title": "RuntimeHello",
+  "type": "object"
+}

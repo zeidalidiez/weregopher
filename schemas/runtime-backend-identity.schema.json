@@ -1,0 +1,31 @@
+{
+  "$defs": {
+    "RuntimeBackendId": {
+      "description": "A durable JavaScript-runtime or synthetic-fixture backend identifier.",
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Exact worker backend identity presented during connection setup.",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/RuntimeBackendId"
+    },
+    "version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string",
+      "x-weregopher-maxUtf8Bytes": 128
+    }
+  },
+  "required": [
+    "id",
+    "version"
+  ],
+  "title": "RuntimeBackendIdentity",
+  "type": "object"
+}

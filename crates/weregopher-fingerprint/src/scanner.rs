@@ -1,7 +1,7 @@
 //! Secure, deterministic filesystem traversal and Merkle construction.
 
 use std::{
-    collections::{BTreeMap, btree_map::Entry},
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File, Metadata, OpenOptions},
     io::{self, Read},
     path::{Component, Path, PathBuf},
@@ -13,22 +13,27 @@ use walkdir::WalkDir;
 use weregopher_domain::Sha256Digest;
 
 use crate::{
-    FingerprintOptions, PACKAGE_TREE_FORMAT_VERSION, PackageFileKind, PackageFileRecord,
-    PackageTreeManifest,
+    FingerprintOptions, MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES, ManifestError,
+    PackageFileKind, PackageFileRecord, PackageTreeManifest, build_package_manifest,
+    builder::validate_normalized_path,
 };
 
-const FILE_HASH_DOMAIN: &[u8] = b"weregopher.package.file.v1\0";
-const DIRECTORY_HASH_DOMAIN: &[u8] = b"weregopher.package.directory.v1\0";
 const SYMLINK_HASH_DOMAIN: &[u8] = b"weregopher.package.symlink-target.v1\0";
 const READ_BUFFER_BYTES: usize = 64 * 1024;
 
 /// Scans an installed package directory without following links or modifying package files.
 ///
+/// Every entry path and file/link record is checked against the fixed canonical
+/// manifest ceilings while scanning. Non-root empty directories are rejected
+/// because package-manifest format version 1 has no directory records. The final
+/// manifest is always constructed by [`build_package_manifest`].
+///
 /// # Errors
 ///
 /// Returns [`FingerprintError`] when the root is not a direct directory, an entry
 /// crosses the configured trust boundary, filesystem evidence changes during the
-/// scan, or canonical path/Merkle construction cannot complete safely.
+/// scan, resource or canonical path limits are exceeded, directory state cannot be
+/// represented, or canonical manifest construction cannot complete safely.
 pub fn fingerprint_package(
     root: &Path,
     options: &FingerprintOptions,
@@ -74,12 +79,13 @@ fn scan_package_once(
         path: root.to_path_buf(),
         source,
     })?;
-    let mut tree = DirectoryNode::default();
     let mut records = Vec::new();
     let mut file_leases = Vec::new();
     let mut case_folded_paths = BTreeMap::<String, String>::new();
+    let mut directories = BTreeSet::<String>::new();
+    let mut nonempty_directories = BTreeSet::<String>::new();
     let mut observed_identities = Vec::new();
-    let mut observed_entries = 0_usize;
+    let mut budget = ScanBudget::default();
 
     for result in WalkDir::new(&canonical_root).follow_links(false) {
         let entry = result.map_err(|error| FingerprintError::Walk {
@@ -96,15 +102,12 @@ fn scan_package_once(
             }
         })?;
         let normalized_path = normalize_relative_path(relative)?;
-
-        observed_entries = observed_entries.saturating_add(1);
-        if observed_entries > options.max_entries {
-            return Err(FingerprintError::EntryLimitExceeded {
-                limit: options.max_entries,
-            });
-        }
+        budget.observe_entry(&normalized_path, options.max_entries)?;
         reject_case_collision(&mut case_folded_paths, &normalized_path)?;
         verify_entry_resolves_inside_root(entry.path(), &canonical_root)?;
+        if let Some((parent, _)) = normalized_path.rsplit_once('/') {
+            nonempty_directories.insert(parent.to_owned());
+        }
 
         let metadata =
             fs::symlink_metadata(entry.path()).map_err(|source| FingerprintError::Io {
@@ -115,20 +118,18 @@ fn scan_package_once(
         observed_identities.push((entry.path().to_path_buf(), identity));
 
         if metadata.file_type().is_symlink() {
+            budget.observe_file_record()?;
             let record = scan_symbolic_link(entry.path(), normalized_path, &canonical_root)?;
-            let leaf_hash = hash_file_record(&record);
-            tree.insert_leaf(&record.normalized_path, leaf_hash, record.kind)?;
             records.push(record);
         } else if is_reparse_point(&metadata) {
             return Err(FingerprintError::UnsupportedReparsePoint {
                 path: entry.path().to_path_buf(),
             });
         } else if metadata.is_dir() {
-            tree.insert_directory(&normalized_path)?;
+            directories.insert(normalized_path);
         } else if metadata.is_file() {
+            budget.observe_file_record()?;
             let (record, lease) = scan_file(entry.path(), normalized_path, &canonical_root)?;
-            let leaf_hash = hash_file_record(&record);
-            tree.insert_leaf(&record.normalized_path, leaf_hash, record.kind)?;
             records.push(record);
             file_leases.push(lease);
         } else {
@@ -138,12 +139,12 @@ fn scan_package_once(
         }
     }
 
-    records.sort_by(|left, right| left.normalized_path.cmp(&right.normalized_path));
-    let manifest = PackageTreeManifest {
-        format_version: PACKAGE_TREE_FORMAT_VERSION,
-        package_tree_merkle: tree.hash(""),
-        files: records,
-    };
+    if let Some(normalized_path) = directories.difference(&nonempty_directories).next() {
+        return Err(FingerprintError::EmptyDirectory {
+            normalized_path: normalized_path.clone(),
+        });
+    }
+    let manifest = build_package_manifest(records)?;
     for (path, identity) in observed_identities {
         verify_path_identity(&path, &identity)?;
     }
@@ -163,6 +164,51 @@ fn require_stable_observations(
         });
     }
     Ok(second)
+}
+
+#[derive(Debug, Default)]
+struct ScanBudget {
+    entries: usize,
+    file_records: usize,
+    path_bytes: usize,
+}
+
+impl ScanBudget {
+    fn observe_entry(
+        &mut self,
+        normalized_path: &str,
+        max_entries: usize,
+    ) -> Result<(), FingerprintError> {
+        let entries = self.entries.saturating_add(1);
+        if entries > max_entries {
+            return Err(FingerprintError::EntryLimitExceeded { limit: max_entries });
+        }
+
+        let path_bytes = self.path_bytes.saturating_add(normalized_path.len());
+        if path_bytes > MAX_PACKAGE_RECORD_PATH_BYTES {
+            return Err(FingerprintError::PathBytesExceeded {
+                actual: path_bytes,
+                max: MAX_PACKAGE_RECORD_PATH_BYTES,
+            });
+        }
+
+        self.entries = entries;
+        self.path_bytes = path_bytes;
+        Ok(())
+    }
+
+    fn observe_file_record(&mut self) -> Result<(), FingerprintError> {
+        let file_records = self.file_records.saturating_add(1);
+        if file_records > MAX_PACKAGE_FILE_RECORDS {
+            return Err(ManifestError::FileLimitExceeded {
+                actual: file_records,
+                max: MAX_PACKAGE_FILE_RECORDS,
+            }
+            .into());
+        }
+        self.file_records = file_records;
+        Ok(())
+    }
 }
 
 fn verify_root_unchanged(
@@ -506,7 +552,9 @@ fn normalize_relative_path(path: &Path) -> Result<String, FingerprintError> {
             path: path.to_path_buf(),
         });
     }
-    Ok(segments.join("/"))
+    let normalized_path = segments.join("/");
+    validate_normalized_path(&normalized_path)?;
+    Ok(normalized_path)
 }
 
 fn normalize_safe_link_target(link: &Path, target: &Path) -> Result<String, FingerprintError> {
@@ -557,143 +605,9 @@ fn reject_case_collision(
     Ok(())
 }
 
-fn hash_file_record(record: &PackageFileRecord) -> Sha256Digest {
-    let mut hasher = Sha256::new();
-    hasher.update(FILE_HASH_DOMAIN);
-    update_length_prefixed(&mut hasher, record.normalized_path.as_bytes());
-    hasher.update(record.size.to_le_bytes());
-    hasher.update(record.sha256.as_bytes());
-    hasher.update([u8::from(record.executable), record.kind.tag()]);
-    match record.signer_thumbprint {
-        Some(signer) => {
-            hasher.update([1]);
-            hasher.update(signer.as_bytes());
-        }
-        None => hasher.update([0]),
-    }
-    let bytes: [u8; 32] = hasher.finalize().into();
-    Sha256Digest::from_bytes(bytes)
-}
-
 fn update_length_prefixed(hasher: &mut Sha256, bytes: &[u8]) {
     hasher.update((bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
-}
-
-#[derive(Debug, Default)]
-struct DirectoryNode {
-    children: BTreeMap<String, TreeChild>,
-}
-
-#[derive(Debug)]
-enum TreeChild {
-    Directory(DirectoryNode),
-    Leaf {
-        hash: Sha256Digest,
-        kind: PackageFileKind,
-    },
-}
-
-impl DirectoryNode {
-    fn insert_directory(&mut self, normalized_path: &str) -> Result<(), FingerprintError> {
-        let components: Vec<&str> = normalized_path.split('/').collect();
-        self.insert_directory_components(&components, normalized_path)
-    }
-
-    fn insert_directory_components(
-        &mut self,
-        components: &[&str],
-        full_path: &str,
-    ) -> Result<(), FingerprintError> {
-        if components.is_empty() {
-            return Ok(());
-        }
-        let child = match self.children.entry(components[0].to_owned()) {
-            Entry::Vacant(entry) => entry.insert(TreeChild::Directory(Self::default())),
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-        match child {
-            TreeChild::Directory(directory) => {
-                directory.insert_directory_components(&components[1..], full_path)
-            }
-            TreeChild::Leaf { .. } => Err(FingerprintError::PathTypeConflict {
-                path: full_path.to_owned(),
-            }),
-        }
-    }
-
-    fn insert_leaf(
-        &mut self,
-        normalized_path: &str,
-        hash: Sha256Digest,
-        kind: PackageFileKind,
-    ) -> Result<(), FingerprintError> {
-        let mut components: Vec<&str> = normalized_path.split('/').collect();
-        let filename = components
-            .pop()
-            .ok_or_else(|| FingerprintError::PathTypeConflict {
-                path: normalized_path.to_owned(),
-            })?;
-        let parent_path = components.join("/");
-        let parent = self.directory_mut(&components, &parent_path)?;
-        match parent.children.entry(filename.to_owned()) {
-            Entry::Vacant(entry) => {
-                entry.insert(TreeChild::Leaf { hash, kind });
-                Ok(())
-            }
-            Entry::Occupied(_) => Err(FingerprintError::PathTypeConflict {
-                path: normalized_path.to_owned(),
-            }),
-        }
-    }
-
-    fn directory_mut<'a>(
-        &'a mut self,
-        components: &[&str],
-        full_path: &str,
-    ) -> Result<&'a mut Self, FingerprintError> {
-        if components.is_empty() {
-            return Ok(self);
-        }
-        let child = match self.children.entry(components[0].to_owned()) {
-            Entry::Vacant(entry) => entry.insert(TreeChild::Directory(Self::default())),
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-        match child {
-            TreeChild::Directory(directory) => directory.directory_mut(&components[1..], full_path),
-            TreeChild::Leaf { .. } => Err(FingerprintError::PathTypeConflict {
-                path: full_path.to_owned(),
-            }),
-        }
-    }
-
-    fn hash(&self, normalized_path: &str) -> Sha256Digest {
-        let mut hasher = Sha256::new();
-        hasher.update(DIRECTORY_HASH_DOMAIN);
-        update_length_prefixed(&mut hasher, normalized_path.as_bytes());
-        hasher.update((self.children.len() as u64).to_le_bytes());
-
-        for (name, child) in &self.children {
-            update_length_prefixed(&mut hasher, name.as_bytes());
-            let child_path = if normalized_path.is_empty() {
-                name.clone()
-            } else {
-                format!("{normalized_path}/{name}")
-            };
-            match child {
-                TreeChild::Directory(directory) => {
-                    hasher.update([1]);
-                    hasher.update(directory.hash(&child_path).as_bytes());
-                }
-                TreeChild::Leaf { hash, kind } => {
-                    hasher.update([2, kind.tag()]);
-                    hasher.update(hash.as_bytes());
-                }
-            }
-        }
-        let bytes: [u8; 32] = hasher.finalize().into();
-        Sha256Digest::from_bytes(bytes)
-    }
 }
 
 #[cfg(windows)]
@@ -746,6 +660,27 @@ pub enum FingerprintError {
     EntryLimitExceeded {
         /// Configured maximum observed entries.
         limit: usize,
+    },
+    /// Aggregate normalized entry paths exceeded the format-v1 byte budget.
+    #[error("package entry paths use {actual} bytes; limit is {max}")]
+    PathBytesExceeded {
+        /// Aggregate path bytes, or `usize::MAX` when addition overflowed.
+        actual: usize,
+        /// Maximum aggregate normalized-path bytes.
+        max: usize,
+    },
+    /// A non-root empty directory cannot be represented by manifest format version 1.
+    #[error("package contains an unrepresentable empty directory: {normalized_path}")]
+    EmptyDirectory {
+        /// Canonical root-relative path of the unrepresentable directory.
+        normalized_path: String,
+    },
+    /// Canonical manifest construction rejected the observed package records.
+    #[error("canonical package manifest construction failed: {source}")]
+    Manifest {
+        /// Exact canonical manifest violation.
+        #[from]
+        source: ManifestError,
     },
     /// An entry could not be represented without lossy path conversion.
     #[error("package path is not valid Unicode: {path}", path = .path.display())]
@@ -826,9 +761,70 @@ mod tests {
     #[cfg(not(windows))]
     use super::verify_path_identity;
     use super::{
-        FingerprintError, FingerprintOptions, file_identity, require_stable_observations,
-        scan_package_once,
+        FingerprintError, FingerprintOptions, ScanBudget, file_identity, normalize_relative_path,
+        require_stable_observations, scan_package_once,
     };
+    use crate::{
+        MAX_NORMALIZED_PACKAGE_PATH_CHARS, MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS,
+        MAX_PACKAGE_FILE_RECORDS, MAX_PACKAGE_RECORD_PATH_BYTES, ManifestError,
+    };
+
+    #[test]
+    fn scan_budget_enforces_exact_entry_record_and_path_limits() {
+        let mut entries = ScanBudget::default();
+        assert!(entries.observe_entry("a", 1).is_ok());
+        assert!(matches!(
+            entries.observe_entry("b", 1),
+            Err(FingerprintError::EntryLimitExceeded { limit: 1 })
+        ));
+
+        let mut records = ScanBudget {
+            file_records: MAX_PACKAGE_FILE_RECORDS - 1,
+            ..ScanBudget::default()
+        };
+        assert!(records.observe_file_record().is_ok());
+        assert!(matches!(
+            records.observe_file_record(),
+            Err(FingerprintError::Manifest {
+                source: ManifestError::FileLimitExceeded {
+                    actual,
+                    max: MAX_PACKAGE_FILE_RECORDS,
+                },
+            }) if actual == MAX_PACKAGE_FILE_RECORDS + 1
+        ));
+
+        let mut paths = ScanBudget {
+            path_bytes: MAX_PACKAGE_RECORD_PATH_BYTES - 1,
+            ..ScanBudget::default()
+        };
+        assert!(paths.observe_entry("a", MAX_PACKAGE_FILE_RECORDS).is_ok());
+        assert!(matches!(
+            paths.observe_entry("b", MAX_PACKAGE_FILE_RECORDS),
+            Err(FingerprintError::PathBytesExceeded {
+                actual,
+                max: MAX_PACKAGE_RECORD_PATH_BYTES,
+            }) if actual == MAX_PACKAGE_RECORD_PATH_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn normalized_scanner_paths_enforce_character_and_depth_ceilings() {
+        let too_long = "a".repeat(MAX_NORMALIZED_PACKAGE_PATH_CHARS + 1);
+        assert!(matches!(
+            normalize_relative_path(std::path::Path::new(&too_long)),
+            Err(FingerprintError::Manifest {
+                source: ManifestError::InvalidPath { .. },
+            })
+        ));
+
+        let too_deep = vec!["a"; MAX_NORMALIZED_PACKAGE_PATH_COMPONENTS + 1].join("/");
+        assert!(matches!(
+            normalize_relative_path(std::path::Path::new(&too_deep)),
+            Err(FingerprintError::Manifest {
+                source: ManifestError::InvalidPath { .. },
+            })
+        ));
+    }
 
     #[test]
     fn differing_complete_observations_fail_closed() -> Result<(), Box<dyn std::error::Error>> {

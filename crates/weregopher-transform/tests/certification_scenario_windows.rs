@@ -32,6 +32,7 @@ use weregopher_transform::{
     execute_disposable_certification_scenario, verify_certification_runner_components,
     verify_disposable_certification_scenario,
 };
+use weregopher_windows::FileIdentityLease;
 
 const EXECUTABLE_NAME: &str = "scenario-fixture.exe";
 const SCENARIO_ARTIFACT_NAME: &str = "scenarios/windows-fixture.json";
@@ -171,7 +172,10 @@ fn shared_runner_executes_verified_scenario_in_disposable_state_and_revalidates_
     let (report, pending, diagnostics) = completed.into_parts();
 
     assert!(pending.is_none());
-    assert_eq!(diagnostics.success_file_path(), success_path);
+    let reported_success_file =
+        FileIdentityLease::from_file(fs::File::open(diagnostics.success_file_path())?)?;
+    let requested_success_file = FileIdentityLease::from_file(fs::File::open(&success_path)?)?;
+    assert!(reported_success_file.has_same_identity(&requested_success_file));
     assert_eq!(diagnostics.process_exit_code(), 0);
     assert_eq!(fs::read(success_path)?, SUCCESS_BYTES);
     assert!(state_directory.is_dir());

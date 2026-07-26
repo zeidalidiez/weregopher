@@ -15,14 +15,15 @@ use weregopher_domain::{
     GeneratedExecutionOverlay, GeneratedTransformOverlay, HeartbeatPolicy,
     LocalCertificationLedgerRecord, LocalCertificationRunAttestation, ProtocolFeatures,
     ProtocolLimits, ProtocolReject, ProtocolVersion, ProtocolVersionRange, PublicationStatus,
-    RuntimeBackendIdentity, RuntimeCall, RuntimeCallError, RuntimeCallResult, RuntimeCancel,
-    RuntimeEvent, RuntimeHello, RuntimeShutdown, RuntimeStreamData, RuntimeStreamOpen,
-    RuntimeStreamWindow, RuntimeWelcome, TrustMode, WireValue,
+    RendererBridgeInvocation, RendererBridgeReply, RendererEnvelope, RuntimeBackendIdentity,
+    RuntimeCall, RuntimeCallError, RuntimeCallResult, RuntimeCancel, RuntimeEvent, RuntimeHello,
+    RuntimeShutdown, RuntimeStreamData, RuntimeStreamOpen, RuntimeStreamWindow, RuntimeWelcome,
+    TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 45] = [
+pub const SCHEMA_FILENAMES: [&str; 48] = [
     "adapter-execution-authority.schema.json",
     "adapter-transform-authority.schema.json",
     "build-fingerprint.schema.json",
@@ -54,6 +55,9 @@ pub const SCHEMA_FILENAMES: [&str; 45] = [
     "protocol-version.schema.json",
     "protocol-version-range.schema.json",
     "publication-status.schema.json",
+    "renderer-bridge-invocation.schema.json",
+    "renderer-bridge-reply.schema.json",
+    "renderer-envelope.schema.json",
     "runtime-backend-identity.schema.json",
     "runtime-call.schema.json",
     "runtime-call-error.schema.json",
@@ -171,20 +175,23 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
         schema_document::<ProtocolVersion>(SCHEMA_FILENAMES[28])?,
         schema_document::<ProtocolVersionRange>(SCHEMA_FILENAMES[29])?,
         schema_document::<PublicationStatus>(SCHEMA_FILENAMES[30])?,
-        schema_document::<RuntimeBackendIdentity>(SCHEMA_FILENAMES[31])?,
-        schema_document::<RuntimeCall>(SCHEMA_FILENAMES[32])?,
-        schema_document::<RuntimeCallError>(SCHEMA_FILENAMES[33])?,
-        schema_document::<RuntimeCallResult>(SCHEMA_FILENAMES[34])?,
-        schema_document::<RuntimeCancel>(SCHEMA_FILENAMES[35])?,
-        schema_document::<RuntimeEvent>(SCHEMA_FILENAMES[36])?,
-        schema_document::<RuntimeHello>(SCHEMA_FILENAMES[37])?,
-        schema_document::<RuntimeShutdown>(SCHEMA_FILENAMES[38])?,
-        schema_document::<RuntimeStreamData>(SCHEMA_FILENAMES[39])?,
-        schema_document::<RuntimeStreamOpen>(SCHEMA_FILENAMES[40])?,
-        schema_document::<RuntimeStreamWindow>(SCHEMA_FILENAMES[41])?,
-        schema_document::<RuntimeWelcome>(SCHEMA_FILENAMES[42])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[43])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[44])?,
+        schema_document::<RendererBridgeInvocation>(SCHEMA_FILENAMES[31])?,
+        schema_document::<RendererBridgeReply>(SCHEMA_FILENAMES[32])?,
+        schema_document::<RendererEnvelope>(SCHEMA_FILENAMES[33])?,
+        schema_document::<RuntimeBackendIdentity>(SCHEMA_FILENAMES[34])?,
+        schema_document::<RuntimeCall>(SCHEMA_FILENAMES[35])?,
+        schema_document::<RuntimeCallError>(SCHEMA_FILENAMES[36])?,
+        schema_document::<RuntimeCallResult>(SCHEMA_FILENAMES[37])?,
+        schema_document::<RuntimeCancel>(SCHEMA_FILENAMES[38])?,
+        schema_document::<RuntimeEvent>(SCHEMA_FILENAMES[39])?,
+        schema_document::<RuntimeHello>(SCHEMA_FILENAMES[40])?,
+        schema_document::<RuntimeShutdown>(SCHEMA_FILENAMES[41])?,
+        schema_document::<RuntimeStreamData>(SCHEMA_FILENAMES[42])?,
+        schema_document::<RuntimeStreamOpen>(SCHEMA_FILENAMES[43])?,
+        schema_document::<RuntimeStreamWindow>(SCHEMA_FILENAMES[44])?,
+        schema_document::<RuntimeWelcome>(SCHEMA_FILENAMES[45])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[46])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[47])?,
     ])
 }
 
@@ -262,6 +269,15 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
             json!(weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_ATTESTATION_BYTES),
         );
     }
+    if filename == "renderer-bridge-reply.schema.json" {
+        require_exactly_one_renderer_bridge_reply_outcome(document)?;
+    }
+    if matches!(
+        filename,
+        "renderer-bridge-invocation.schema.json" | "renderer-envelope.schema.json"
+    ) {
+        reject_zero_renderer_bridge_nonce(document)?;
+    }
     match filename {
         "execution-target-contract.schema.json" => annotate_execution_target_limits(document)?,
         "execution-resolution-evidence.schema.json" => {
@@ -269,6 +285,58 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn require_exactly_one_renderer_bridge_reply_outcome(document: &mut Value) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .context("renderer bridge reply schema root is not an object")?;
+    root.insert(
+        "oneOf".to_owned(),
+        json!([
+            {
+                "required": ["result"],
+                "properties": {
+                    "result": {
+                        "not": {
+                            "type": "null"
+                        }
+                    },
+                    "error": {
+                        "type": "null"
+                    }
+                }
+            },
+            {
+                "required": ["error"],
+                "properties": {
+                    "result": {
+                        "type": "null"
+                    },
+                    "error": {
+                        "not": {
+                            "type": "null"
+                        }
+                    }
+                }
+            }
+        ]),
+    );
+    Ok(())
+}
+
+fn reject_zero_renderer_bridge_nonce(document: &mut Value) -> Result<()> {
+    let nonce = document
+        .pointer_mut("/$defs/RendererBridgeNonce")
+        .and_then(Value::as_object_mut)
+        .context("renderer bridge schema is missing its nonce definition")?;
+    nonce.insert(
+        "not".to_owned(),
+        json!({
+            "const": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        }),
+    );
     Ok(())
 }
 

@@ -15,9 +15,9 @@ use std::{
 
 #[cfg(windows)]
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     os::windows::ffi::{OsStrExt as _, OsStringExt as _},
-    time::Instant,
 };
 
 use anyhow::{Context as _, Result, anyhow, bail, ensure};
@@ -25,27 +25,29 @@ use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 use walkdir::WalkDir;
 use weregopher_adapter_discord::{
-    DISCORD_MAIN_ENTRY, DISCORD_PACKAGE_MANIFEST, DiscordSmokeCertificationReportDigest,
-    DiscordSmokeStaticObservation, SMOKE_MUTABLE_DISPATCH_LOG_PATH,
-    SMOKE_MUTABLE_KRISP_LOG_DIRECTORY_PATH, transform_smoke_source,
+    DISCORD_EXECUTABLE_PATH, DISCORD_MAIN_ENTRY, DISCORD_PACKAGE_MANIFEST,
+    DiscordSmokeCertificationReportDigest, DiscordSmokeStaticObservation,
+    SMOKE_MUTABLE_DISPATCH_LOG_PATH, SMOKE_MUTABLE_KRISP_LOG_DIRECTORY_PATH,
+    transform_smoke_source,
 };
 #[cfg(windows)]
 use weregopher_adapter_discord::{
-    DiscordSmokeCertificationReport, DiscordSmokeRuntimeObservation, SMOKE_ACTIVE_PROCESS_LIMIT,
-    SMOKE_ADAPTER_ID, SMOKE_COMMAND_LINE_UTF16_LIMIT, SMOKE_JOB_MEMORY_LIMIT_BYTES,
-    SMOKE_LAUNCH_ARGUMENT_BYTES, SMOKE_LAUNCH_ARGUMENT_LIMIT, SMOKE_MARKER_ARGUMENT_PREFIX,
-    SMOKE_MARKER_CONTENT, SMOKE_PER_PROCESS_MEMORY_LIMIT_BYTES, SMOKE_TIMEOUT_MAX_SECONDS,
+    DISCORD_SMOKE_MARKER_STATE_ROOT_ID, DISCORD_SMOKE_SCENARIO_ARTIFACT_NAME,
+    DISCORD_SMOKE_USER_DATA_STATE_ROOT_ID, DiscordSmokeCertificationReport,
+    DiscordSmokeRuntimeObservation, SMOKE_ADAPTER_ID, SMOKE_MARKER_CONTENT,
+    SMOKE_TIMEOUT_MAX_SECONDS, discord_smoke_scenario,
 };
 use weregopher_asar::{AsarArchive, AsarLimits};
 #[cfg(windows)]
 use weregopher_domain::{
-    CertificationArtifactDigest, CertificationArtifactKind,
+    CertificationArtifactDigest, CertificationArtifactKind, CertificationRunnerArtifactName,
     MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES,
-    MAX_CERTIFICATION_RUNNER_COMPONENT_DESCRIPTOR_BYTES,
+    MAX_CERTIFICATION_RUNNER_COMPONENT_DESCRIPTOR_BYTES, ScenarioStateRootId,
 };
 use weregopher_domain::{
     CertificationArtifactRef, CertificationClass, CertificationEvidenceDigest,
-    CertificationProfileDigest, CompatibilityAnalysisDigest, LocalCertificationLedgerRecordDigest,
+    CertificationProfileDigest, CompatibilityAnalysisDigest, DisposableCertificationScenarioDigest,
+    DisposableCertificationScenarioReportDigest, LocalCertificationLedgerRecordDigest,
     PublicationStatus, Sha256Digest,
 };
 #[cfg(windows)]
@@ -55,11 +57,12 @@ use weregopher_fingerprint::{
 };
 #[cfg(windows)]
 use weregopher_transform::{
-    CertificationRunnerComponentVerificationLimits, LocalCertificationRunnerPolicy,
-    LocalCertificationRunnerPolicyStore, MAX_TOTAL_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES,
-    ManagedArtifactStore, ManagedStoreRootLimits, PackageSnapshotWriteLimits,
-    approve_local_certification_runner, begin_local_certification_run,
-    verify_certification_runner_components,
+    CertificationRunnerComponentVerificationLimits, DisposableCertificationScenarioRunMode,
+    LocalCertificationRunnerPolicy, LocalCertificationRunnerPolicyStore,
+    MAX_TOTAL_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES, ManagedArtifactStore,
+    ManagedStoreRootLimits, PackageSnapshotWriteLimits, approve_local_certification_runner,
+    execute_disposable_certification_scenario, verify_certification_runner_components,
+    verify_disposable_certification_scenario,
 };
 
 #[cfg(windows)]
@@ -71,7 +74,6 @@ use crate::discord_certification::{
 use crate::runner_bundle::load_certification_runner_bundle;
 
 const APP_ASAR_PATH: &str = "resources/app.asar";
-const DISCORD_EXECUTABLE_PATH: &str = "Discord.exe";
 #[cfg(test)]
 const DISCORD_KRISP_STATE_ROOT_PATH: &str = "modules/discord_krisp-1/discord_krisp/KMS";
 const MAX_COPY_ENTRIES: usize = 50_000;
@@ -96,6 +98,8 @@ pub(crate) struct DiscordLiveSmokeReport {
     marker_content: &'static str,
     launch_mode: &'static str,
     certification_scope: &'static str,
+    scenario_sha256: DisposableCertificationScenarioDigest,
+    scenario_report_sha256: DisposableCertificationScenarioReportDigest,
     certification_report_sha256: DiscordSmokeCertificationReportDigest,
     compatibility_analysis_sha256: CompatibilityAnalysisDigest,
     certification_profile_sha256: CertificationProfileDigest,
@@ -286,8 +290,21 @@ pub(crate) fn run_discord_live_smoke(
         .context("invalid runner-component verification limits")?,
     )
     .context("failed to verify exact certification-runner components")?;
-    let runner_descriptor_set_digest = verified_runner.descriptor_set_digest();
-    let runner_policy_generation = verified_runner.runner_policy_generation();
+    let scenario_artifact_name =
+        CertificationRunnerArtifactName::new(DISCORD_SMOKE_SCENARIO_ARTIFACT_NAME)
+            .context("compiled Discord scenario artifact name is invalid")?;
+    let verified_scenario =
+        verify_disposable_certification_scenario(verified_runner, scenario_artifact_name)
+            .context("failed to verify the canonical Discord smoke scenario probe asset")?;
+    let expected_scenario =
+        discord_smoke_scenario().context("compiled Discord smoke scenario is invalid")?;
+    ensure!(
+        verified_scenario.scenario() == &expected_scenario,
+        "verified runner scenario differs from the exact Discord adapter scenario"
+    );
+    let scenario_sha256 = verified_scenario.scenario_digest();
+    let runner_descriptor_set_digest = verified_scenario.runner_descriptor_set_digest();
+    let runner_policy_generation = verified_scenario.runner_policy_generation();
     let marker_path = intended_new_absolute_path(marker_path, "marker")?;
     let user_data_path = sibling_user_data_path(&marker_path)?;
     let vendor_direct = existing_direct_absolute_path(vendor_root, "vendor package root")?;
@@ -354,10 +371,6 @@ pub(crate) fn run_discord_live_smoke(
 
     #[cfg(windows)]
     {
-        use weregopher_windows::{
-            JobLimits, KillOnCloseJob, LockedExecutable, ProcessLaunchLimits,
-        };
-
         let snapshot_store = ManagedArtifactStore::open(
             snapshot_store_root,
             &staged.root,
@@ -391,137 +404,55 @@ pub(crate) fn run_discord_live_smoke(
         snapshot_executable
             .verify_current_view()
             .context("Discord snapshot changed before launch")?;
-        let executable_path = package_snapshot
-            .unrestricted_physical_root()
-            .join(DISCORD_EXECUTABLE_PATH);
-        let executable = LockedExecutable::open(&executable_path, 64)
-            .context("failed to retain the snapshot Discord executable for diagnostic launch")?;
-
-        fs::create_dir(&user_data_path).with_context(|| {
-            format!(
-                "failed to create isolated smoke user-data directory {}",
-                user_data_path.display()
-            )
-        })?;
-        let marker_argument = prefixed_path_argument(SMOKE_MARKER_ARGUMENT_PREFIX, &marker_path);
-        let user_data_argument = prefixed_path_argument("--user-data-dir=", &user_data_path);
-        let arguments = [marker_argument, user_data_argument];
-        let launch_limits = ProcessLaunchLimits::new(
-            SMOKE_LAUNCH_ARGUMENT_LIMIT,
-            SMOKE_LAUNCH_ARGUMENT_BYTES,
-            SMOKE_COMMAND_LINE_UTF16_LIMIT,
-        )
-        .context("invalid smoke launch limits")?;
-        let job_limits = JobLimits::new(
-            SMOKE_ACTIVE_PROCESS_LIMIT,
-            SMOKE_PER_PROCESS_MEMORY_LIMIT_BYTES,
-            SMOKE_JOB_MEMORY_LIMIT_BYTES,
-        )
-        .context("invalid smoke Job Object limits")?;
-        let job =
-            KillOnCloseJob::create(job_limits).context("failed to configure smoke Job Object")?;
-        let pending_certification = if let Some((expected_report, _, _, _)) = certification_inputs {
-            let semantic_report = CertificationArtifactRef::new(
-                CertificationArtifactKind::RuntimeProbe,
-                CertificationArtifactDigest::new(expected_report),
-            );
-            Some(
-                begin_local_certification_run(
-                    verified_runner,
-                    semantic_report,
-                    *certification_freshness,
-                )
-                .context("failed to begin a freshness-bound local certification run")?,
-            )
+        let state_paths = BTreeMap::from([
+            (
+                ScenarioStateRootId::new(DISCORD_SMOKE_MARKER_STATE_ROOT_ID)
+                    .context("compiled Discord marker root ID is invalid")?,
+                marker_path.clone(),
+            ),
+            (
+                ScenarioStateRootId::new(DISCORD_SMOKE_USER_DATA_STATE_ROOT_ID)
+                    .context("compiled Discord user-data root ID is invalid")?,
+                user_data_path.clone(),
+            ),
+        ]);
+        let run_mode = if let Some((expected_report, _, _, _)) = certification_inputs.as_ref() {
+            DisposableCertificationScenarioRunMode::Attested {
+                semantic_report: CertificationArtifactRef::new(
+                    CertificationArtifactKind::RuntimeProbe,
+                    CertificationArtifactDigest::new(*expected_report),
+                ),
+                maximum_elapsed: *certification_freshness,
+            }
         } else {
-            verified_runner
-                .verify_current_policy()
-                .context("certification runner policy changed before diagnostic launch")?;
-            None
+            DisposableCertificationScenarioRunMode::Candidate
         };
-        let process = job
-            .launch(executable, &arguments, launch_limits)
-            .context("failed to launch managed Discord package")?;
+        let completed = execute_disposable_certification_scenario(
+            verified_scenario,
+            run_mode,
+            snapshot_executable,
+            &state_paths,
+            *timeout,
+        )
+        .context("shared disposable-state runner rejected the Discord smoke scenario")?;
+        let (scenario_report, pending_certification, diagnostics) = completed.into_parts();
         ensure!(
-            process
-                .is_in_job()
-                .context("failed to query smoke Job membership")?,
-            "managed Discord process launched outside its required Job Object"
+            diagnostics.success_file_path() == marker_path,
+            "shared runner returned a success path outside the exact Discord marker binding"
         );
-
-        let process_id = process.id();
-        let deadline = Instant::now()
-            .checked_add(*timeout)
-            .ok_or_else(|| anyhow!("smoke timeout overflowed the monotonic clock"))?;
-        let mut process_exit_code = None;
-        loop {
-            if marker_path.is_file() {
-                break;
-            }
-            if let Some(exit_code) = process
-                .wait_for(Duration::from_millis(100))
-                .context("failed while waiting for managed Discord")?
-            {
-                process_exit_code = Some(exit_code);
-                break;
-            }
-            if Instant::now() >= deadline {
-                break;
-            }
-        }
-
-        let marker = if marker_path.is_file() {
-            let marker = read_bounded(&marker_path, 256, "smoke marker")?;
-            ensure!(
-                marker == SMOKE_MARKER_CONTENT.as_bytes(),
-                "managed Discord wrote an unexpected smoke marker"
-            );
-            marker
-        } else {
-            if process_exit_code.is_none() {
-                process
-                    .terminate(0x5752_4701)
-                    .context("failed to terminate timed-out managed Discord")?;
-            }
-            bail!(
-                "managed Discord did not write its smoke marker within {} seconds",
-                timeout.as_secs()
-            );
-        };
-
-        if process_exit_code.is_none() {
-            process_exit_code = process
-                .wait_for(Duration::from_millis(100))
-                .context("failed to collect an immediate Discord smoke exit")?;
-        }
-        if process_exit_code.is_none() {
-            process
-                .terminate(0x5752_4700)
-                .context("failed to terminate managed Discord after smoke proof")?;
-            process_exit_code = process
-                .wait_for(Duration::from_secs(5))
-                .context("failed to collect managed Discord exit code")?;
-        }
-        ensure!(
-            process_exit_code.is_some(),
-            "managed Discord process exit was not confirmed after smoke proof"
-        );
-
+        let process_id = diagnostics.process_id();
+        let process_exit_code = Some(diagnostics.process_exit_code());
+        let scenario_report_sha256 = scenario_report
+            .canonical_document_digest()
+            .context("failed to identify the successful shared scenario report")?;
         let source_app_asar_after = digest(&read_bounded(
             &staged.source_app_asar_path,
             AsarLimits::initial().max_archive_bytes(),
             "vendor Discord ASAR after smoke",
         )?);
-        let runtime_observation = DiscordSmokeRuntimeObservation::successful(
-            *first.package_tree_merkle(),
-            executable_sha256,
-            package_files,
-            package_bytes,
-            source_app_asar_after,
-            &marker,
-            timeout.as_secs(),
-        )
-        .context("failed to construct the Discord smoke runtime observation")?;
+        let runtime_observation =
+            DiscordSmokeRuntimeObservation::successful(scenario_report, source_app_asar_after)
+                .context("failed to construct the Discord smoke runtime observation")?;
         let certification_report =
             DiscordSmokeCertificationReport::new(staged.static_observation, runtime_observation)
                 .context("failed to validate the Discord smoke certification report")?;
@@ -529,7 +460,7 @@ pub(crate) fn run_discord_live_smoke(
             .context("failed to derive Discord smoke certification evidence")?;
         let local_certification = complete_after_snapshot_revalidation(
             || {
-                snapshot_executable
+                package_snapshot
                     .verify_current_view()
                     .context("Discord snapshot changed before certification completed")
             },
@@ -570,6 +501,8 @@ pub(crate) fn run_discord_live_smoke(
             marker_content: SMOKE_MARKER_CONTENT,
             launch_mode: "uncertified-local-smoke-job-owned-snapshot-retained",
             certification_scope: "adapter_disposable_smoke_only",
+            scenario_sha256,
+            scenario_report_sha256,
             certification_report_sha256: certification_bundle.report_digest(),
             compatibility_analysis_sha256: certification_bundle
                 .compatibility_analysis_digest()
@@ -1096,13 +1029,6 @@ fn ensure_direct_entry(metadata: &fs::Metadata, normalized: &str) -> Result<()> 
         );
     }
     Ok(())
-}
-
-#[cfg(windows)]
-fn prefixed_path_argument(prefix: &str, path: &Path) -> OsString {
-    let mut argument = OsString::from(prefix);
-    argument.push(path.as_os_str());
-    argument
 }
 
 fn digest(bytes: &[u8]) -> Sha256Digest {

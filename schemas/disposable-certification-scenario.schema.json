@@ -14,167 +14,7 @@
       "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
       "type": "string"
     },
-    "DiscordSmokeCertificationReportFormatVersion": {
-      "enum": [
-        "2"
-      ],
-      "type": "string"
-    },
-    "DiscordSmokeRuntimeObservation": {
-      "additionalProperties": false,
-      "description": "Deterministic outcome of one successful disposable-state Job-owned smoke probe.",
-      "properties": {
-        "omitted_mutable_paths": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 2,
-          "minItems": 2,
-          "type": "array"
-        },
-        "scenario_report": {
-          "$ref": "#/$defs/DisposableCertificationScenarioReport"
-        },
-        "scenario_sha256": {
-          "$ref": "#/$defs/DisposableCertificationScenarioDigest"
-        },
-        "source_app_asar_after_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        }
-      },
-      "required": [
-        "scenario_sha256",
-        "scenario_report",
-        "source_app_asar_after_sha256",
-        "omitted_mutable_paths"
-      ],
-      "type": "object"
-    },
-    "DiscordSmokeStaticObservation": {
-      "additionalProperties": false,
-      "description": "Exact static input and output identities accepted by the Discord smoke adapter.",
-      "properties": {
-        "adapter_contract_digest": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "package_manifest_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "source_app_asar_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "source_main_entry_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "transformed_app_asar_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "transformed_main_entry_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        }
-      },
-      "required": [
-        "adapter_contract_digest",
-        "source_app_asar_sha256",
-        "transformed_app_asar_sha256",
-        "package_manifest_sha256",
-        "source_main_entry_sha256",
-        "transformed_main_entry_sha256"
-      ],
-      "type": "object"
-    },
-    "DisposableCertificationScenario": {
-      "additionalProperties": false,
-      "description": "Canonical bounded description of one exact disposable-state diagnostic scenario.\n\nParsing and content addressing do not authenticate these bytes or authorize their launch.",
-      "properties": {
-        "adapter_id": {
-          "$ref": "#/$defs/AdapterId"
-        },
-        "application_family": {
-          "$ref": "#/$defs/ApplicationFamilyId"
-        },
-        "arguments": {
-          "items": {
-            "$ref": "#/$defs/DisposableScenarioArgument"
-          },
-          "maxItems": 32,
-          "minItems": 1,
-          "type": "array"
-        },
-        "executable": {
-          "$ref": "#/$defs/ExecutionPackagePath"
-        },
-        "execution": {
-          "$ref": "#/$defs/DisposableScenarioExecution"
-        },
-        "format_version": {
-          "$ref": "#/$defs/DisposableCertificationScenarioFormatVersion"
-        },
-        "id": {
-          "$ref": "#/$defs/ScenarioId"
-        },
-        "state_roots": {
-          "items": {
-            "$ref": "#/$defs/DisposableScenarioStateRoot"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "workflow": {
-          "$ref": "#/$defs/FeatureId"
-        }
-      },
-      "required": [
-        "format_version",
-        "id",
-        "application_family",
-        "adapter_id",
-        "workflow",
-        "executable",
-        "state_roots",
-        "arguments",
-        "execution"
-      ],
-      "type": "object"
-    },
-    "DisposableCertificationScenarioDigest": {
-      "$ref": "#/$defs/Sha256Digest",
-      "description": "Identity of one canonical disposable certification-scenario definition."
-    },
     "DisposableCertificationScenarioFormatVersion": {
-      "enum": [
-        "1"
-      ],
-      "type": "string"
-    },
-    "DisposableCertificationScenarioReport": {
-      "additionalProperties": false,
-      "description": "Canonical non-authorizing report from one successful disposable-state scenario.",
-      "properties": {
-        "execution": {
-          "$ref": "#/$defs/DisposableScenarioExecutionObservation"
-        },
-        "format_version": {
-          "$ref": "#/$defs/DisposableCertificationScenarioReportFormatVersion"
-        },
-        "package": {
-          "$ref": "#/$defs/DisposableScenarioPackageObservation"
-        },
-        "scenario": {
-          "$ref": "#/$defs/DisposableCertificationScenario"
-        }
-      },
-      "required": [
-        "format_version",
-        "scenario",
-        "package",
-        "execution"
-      ],
-      "type": "object"
-    },
-    "DisposableCertificationScenarioReportFormatVersion": {
       "enum": [
         "1"
       ],
@@ -233,16 +73,19 @@
       "description": "Fixed process posture and limits for disposable scenario format 1.",
       "properties": {
         "dependency_policy": {
-          "$ref": "#/$defs/ExecutionDependencyPolicy"
+          "const": "vendor_default_ambient",
+          "type": "string"
         },
         "limits": {
           "$ref": "#/$defs/DisposableScenarioLimits"
         },
         "security_posture": {
-          "$ref": "#/$defs/EffectiveSecurityPosture"
+          "const": "vendor_equivalent_full_trust",
+          "type": "string"
         },
         "state_mode": {
-          "$ref": "#/$defs/ExecutionStateMode"
+          "const": "disposable",
+          "type": "string"
         }
       },
       "required": [
@@ -250,42 +93,6 @@
         "security_posture",
         "dependency_policy",
         "limits"
-      ],
-      "type": "object"
-    },
-    "DisposableScenarioExecutionObservation": {
-      "additionalProperties": false,
-      "description": "Deterministic successful process and state observations.",
-      "properties": {
-        "job_membership": {
-          "$ref": "#/$defs/DisposableScenarioPassedCheck"
-        },
-        "job_tree_termination": {
-          "$ref": "#/$defs/DisposableScenarioPassedCheck"
-        },
-        "primary_process_exit": {
-          "$ref": "#/$defs/DisposableScenarioPassedCheck"
-        },
-        "selected_timeout_millis": {
-          "format": "uint64",
-          "maximum": 600000,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "snapshot_revalidation": {
-          "$ref": "#/$defs/DisposableScenarioPassedCheck"
-        },
-        "success_file": {
-          "$ref": "#/$defs/DisposableScenarioSuccessFileObservation"
-        }
-      },
-      "required": [
-        "selected_timeout_millis",
-        "job_membership",
-        "job_tree_termination",
-        "primary_process_exit",
-        "snapshot_revalidation",
-        "success_file"
       ],
       "type": "object"
     },
@@ -343,43 +150,6 @@
         "resource_limits"
       ],
       "type": "object"
-    },
-    "DisposableScenarioPackageObservation": {
-      "additionalProperties": false,
-      "description": "Exact retained package facts used by one scenario run.",
-      "properties": {
-        "executable_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "package_bytes": {
-          "format": "uint64",
-          "maximum": 18446744073709551615,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "package_files": {
-          "format": "uint32",
-          "maximum": 4294967295,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "package_tree_merkle": {
-          "$ref": "#/$defs/Sha256Digest"
-        }
-      },
-      "required": [
-        "package_tree_merkle",
-        "executable_sha256",
-        "package_files",
-        "package_bytes"
-      ],
-      "type": "object"
-    },
-    "DisposableScenarioPassedCheck": {
-      "enum": [
-        "passed"
-      ],
-      "type": "string"
     },
     "DisposableScenarioStateRoot": {
       "additionalProperties": false,
@@ -451,30 +221,6 @@
           "type": "object"
         }
       ]
-    },
-    "DisposableScenarioSuccessFileObservation": {
-      "additionalProperties": false,
-      "description": "Exact successful file observation from one disposable scenario.",
-      "properties": {
-        "sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "size_bytes": {
-          "format": "uint64",
-          "maximum": 1048576,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "state_root": {
-          "$ref": "#/$defs/ScenarioStateRootId"
-        }
-      },
-      "required": [
-        "state_root",
-        "sha256",
-        "size_bytes"
-      ],
-      "type": "object"
     },
     "EffectiveSecurityPosture": {
       "description": "The enforcement mechanism that actually constrains an executable component.",
@@ -610,24 +356,80 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Canonical non-authorizing semantic report for one exact Discord smoke probe.",
+  "description": "Canonical bounded description of one exact disposable-state diagnostic scenario.\n\nParsing and content addressing do not authenticate these bytes or authorize their launch.",
   "properties": {
+    "adapter_id": {
+      "$ref": "#/$defs/AdapterId"
+    },
+    "application_family": {
+      "$ref": "#/$defs/ApplicationFamilyId"
+    },
+    "arguments": {
+      "items": {
+        "$ref": "#/$defs/DisposableScenarioArgument"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array"
+    },
+    "executable": {
+      "$ref": "#/$defs/ExecutionPackagePath"
+    },
+    "execution": {
+      "$ref": "#/$defs/DisposableScenarioExecution"
+    },
     "format_version": {
-      "$ref": "#/$defs/DiscordSmokeCertificationReportFormatVersion"
+      "$ref": "#/$defs/DisposableCertificationScenarioFormatVersion"
     },
-    "runtime_observation": {
-      "$ref": "#/$defs/DiscordSmokeRuntimeObservation"
+    "id": {
+      "$ref": "#/$defs/ScenarioId"
     },
-    "static_observation": {
-      "$ref": "#/$defs/DiscordSmokeStaticObservation"
+    "state_roots": {
+      "contains": {
+        "properties": {
+          "definition": {
+            "properties": {
+              "kind": {
+                "const": "success_file"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "definition"
+        ],
+        "type": "object"
+      },
+      "items": {
+        "$ref": "#/$defs/DisposableScenarioStateRoot"
+      },
+      "maxContains": 1,
+      "maxItems": 16,
+      "minContains": 1,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "workflow": {
+      "$ref": "#/$defs/FeatureId"
     }
   },
   "required": [
     "format_version",
-    "static_observation",
-    "runtime_observation"
+    "id",
+    "application_family",
+    "adapter_id",
+    "workflow",
+    "executable",
+    "state_roots",
+    "arguments",
+    "execution"
   ],
-  "title": "DiscordSmokeCertificationReport",
+  "title": "DisposableCertificationScenario",
   "type": "object",
   "x-weregopher-maxDocumentBytes": 65536
 }

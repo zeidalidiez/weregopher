@@ -3,7 +3,9 @@
 This guide exercises the narrow `discord.smoke-marker` diagnostic workflow described
 by [ADR 0036](../adr/0036-discord-disposable-smoke-certification-slice.md) through the
 freshness-bound local control plane in
-[ADR 0037](../adr/0037-freshness-bound-local-certification-control-plane.md).
+[ADR 0037](../adr/0037-freshness-bound-local-certification-control-plane.md) and the
+verified disposable-scenario runner in
+[ADR 0038](../adr/0038-verified-disposable-certification-scenario-runner.md).
 
 The command transforms a new copy of an installed Discord package and launches a
 content-addressed snapshot of that copy. It never modifies the vendor installation.
@@ -53,6 +55,21 @@ bytes, and unstable reads fail closed. The transform layer then requires the
 descriptor role and canonical digest to match the corresponding runner-identity slot
 and verifies every exact artifact length and SHA-256 value.
 
+For this workflow, `probe_asset_set` must contain the exact canonical adapter-owned
+scenario at:
+
+```text
+artifacts/probe_asset_set/scenarios/discord.smoke-marker.scenario.json
+```
+
+The matching descriptor must bind that logical name, exact byte length, and SHA-256
+identity, and the runner identity must bind the descriptor digest. The stored
+scenario must be compact canonical JSON with no trailing newline. Its current
+format-`"1"` golden bytes are
+`crates/weregopher-domain/tests/fixtures/disposable-certification-scenario-v1.golden.json`
+(strip the repository line ending). The command rejects a missing, noncanonical, or
+different scenario even when the rest of the runner bundle is valid.
+
 The bundle path and its bytes are evidence, not trust. Trusted local configuration
 must independently supply both `--expected-runner-identity` and
 `--runner-policy-revision`. Do not commit proprietary runner artifacts, package bytes,
@@ -99,6 +116,8 @@ weregopher live-smoke-discord `
 
 Persist and independently review at least:
 
+- `scenario_sha256`;
+- `scenario_report_sha256`;
 - `certification_report_sha256`;
 - `runner_identity_sha256`;
 - `runner_descriptor_set_sha256`; and
@@ -127,11 +146,15 @@ weregopher live-smoke-discord `
   --certification-ledger C:\weregopher-state\certification-ledger
 ```
 
-The challenge is generated after exact runner verification and snapshot/executable
-retention but before process creation. The default maximum monotonic age is 300
-seconds and can be tightened with `--certification-freshness-seconds`; zero,
+The command verifies the exact scenario asset, retains the snapshot executable,
+checks and prepares its closed disposable-state bindings, and only then generates the
+challenge immediately before process creation. The default maximum monotonic age is
+300 seconds and can be tightened with `--certification-freshness-seconds`; zero,
 non-whole-millisecond, over-ten-minute, expired, or unrepresentable windows fail
-closed.
+closed. A successful shared result requires exact marker bytes, complete Job
+termination, confirmed primary exit, and final snapshot revalidation. Marker
+verification must complete through a direct non-reparse, no-write-sharing file handle
+before the selected monotonic deadline.
 
 Successful local output includes the exact semantic-report reference, runner and both
 policy identities/generations, challenge and elapsed interval, attestation identity,
@@ -167,15 +190,18 @@ future open to fail closed.
 |---|---|---|
 | Closed bounded component contracts | `weregopher-domain::certification_control_plane` and generated schemas | Domain golden/negative tests and schema tests |
 | Exact 11-role descriptor/artifact verification | `weregopher-transform::certification_runner_components` | `certification_control_plane` transform behavior tests |
+| Canonical disposable scenario and result contracts | `weregopher-domain::certification_scenario` and generated schemas | Domain golden, bounded-parser, relationship, and schema tests |
+| Exact probe-asset selection | `weregopher-transform::certification_scenario` | Missing and noncanonical probe-asset behavior tests |
+| Shared retained-snapshot scenario execution | `weregopher-transform::certification_scenario` | Native Windows compiled-fixture success, late-result rejection, post-primary Job-child success, whole-Job termination, and snapshot-revalidation test |
 | Single-use monotonic pre-run challenge | `weregopher-transform::certification_attestation` | Fresh publication and revocation-race behavior tests |
 | Atomic runner-policy → certification-policy → store commit | `weregopher-transform::certification_attestation` | Dual-revocation behavior test |
 | Canonical pinned-head durable replay | `weregopher-transform::certification_ledger` | Reopen, corruption, gap, link, replay, revocation, and stale-writer tests |
 | Closed runner-bundle loading | `bins/weregopher/src/runner_bundle.rs` | Canonical bundle and unknown/noncanonical entry tests |
 | Vendor/runner state isolation | `bins/weregopher/src/live_smoke.rs` | Canonical mutable-path overlap regression |
-| Snapshot-retained Discord diagnostic | `bins/weregopher/src/live_smoke.rs` | Native Windows package-snapshot and live Discord proof |
+| Snapshot-retained Discord adapter over shared runner | `bins/weregopher/src/live_smoke.rs` | Native Windows scenario-runner and installed-Discord proofs |
 | Report → attestation → ledger integration | `bins/weregopher/src/discord_certification.rs` | Application end-to-end attested-ledger unit test |
 
 Remote signer/key management, authenticated bundle or registry distribution,
-transparency logging, external revocation feeds, general scenario execution,
-replacement-runtime parity, production-state validation, and efficiency
-certification remain later work.
+transparency logging, external revocation feeds, the full parity scenario DSL,
+replacement-runtime parity, production-state validation, and efficiency certification
+remain later work.

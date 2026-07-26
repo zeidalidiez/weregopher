@@ -176,6 +176,11 @@ stable_string_id!(
     "scenario",
     "A certification scenario identifier."
 );
+stable_string_id!(
+    ScenarioStateRootId,
+    "scenario state root",
+    "A logical disposable-state root within one certification scenario."
+);
 
 macro_rules! uuid_id {
     ($name:ident, $doc:literal) => {

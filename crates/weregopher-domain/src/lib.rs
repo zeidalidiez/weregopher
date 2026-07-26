@@ -10,6 +10,7 @@ mod certification;
 mod certification_control_plane;
 mod certification_evidence;
 mod certification_runner;
+mod certification_scenario;
 mod compatibility;
 mod digest;
 mod discovery;
@@ -78,6 +79,24 @@ pub use certification_runner::{
     CertificationSourceRevisionDigest, CertificationToolchainSetDigest,
     CertificationVerifierDigest, MAX_CERTIFICATION_RUNNER_IDENTITY_DOCUMENT_BYTES,
 };
+pub use certification_scenario::{
+    DISPOSABLE_CERTIFICATION_SCENARIO_FORMAT_VERSION,
+    DISPOSABLE_CERTIFICATION_SCENARIO_REPORT_FORMAT_VERSION, DisposableCertificationScenario,
+    DisposableCertificationScenarioDigest, DisposableCertificationScenarioDocumentError,
+    DisposableCertificationScenarioError, DisposableCertificationScenarioReport,
+    DisposableCertificationScenarioReportDigest,
+    DisposableCertificationScenarioReportDocumentError, DisposableCertificationScenarioReportError,
+    DisposableScenarioArgument, DisposableScenarioExecution,
+    DisposableScenarioExecutionObservation, DisposableScenarioLimits,
+    DisposableScenarioPackageObservation, DisposableScenarioStateRoot,
+    DisposableScenarioStateRootKind, DisposableScenarioSuccessFileObservation,
+    MAX_DISPOSABLE_CERTIFICATION_SCENARIO_BYTES,
+    MAX_DISPOSABLE_CERTIFICATION_SCENARIO_REPORT_BYTES, MAX_DISPOSABLE_SCENARIO_ARGUMENTS,
+    MAX_DISPOSABLE_SCENARIO_COMMAND_LINE_UTF16_UNITS, MAX_DISPOSABLE_SCENARIO_LAUNCH_ARGUMENTS,
+    MAX_DISPOSABLE_SCENARIO_POLL_MILLIS, MAX_DISPOSABLE_SCENARIO_SHUTDOWN_MILLIS,
+    MAX_DISPOSABLE_SCENARIO_STATE_ROOTS, MAX_DISPOSABLE_SCENARIO_SUCCESS_FILE_BYTES,
+    MAX_DISPOSABLE_SCENARIO_TIMEOUT_MILLIS,
+};
 pub use compatibility::{
     AnalysisDisposition, COMPATIBILITY_ANALYSIS_FORMAT_VERSION, CompatibilityAnalysis,
     CompatibilityArchitecture, CompatibilityContractError, CompatibilityDimensions,
@@ -119,7 +138,8 @@ pub use execution_target::{
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,
     FeatureId, IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId,
-    ScenarioId, SourceUnitId, TraceId, TransformRuleId, UserActivationId, WindowId,
+    ScenarioId, ScenarioStateRootId, SourceUnitId, TraceId, TransformRuleId, UserActivationId,
+    WindowId,
 };
 pub use protocol::{
     BufferStorage, CallAuthority, CallContext, ContentBlobId, FRAME_HEADER_LEN, FrameHeader,

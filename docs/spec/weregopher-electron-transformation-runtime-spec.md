@@ -6654,31 +6654,95 @@ These local boundaries still do not validate arbitrary artifact semantics, authe
 distribution, authorize transformation or execution, or establish signed registry,
 remote-revocation, or same-user sandbox trust.
 
+### Implemented verified disposable certification-scenario runner
+
+[ADR 0038](../adr/0038-verified-disposable-certification-scenario-runner.md) connects one exact
+verified probe asset to a reusable Windows diagnostic lifecycle without implementing the full
+Appendix C parity language. Format-`"1"` `DisposableCertificationScenario` binds one scenario,
+application family, adapter, workflow, manifest-relative executable, exact disposable logical
+state-root set, ordered arguments, and fixed timing/launch/Job limits. Its execution posture is
+closed to disposable state, vendor-equivalent full trust, and vendor-default ambient
+dependencies.
+
+The 64 KiB scenario parser rejects unknown or unsupported fields, more than sixteen state roots,
+more than thirty-two arguments, duplicate, multiply bound, unbound, or undeclared roots, more than
+one or fewer than one success file, unsupported posture, aggregate argument overflow, and
+unrepresentable or excessive duration, command-line, process, memory, or success-file limits.
+Exactly one logical root binds a success-file SHA-256 identity, exact length, and read ceiling no
+greater than 1 MiB. Other roots are new empty directories. Physical absolute paths are supplied
+separately and never enter scenario identity. Compact canonical bytes and the role-specific
+scenario SHA-256 identity are frozen by a golden vector and generated closed schema.
+
+`verify_disposable_certification_scenario` consumes the complete non-cloneable verified
+runner-component proof. It selects one exact logical name only from `probe_asset_set`, parses it
+through the bounded scenario contract, requires the stored bytes to equal canonical compact JSON,
+and returns a non-cloneable proof retaining the full runner-policy relationship. A parsed scenario
+or producer-selected digest is not trust by itself, and each adapter must still compare the
+verified scenario with its exact supported definition.
+
+The shared Windows executor consumes that proof, one identity-matched package-snapshot executable,
+an exact physical binding for every logical root, a bounded selected timeout, and either candidate
+mode or a pinned semantic-report reference with a freshness ceiling. The executable's
+manifest-relative path must match the scenario. Every physical state path must be new, mutually
+disjoint under Windows ordinal case semantics, and outside the package snapshot. Paths must be
+absolute with unambiguous non-device leaf names. Empty roots are created in a second phase and
+checked as direct non-reparse directories before the success path is checked absent again. Wider
+vendor, runner-bundle, snapshot-store, and ledger isolation remains the caller's responsibility.
+
+After snapshot revalidation and disposable-root preparation, candidate mode checks runner policy
+or attested mode creates the single-use challenge. The executor then immediately creates the
+process atomically in the configured kill-on-close Job with an empty environment and no inherited
+handles. Success requires primary Job membership and completion of the exact bounded success-file
+read through a direct non-reparse, no-write-sharing handle before the selected monotonic deadline.
+Polling remains deadline-clamped and can observe a Job child after the primary exits. Success then
+requires explicit whole-Job termination, confirmed primary exit, and final complete snapshot
+revalidation. Candidate mode checks runner policy again after the run. The Job remains a
+lifecycle/accounting boundary, not a sandbox, and the package tree remains an unrestricted
+same-user namespace.
+
+Format-`"1"` `DisposableCertificationScenarioReport` has a 128 KiB ceiling and embeds the exact
+scenario. It binds package-tree and executable identities, package count/bytes, selected timeout,
+successful membership/whole-Job-termination/primary-exit/snapshot checks, and exact success-file
+identity and length. Paths, process IDs, exit codes, timestamps, elapsed time, and freshness
+challenges do not enter this semantic identity. The parser revalidates every nested relationship;
+compact bytes and role-specific digest are frozen by a golden vector and generated schema.
+
+This implemented runner covers a deliberately closed single-entry, single-success-file diagnostic.
+Fixtures with authority, UI Automation, semantic-event comparison, vendor oracles, multiple
+outcomes, trace normalization, production-state validation, and the complete Appendix C parity DSL
+remain later work.
+
 ### Implemented Discord disposable-smoke slice
 
 [ADR 0036](../adr/0036-discord-disposable-smoke-certification-slice.md) connects one concrete,
-deliberately narrow adapter workflow to the generic certification layers. Format-`"1"`
-`DiscordSmokeCertificationReport` binds exact source/transformed ASAR and main-entry identities,
-the fixed adapter contract, one transformed managed-package Merkle root, executable identity,
-exact marker semantics, post-probe source stability, disposable-state omissions, timeout, and
-fixed Job/launch limits. Its authoritative parser enforces a 64 KiB ceiling; compact canonical
+deliberately narrow adapter workflow to the generic certification layers. ADR 0038 advances
+`DiscordSmokeCertificationReport` to format `"2"`. It binds exact source/transformed ASAR and
+main-entry identities, the fixed adapter contract, the exact verified scenario identity, the
+embedded successful shared scenario report, post-probe source stability, and the two reviewed
+disposable-state omissions. Its authoritative parser enforces a 64 KiB ceiling; compact canonical
 bytes and SHA-256 identity are frozen by a checked-in golden vector and a generated closed schema.
+Historical format-`"1"` Discord bytes are retained as a historical vector but are not current
+reports.
 
 The Windows command stages a new disjoint package copy through bounded create-new writes that reject
 unstable source lengths, requires the Discord dispatch log to be a file and the Krisp log directory
 to be empty before omitting those two exact mutable paths, rebuilds and reparses the transformed
 ASAR, retains a complete bounded package observation,
 publishes it into a disjoint content-addressed package-snapshot store, and locks the
-manifest-matched snapshot executable before launch. The snapshot lease and identity-matched
-executable capability remain live through process termination, semantic report construction, and a
-final complete-view revalidation that must succeed before attested publication and ledger append.
+manifest-matched snapshot executable before launch. It requires the adapter-owned canonical
+scenario at `scenarios/discord.smoke-marker.scenario.json` in the verified runner's probe-asset
+set and compares the verified document with the exact compiled-in definition. The snapshot lease
+and identity-matched executable capability remain live through shared scenario execution,
+semantic report construction, and a final complete-view revalidation that must succeed before
+attested publication and ledger append.
 The physical snapshot root remains an unrestricted same-user namespace and does not create
 execution authority.
 
-The command uses a new sibling user-data directory, verifies Job membership and exact marker bytes,
-confirms primary-process termination, and rehashes the vendor ASAR after the probe. Kill-on-close
-Job ownership remains live through report construction. A Job Object is still an accounting and
-lifecycle boundary, not a sandbox.
+The command binds a new marker and sibling user-data path to the verified scenario, then delegates
+argument construction, Job limits, launch, exact marker verification, whole-Job termination,
+primary-process confirmation, and final snapshot revalidation to the shared executor. It rehashes
+the vendor ASAR after the probe and performs another complete snapshot check immediately before
+attestation. A Job Object is still an accounting and lifecycle boundary, not a sandbox.
 
 Before any staging write, canonical overlap checks require the managed package, marker,
 disposable user data, snapshot store, and optional ledger to be mutually disjoint and disjoint from
@@ -6698,13 +6762,14 @@ unsafe, unknown, missing, or excessive identity/descriptor/artifact entries befo
 component verifier checks every role preimage and artifact byte against those exact identities.
 
 A first run emits a candidate without class assignment, including exact runner identity and
-descriptor-set identities. A second run additionally receives the exact expected report digest, a
-trusted certification-policy revision, and a new or pinned-head existing ledger. After runner
-verification and snapshot/executable retention but before process creation, it creates the
-single-use pending challenge for the expected runtime-report reference. After process termination
-and semantic report reconstruction, it verifies generic evidence bytes, atomically publishes the
-dual-policy attestation, and creates ledger genesis or appends under the independently supplied
-head. Output includes the attestation and new ledger-head identities.
+descriptor-set, scenario, and shared scenario-report identities. A second run additionally receives
+the exact expected report digest, a trusted certification-policy revision, and a new or pinned-head
+existing ledger. After runner/scenario verification, snapshot/executable retention, and
+disposable-root preparation but before process creation, it creates the single-use pending
+challenge for the expected runtime-report reference. After whole-Job termination and semantic
+report reconstruction, it verifies generic evidence bytes, atomically publishes the dual-policy
+attestation, and creates ledger genesis or appends under the independently supplied head. Output
+includes the attestation and new ledger-head identities.
 
 The uncertified local launch flag remains mandatory because classification occurs after the
 diagnostic process exits and does not authorize that run or any future run.
@@ -6715,7 +6780,7 @@ Discord compatibility, production-state evidence, a security sandbox, or an effi
 Renderer/preload parity, module/native/helper analysis, ordinary application workflows,
 authenticated runner-bundle distribution, independent retrieval of named proprietary artifacts,
 signed registry publication and key lifecycle, external revocation feeds, and the general
-disposable-state scenario runner remain separate layers.
+parity scenario DSL remain separate layers.
 
 ## 35.6 Stable adapter gates
 

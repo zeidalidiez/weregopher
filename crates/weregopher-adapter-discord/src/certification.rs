@@ -1,12 +1,19 @@
 //! Canonical semantic report for the exact Discord disposable-state smoke workflow.
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
-use weregopher_domain::Sha256Digest;
+use weregopher_domain::{
+    AdapterId, ApplicationFamilyId, DisposableCertificationScenario,
+    DisposableCertificationScenarioDigest, DisposableCertificationScenarioError,
+    DisposableCertificationScenarioReport, DisposableScenarioArgument, DisposableScenarioLimits,
+    DisposableScenarioStateRoot, ExecutionArgument, ExecutionPackagePath, ExecutionResourceLimits,
+    ExecutionTargetContractError, FeatureId, IdentifierError, ScenarioId, ScenarioStateRootId,
+    Sha256Digest,
+};
 
 use crate::{
     DISCORD_MAIN_ENTRY, DiscordAdapterError, SMOKE_ADAPTER_ID, SMOKE_MARKER_ARGUMENT_PREFIX,
@@ -14,11 +21,22 @@ use crate::{
 };
 
 /// Current Discord smoke-certification report format.
-pub const DISCORD_SMOKE_CERTIFICATION_REPORT_FORMAT_VERSION: &str = "1";
+pub const DISCORD_SMOKE_CERTIFICATION_REPORT_FORMAT_VERSION: &str = "2";
 /// Maximum serialized report bytes accepted by the canonical parser.
 pub const MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES: usize = 64 * 1024;
 /// Exact workflow certified by this deliberately narrow profile.
 pub const DISCORD_SMOKE_WORKFLOW_ID: &str = "discord.smoke-marker";
+/// Exact probe-asset name containing the canonical Discord smoke scenario.
+pub const DISCORD_SMOKE_SCENARIO_ARTIFACT_NAME: &str =
+    "scenarios/discord.smoke-marker.scenario.json";
+/// Durable Discord application-family identity used by the smoke scenario.
+pub const DISCORD_APPLICATION_FAMILY_ID: &str = "discord";
+/// Manifest-relative executable selected by the Discord smoke scenario.
+pub const DISCORD_EXECUTABLE_PATH: &str = "Discord.exe";
+/// Logical success-file root selected by the Discord smoke scenario.
+pub const DISCORD_SMOKE_MARKER_STATE_ROOT_ID: &str = "marker";
+/// Logical empty user-data root selected by the Discord smoke scenario.
+pub const DISCORD_SMOKE_USER_DATA_STATE_ROOT_ID: &str = "user-data";
 /// Exact reviewed mutable file omitted from the managed smoke package.
 pub const SMOKE_MUTABLE_DISPATCH_LOG_PATH: &str =
     "modules/discord_dispatch-1/discord_dispatch/dispatch.log";
@@ -49,10 +67,71 @@ const EXECUTION_CONTRACT_DOMAIN: &[u8] = b"weregopher.discord.smoke-execution-co
 const RESOLUTION_EVIDENCE_DOMAIN: &[u8] = b"weregopher.discord.smoke-resolution-evidence.v1\0";
 const ARTIFACT_SOURCE_DOMAIN: &[u8] = b"weregopher.discord.smoke-artifact-source.v1\0";
 
+/// Constructs the exact canonical scenario accepted by the Discord marker adapter.
+///
+/// The matching compact JSON bytes must be present under
+/// [`DISCORD_SMOKE_SCENARIO_ARTIFACT_NAME`] in the verified runner's probe-asset component.
+///
+/// # Errors
+///
+/// Returns a closed construction error if a compiled-in identifier, path, argument, duration, or
+/// resource limit no longer satisfies the canonical domain contract.
+pub fn discord_smoke_scenario() -> Result<DisposableCertificationScenario, DiscordSmokeScenarioError>
+{
+    let marker = ScenarioStateRootId::new(DISCORD_SMOKE_MARKER_STATE_ROOT_ID)?;
+    let user_data = ScenarioStateRootId::new(DISCORD_SMOKE_USER_DATA_STATE_ROOT_ID)?;
+    let marker_size = u64::try_from(SMOKE_MARKER_CONTENT.len())
+        .map_err(|_| DiscordSmokeScenarioError::MarkerLengthUnrepresentable)?;
+    let resources = ExecutionResourceLimits::new(
+        SMOKE_ACTIVE_PROCESS_LIMIT,
+        SMOKE_PER_PROCESS_MEMORY_LIMIT_BYTES,
+        SMOKE_JOB_MEMORY_LIMIT_BYTES,
+    )?;
+    let limits = DisposableScenarioLimits::new(
+        Duration::from_secs(SMOKE_TIMEOUT_MAX_SECONDS),
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+        u32::try_from(SMOKE_LAUNCH_ARGUMENT_LIMIT)
+            .map_err(|_| DiscordSmokeScenarioError::LaunchLimitUnrepresentable)?,
+        u32::try_from(SMOKE_LAUNCH_ARGUMENT_BYTES)
+            .map_err(|_| DiscordSmokeScenarioError::LaunchLimitUnrepresentable)?,
+        u32::try_from(SMOKE_COMMAND_LINE_UTF16_LIMIT)
+            .map_err(|_| DiscordSmokeScenarioError::LaunchLimitUnrepresentable)?,
+        resources,
+    )?;
+    Ok(DisposableCertificationScenario::new(
+        ScenarioId::new(DISCORD_SMOKE_WORKFLOW_ID)?,
+        ApplicationFamilyId::new(DISCORD_APPLICATION_FAMILY_ID)?,
+        AdapterId::new(SMOKE_ADAPTER_ID)?,
+        FeatureId::new(DISCORD_SMOKE_WORKFLOW_ID)?,
+        ExecutionPackagePath::new(DISCORD_EXECUTABLE_PATH)?,
+        vec![
+            DisposableScenarioStateRoot::success_file(
+                marker.clone(),
+                digest(SMOKE_MARKER_CONTENT.as_bytes()),
+                marker_size,
+                256,
+            )?,
+            DisposableScenarioStateRoot::empty_directory(user_data.clone()),
+        ],
+        vec![
+            DisposableScenarioArgument::state_path(
+                marker,
+                ExecutionArgument::new(SMOKE_MARKER_ARGUMENT_PREFIX)?,
+            ),
+            DisposableScenarioArgument::state_path(
+                user_data,
+                ExecutionArgument::new("--user-data-dir=")?,
+            ),
+        ],
+        limits,
+    )?)
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, JsonSchema, PartialEq, Serialize)]
 enum DiscordSmokeCertificationReportFormatVersion {
-    #[serde(rename = "1")]
-    V1,
+    #[serde(rename = "2")]
+    V2,
 }
 
 /// Role-specific identity of one canonical Discord smoke-certification report.
@@ -205,77 +284,36 @@ impl DiscordSmokeStaticObservation {
 #[derive(Clone, Debug, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiscordSmokeRuntimeObservation {
-    managed_package_tree_merkle: Sha256Digest,
-    managed_executable_sha256: Sha256Digest,
-    package_files: u32,
-    package_bytes: u64,
+    scenario_sha256: DisposableCertificationScenarioDigest,
+    scenario_report: DisposableCertificationScenarioReport,
     source_app_asar_after_sha256: Sha256Digest,
-    marker_sha256: Sha256Digest,
-    timeout_seconds: u64,
-    active_process_limit: u32,
-    per_process_memory_limit_bytes: u64,
-    job_memory_limit_bytes: u64,
-    launch_argument_limit: u32,
-    launch_argument_bytes: u32,
-    command_line_utf16_limit: u32,
     omitted_mutable_paths: [String; 2],
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UncheckedDiscordSmokeRuntimeObservation {
-    managed_package_tree_merkle: Sha256Digest,
-    managed_executable_sha256: Sha256Digest,
-    package_files: u32,
-    package_bytes: u64,
+    scenario_sha256: DisposableCertificationScenarioDigest,
+    scenario_report: DisposableCertificationScenarioReport,
     source_app_asar_after_sha256: Sha256Digest,
-    marker_sha256: Sha256Digest,
-    timeout_seconds: u64,
-    active_process_limit: u32,
-    per_process_memory_limit_bytes: u64,
-    job_memory_limit_bytes: u64,
-    launch_argument_limit: u32,
-    launch_argument_bytes: u32,
-    command_line_utf16_limit: u32,
     omitted_mutable_paths: [String; 2],
 }
 
 impl DiscordSmokeRuntimeObservation {
-    /// Records a probe only after the caller has verified Job membership, marker semantics,
-    /// disposable state, vendor-source stability, and primary-process termination. The caller must
-    /// retain kill-on-close ownership of the complete Job through the reporting boundary.
+    /// Wraps one completed shared scenario report with Discord-specific source-stability facts.
     ///
     /// # Errors
     ///
-    /// Returns [`DiscordSmokeCertificationReportError`] when marker bytes, package bounds, timeout,
-    /// or numeric execution-profile fields cannot fit the fixed report contract.
+    /// Rejects any scenario other than the exact adapter-owned Discord marker definition.
     pub fn successful(
-        managed_package_tree_merkle: Sha256Digest,
-        managed_executable_sha256: Sha256Digest,
-        package_files: usize,
-        package_bytes: u64,
+        scenario_report: DisposableCertificationScenarioReport,
         source_app_asar_after_sha256: Sha256Digest,
-        marker_bytes: &[u8],
-        timeout_seconds: u64,
     ) -> Result<Self, DiscordSmokeCertificationReportError> {
+        let scenario_sha256 = scenario_report.scenario().canonical_document_digest()?;
         let value = Self {
-            managed_package_tree_merkle,
-            managed_executable_sha256,
-            package_files: u32::try_from(package_files)
-                .map_err(|_| DiscordSmokeCertificationReportError::PackageFileCountInvalid)?,
-            package_bytes,
+            scenario_sha256,
+            scenario_report,
             source_app_asar_after_sha256,
-            marker_sha256: digest(marker_bytes),
-            timeout_seconds,
-            active_process_limit: SMOKE_ACTIVE_PROCESS_LIMIT,
-            per_process_memory_limit_bytes: SMOKE_PER_PROCESS_MEMORY_LIMIT_BYTES,
-            job_memory_limit_bytes: SMOKE_JOB_MEMORY_LIMIT_BYTES,
-            launch_argument_limit: u32::try_from(SMOKE_LAUNCH_ARGUMENT_LIMIT)
-                .map_err(|_| DiscordSmokeCertificationReportError::ExecutionProfileMismatch)?,
-            launch_argument_bytes: u32::try_from(SMOKE_LAUNCH_ARGUMENT_BYTES)
-                .map_err(|_| DiscordSmokeCertificationReportError::ExecutionProfileMismatch)?,
-            command_line_utf16_limit: u32::try_from(SMOKE_COMMAND_LINE_UTF16_LIMIT)
-                .map_err(|_| DiscordSmokeCertificationReportError::ExecutionProfileMismatch)?,
             omitted_mutable_paths: [
                 SMOKE_MUTABLE_DISPATCH_LOG_PATH.to_owned(),
                 SMOKE_MUTABLE_KRISP_LOG_DIRECTORY_PATH.to_owned(),
@@ -289,19 +327,9 @@ impl DiscordSmokeRuntimeObservation {
         unchecked: UncheckedDiscordSmokeRuntimeObservation,
     ) -> Result<Self, DiscordSmokeCertificationReportError> {
         let value = Self {
-            managed_package_tree_merkle: unchecked.managed_package_tree_merkle,
-            managed_executable_sha256: unchecked.managed_executable_sha256,
-            package_files: unchecked.package_files,
-            package_bytes: unchecked.package_bytes,
+            scenario_sha256: unchecked.scenario_sha256,
+            scenario_report: unchecked.scenario_report,
             source_app_asar_after_sha256: unchecked.source_app_asar_after_sha256,
-            marker_sha256: unchecked.marker_sha256,
-            timeout_seconds: unchecked.timeout_seconds,
-            active_process_limit: unchecked.active_process_limit,
-            per_process_memory_limit_bytes: unchecked.per_process_memory_limit_bytes,
-            job_memory_limit_bytes: unchecked.job_memory_limit_bytes,
-            launch_argument_limit: unchecked.launch_argument_limit,
-            launch_argument_bytes: unchecked.launch_argument_bytes,
-            command_line_utf16_limit: unchecked.command_line_utf16_limit,
             omitted_mutable_paths: unchecked.omitted_mutable_paths,
         };
         value.validate()?;
@@ -309,32 +337,16 @@ impl DiscordSmokeRuntimeObservation {
     }
 
     fn validate(&self) -> Result<(), DiscordSmokeCertificationReportError> {
-        if self.marker_sha256 != digest(SMOKE_MARKER_CONTENT.as_bytes()) {
-            return Err(DiscordSmokeCertificationReportError::MarkerMismatch);
+        let expected = discord_smoke_scenario()?;
+        if self.scenario_report.scenario() != &expected {
+            return Err(DiscordSmokeCertificationReportError::ScenarioMismatch);
         }
-        if self.package_files == 0 {
-            return Err(DiscordSmokeCertificationReportError::PackageFileCountInvalid);
-        }
-        if self.package_bytes == 0 {
-            return Err(DiscordSmokeCertificationReportError::PackageByteCountInvalid);
-        }
-        if self.timeout_seconds == 0 || self.timeout_seconds > SMOKE_TIMEOUT_MAX_SECONDS {
-            return Err(DiscordSmokeCertificationReportError::TimeoutInvalid);
-        }
-        let expected_argument_limit = u32::try_from(SMOKE_LAUNCH_ARGUMENT_LIMIT)
-            .map_err(|_| DiscordSmokeCertificationReportError::ExecutionProfileMismatch)?;
-        let expected_argument_bytes = u32::try_from(SMOKE_LAUNCH_ARGUMENT_BYTES)
-            .map_err(|_| DiscordSmokeCertificationReportError::ExecutionProfileMismatch)?;
-        let expected_command_line = u32::try_from(SMOKE_COMMAND_LINE_UTF16_LIMIT)
-            .map_err(|_| DiscordSmokeCertificationReportError::ExecutionProfileMismatch)?;
-        if self.active_process_limit != SMOKE_ACTIVE_PROCESS_LIMIT
-            || self.per_process_memory_limit_bytes != SMOKE_PER_PROCESS_MEMORY_LIMIT_BYTES
-            || self.job_memory_limit_bytes != SMOKE_JOB_MEMORY_LIMIT_BYTES
-            || self.launch_argument_limit != expected_argument_limit
-            || self.launch_argument_bytes != expected_argument_bytes
-            || self.command_line_utf16_limit != expected_command_line
-        {
-            return Err(DiscordSmokeCertificationReportError::ExecutionProfileMismatch);
+        let actual_scenario = self
+            .scenario_report
+            .scenario()
+            .canonical_document_digest()?;
+        if actual_scenario != self.scenario_sha256 {
+            return Err(DiscordSmokeCertificationReportError::ScenarioIdentityMismatch);
         }
         let expected_paths = [
             SMOKE_MUTABLE_DISPATCH_LOG_PATH.to_owned(),
@@ -348,26 +360,26 @@ impl DiscordSmokeRuntimeObservation {
 
     /// Returns the exact managed package-tree identity.
     #[must_use]
-    pub const fn managed_package_tree_merkle(&self) -> &Sha256Digest {
-        &self.managed_package_tree_merkle
+    pub const fn managed_package_tree_merkle(&self) -> Sha256Digest {
+        self.scenario_report.package().package_tree_merkle()
     }
 
     /// Returns the exact managed executable-byte identity.
     #[must_use]
-    pub const fn managed_executable_sha256(&self) -> &Sha256Digest {
-        &self.managed_executable_sha256
+    pub const fn managed_executable_sha256(&self) -> Sha256Digest {
+        self.scenario_report.package().executable_sha256()
     }
 
     /// Returns the number of files bound by the managed package manifest.
     #[must_use]
     pub const fn package_files(&self) -> u32 {
-        self.package_files
+        self.scenario_report.package().package_files()
     }
 
     /// Returns aggregate bytes bound by the managed package manifest.
     #[must_use]
     pub const fn package_bytes(&self) -> u64 {
-        self.package_bytes
+        self.scenario_report.package().package_bytes()
     }
 
     /// Returns the post-probe vendor `app.asar` identity.
@@ -378,14 +390,26 @@ impl DiscordSmokeRuntimeObservation {
 
     /// Returns the observed marker-byte identity.
     #[must_use]
-    pub const fn marker_sha256(&self) -> &Sha256Digest {
-        &self.marker_sha256
+    pub const fn marker_sha256(&self) -> Sha256Digest {
+        self.scenario_report.execution().success_file().sha256()
     }
 
-    /// Returns the fixed probe deadline in seconds.
+    /// Returns the exact verified scenario identity.
     #[must_use]
-    pub const fn timeout_seconds(&self) -> u64 {
-        self.timeout_seconds
+    pub const fn scenario_sha256(&self) -> DisposableCertificationScenarioDigest {
+        self.scenario_sha256
+    }
+
+    /// Returns the successful shared scenario report.
+    #[must_use]
+    pub const fn scenario_report(&self) -> &DisposableCertificationScenarioReport {
+        &self.scenario_report
+    }
+
+    /// Returns the selected probe timeout.
+    #[must_use]
+    pub const fn selected_timeout(&self) -> Duration {
+        self.scenario_report.execution().selected_timeout()
     }
 }
 
@@ -425,7 +449,7 @@ impl DiscordSmokeCertificationReport {
             return Err(DiscordSmokeCertificationReportError::VendorSourceChanged);
         }
         Ok(Self {
-            format_version: DiscordSmokeCertificationReportFormatVersion::V1,
+            format_version: DiscordSmokeCertificationReportFormatVersion::V2,
             static_observation,
             runtime_observation,
         })
@@ -442,7 +466,7 @@ impl DiscordSmokeCertificationReport {
             return Err(DiscordSmokeCertificationReportError::DocumentTooLarge);
         }
         let UncheckedDiscordSmokeCertificationReport {
-            format_version: DiscordSmokeCertificationReportFormatVersion::V1,
+            format_version: DiscordSmokeCertificationReportFormatVersion::V2,
             static_observation,
             runtime_observation,
         } = serde_json::from_slice(bytes)
@@ -456,7 +480,7 @@ impl DiscordSmokeCertificationReport {
 
     /// Returns canonical compact JSON bytes.
     ///
-    /// Format v1 uses declaration-order object members, canonical digest spellings, no
+    /// Format v2 uses declaration-order object members, canonical digest spellings, no
     /// insignificant whitespace, and no trailing newline. The checked-in golden byte and SHA-256
     /// vectors freeze this encoding; changing it requires a new report format.
     ///
@@ -500,18 +524,16 @@ impl DiscordSmokeCertificationReport {
     /// Derives the exact adapter-scoped source-build identity.
     #[must_use]
     pub fn source_build_fingerprint_digest(&self) -> Sha256Digest {
+        let package_tree = self.runtime_observation.managed_package_tree_merkle();
+        let executable = self.runtime_observation.managed_executable_sha256();
         domain_digest(
             SOURCE_BUILD_DOMAIN,
             &[
                 self.static_observation.source_app_asar_sha256.as_bytes(),
                 self.static_observation.package_manifest_sha256.as_bytes(),
                 self.static_observation.source_main_entry_sha256.as_bytes(),
-                self.runtime_observation
-                    .managed_package_tree_merkle
-                    .as_bytes(),
-                self.runtime_observation
-                    .managed_executable_sha256
-                    .as_bytes(),
+                package_tree.as_bytes(),
+                executable.as_bytes(),
             ],
         )
     }
@@ -519,17 +541,19 @@ impl DiscordSmokeCertificationReport {
     /// Derives the exact main-runtime contract identity for this smoke scope.
     #[must_use]
     pub fn main_runtime_contract_digest(&self) -> Sha256Digest {
+        let executable = self.runtime_observation.managed_executable_sha256();
+        let package_tree = self.runtime_observation.managed_package_tree_merkle();
         domain_digest(
             MAIN_RUNTIME_DOMAIN,
             &[
-                self.runtime_observation
-                    .managed_executable_sha256
-                    .as_bytes(),
-                self.runtime_observation
-                    .managed_package_tree_merkle
-                    .as_bytes(),
+                executable.as_bytes(),
+                package_tree.as_bytes(),
                 SMOKE_MARKER_ARGUMENT_PREFIX.as_bytes(),
                 SMOKE_MARKER_CONTENT.as_bytes(),
+                self.runtime_observation
+                    .scenario_sha256
+                    .as_sha256()
+                    .as_bytes(),
             ],
         )
     }
@@ -549,26 +573,20 @@ impl DiscordSmokeCertificationReport {
     /// Derives the disposable-state, Job-bounded execution-environment identity.
     #[must_use]
     pub fn execution_environment_digest(&self) -> Sha256Digest {
-        let timeout = self.runtime_observation.timeout_seconds.to_le_bytes();
+        let timeout = self
+            .runtime_observation
+            .scenario_report
+            .execution()
+            .selected_timeout_millis()
+            .to_le_bytes();
         domain_digest(
             EXECUTION_ENVIRONMENT_DOMAIN,
             &[
+                self.runtime_observation
+                    .scenario_sha256
+                    .as_sha256()
+                    .as_bytes(),
                 &timeout,
-                &self.runtime_observation.active_process_limit.to_le_bytes(),
-                &self
-                    .runtime_observation
-                    .per_process_memory_limit_bytes
-                    .to_le_bytes(),
-                &self
-                    .runtime_observation
-                    .job_memory_limit_bytes
-                    .to_le_bytes(),
-                &self.runtime_observation.launch_argument_limit.to_le_bytes(),
-                &self.runtime_observation.launch_argument_bytes.to_le_bytes(),
-                &self
-                    .runtime_observation
-                    .command_line_utf16_limit
-                    .to_le_bytes(),
             ],
         )
     }
@@ -590,17 +608,19 @@ impl DiscordSmokeCertificationReport {
     /// Derives exact managed package and executable resolution evidence.
     #[must_use]
     pub fn execution_resolution_evidence_digest(&self) -> Sha256Digest {
+        let package_tree = self.runtime_observation.managed_package_tree_merkle();
+        let executable = self.runtime_observation.managed_executable_sha256();
         domain_digest(
             RESOLUTION_EVIDENCE_DOMAIN,
             &[
-                self.runtime_observation
-                    .managed_package_tree_merkle
-                    .as_bytes(),
-                self.runtime_observation
-                    .managed_executable_sha256
-                    .as_bytes(),
+                package_tree.as_bytes(),
+                executable.as_bytes(),
                 self.static_observation
                     .transformed_app_asar_sha256
+                    .as_bytes(),
+                self.runtime_observation
+                    .scenario_sha256
+                    .as_sha256()
                     .as_bytes(),
             ],
         )
@@ -609,6 +629,7 @@ impl DiscordSmokeCertificationReport {
     /// Derives the exact transformed managed-package source identity.
     #[must_use]
     pub fn execution_artifact_source_digest(&self) -> Sha256Digest {
+        let package_tree = self.runtime_observation.managed_package_tree_merkle();
         domain_digest(
             ARTIFACT_SOURCE_DOMAIN,
             &[
@@ -616,12 +637,30 @@ impl DiscordSmokeCertificationReport {
                 self.static_observation
                     .transformed_app_asar_sha256
                     .as_bytes(),
-                self.runtime_observation
-                    .managed_package_tree_merkle
-                    .as_bytes(),
+                package_tree.as_bytes(),
             ],
         )
     }
+}
+
+/// Failure to construct the exact built-in Discord smoke scenario.
+#[derive(Debug, Error)]
+pub enum DiscordSmokeScenarioError {
+    /// A built-in stable identifier no longer satisfies the canonical grammar.
+    #[error("Discord smoke scenario contains an invalid built-in identifier")]
+    Identifier(#[from] IdentifierError),
+    /// A built-in argument, path, or Job limit no longer satisfies the execution contract.
+    #[error("Discord smoke scenario contains an invalid execution value")]
+    Execution(#[from] ExecutionTargetContractError),
+    /// The assembled scenario violates the disposable-scenario contract.
+    #[error("Discord smoke scenario contract is invalid")]
+    Scenario(#[from] DisposableCertificationScenarioError),
+    /// Marker length cannot be represented by the scenario format.
+    #[error("Discord smoke marker length is unrepresentable")]
+    MarkerLengthUnrepresentable,
+    /// A built-in platform launch limit cannot be represented by the scenario format.
+    #[error("Discord smoke launch limit is unrepresentable")]
+    LaunchLimitUnrepresentable,
 }
 
 /// Rejection produced while constructing or parsing Discord smoke-certification evidence.
@@ -630,9 +669,15 @@ pub enum DiscordSmokeCertificationReportError {
     /// Serialized input exceeded the fixed report ceiling.
     #[error("Discord smoke certification report exceeds the byte limit")]
     DocumentTooLarge,
-    /// Serialized input did not match the closed format-v1 transport.
+    /// Serialized input did not match the closed format-v2 transport.
     #[error("invalid Discord smoke certification report")]
     InvalidDocument(#[source] serde_json::Error),
+    /// Canonical nested scenario bytes could not be produced.
+    #[error("failed to serialize the canonical Discord smoke scenario")]
+    Serialization(#[from] serde_json::Error),
+    /// The exact built-in Discord scenario could not be constructed.
+    #[error(transparent)]
+    Scenario(#[from] DiscordSmokeScenarioError),
     /// The package or main source did not satisfy the adapter contract.
     #[error(transparent)]
     Adapter(#[from] DiscordAdapterError),
@@ -648,21 +693,12 @@ pub enum DiscordSmokeCertificationReportError {
     /// Report bytes did not bind the fixed adapter contract.
     #[error("Discord smoke report adapter-contract identity mismatch")]
     AdapterContractMismatch,
-    /// Managed package file count was zero or unrepresentable.
-    #[error("Discord smoke managed package file count is invalid")]
-    PackageFileCountInvalid,
-    /// Managed package byte count was zero.
-    #[error("Discord smoke managed package byte count is invalid")]
-    PackageByteCountInvalid,
-    /// Probe timeout was zero or exceeded the fixed smoke ceiling.
-    #[error("Discord smoke probe timeout is invalid")]
-    TimeoutInvalid,
-    /// Probe marker bytes did not match the exact adapter marker.
-    #[error("Discord smoke probe marker mismatch")]
-    MarkerMismatch,
-    /// Numeric Job or launch limits differed from the fixed smoke execution profile.
-    #[error("Discord smoke execution profile mismatch")]
-    ExecutionProfileMismatch,
+    /// The nested shared scenario differed from the exact adapter-owned definition.
+    #[error("Discord smoke scenario does not match the adapter contract")]
+    ScenarioMismatch,
+    /// The explicit scenario identity differed from the nested canonical definition.
+    #[error("Discord smoke scenario identity mismatch")]
+    ScenarioIdentityMismatch,
     /// Mutable-path omissions differed from the fixed reviewed adapter contract.
     #[error("Discord smoke mutable-path scope mismatch")]
     MutablePathScopeMismatch,
@@ -678,6 +714,10 @@ fn adapter_contract_digest() -> Sha256Digest {
             SMOKE_ADAPTER_ID.as_bytes(),
             SMOKE_PREFIX,
             DISCORD_MAIN_ENTRY.as_bytes(),
+            DISCORD_EXECUTABLE_PATH.as_bytes(),
+            DISCORD_SMOKE_SCENARIO_ARTIFACT_NAME.as_bytes(),
+            DISCORD_SMOKE_MARKER_STATE_ROOT_ID.as_bytes(),
+            DISCORD_SMOKE_USER_DATA_STATE_ROOT_ID.as_bytes(),
             SMOKE_MARKER_ARGUMENT_PREFIX.as_bytes(),
             SMOKE_MARKER_CONTENT.as_bytes(),
             SMOKE_MUTABLE_DISPATCH_LOG_PATH.as_bytes(),

@@ -28,6 +28,8 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "certification-runner-component-descriptor.schema.json",
         "certification-runner-identity.schema.json",
         "compatibility-analysis.schema.json",
+        "disposable-certification-scenario-report.schema.json",
+        "disposable-certification-scenario.schema.json",
         "discord-smoke-certification-report.schema.json",
         "effective-security-posture.schema.json",
         "execution-resolution-evidence.schema.json",
@@ -85,6 +87,83 @@ fn discord_smoke_certification_report_schema_is_closed_and_bounded()
     );
     assert_eq!(
         document["$defs"]["DiscordSmokeCertificationReportFormatVersion"]["enum"],
+        serde_json::json!(["2"])
+    );
+    Ok(())
+}
+
+#[test]
+fn disposable_scenario_schemas_are_closed_versioned_and_byte_bounded()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let scenario: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("disposable-certification-scenario.schema.json"),
+    )?)?;
+    let report: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("disposable-certification-scenario-report.schema.json"),
+    )?)?;
+
+    assert_eq!(scenario["additionalProperties"], false);
+    assert_required_properties(
+        &scenario,
+        &[
+            "format_version",
+            "id",
+            "application_family",
+            "adapter_id",
+            "workflow",
+            "executable",
+            "state_roots",
+            "arguments",
+            "execution",
+        ],
+    )?;
+    assert_eq!(
+        scenario["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_DISPOSABLE_CERTIFICATION_SCENARIO_BYTES
+    );
+    assert_eq!(
+        scenario["$defs"]["DisposableCertificationScenarioFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    let execution = &scenario["$defs"]["DisposableScenarioExecution"]["properties"];
+    assert_eq!(execution["state_mode"]["const"], "disposable");
+    assert_eq!(
+        execution["security_posture"]["const"],
+        "vendor_equivalent_full_trust"
+    );
+    assert_eq!(
+        execution["dependency_policy"]["const"],
+        "vendor_default_ambient"
+    );
+    assert_eq!(scenario["properties"]["state_roots"]["minContains"], 1);
+    assert_eq!(scenario["properties"]["state_roots"]["maxContains"], 1);
+    assert_eq!(
+        scenario["properties"]["state_roots"]["contains"]["properties"]["definition"]["properties"]
+            ["kind"]["const"],
+        "success_file"
+    );
+    assert_eq!(
+        scenario["$defs"]["DisposableScenarioLimits"]["properties"]["maximum_timeout_millis"]["maximum"],
+        weregopher_domain::MAX_DISPOSABLE_SCENARIO_TIMEOUT_MILLIS
+    );
+
+    assert_eq!(report["additionalProperties"], false);
+    assert_required_properties(
+        &report,
+        &["format_version", "scenario", "package", "execution"],
+    )?;
+    assert_eq!(
+        report["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_DISPOSABLE_CERTIFICATION_SCENARIO_REPORT_BYTES
+    );
+    assert_eq!(
+        report["$defs"]["DisposableCertificationScenarioReportFormatVersion"]["enum"],
         serde_json::json!(["1"])
     );
     Ok(())

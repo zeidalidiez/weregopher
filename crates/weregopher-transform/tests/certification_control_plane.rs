@@ -9,10 +9,11 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use tempfile::tempdir;
 use weregopher_domain::{
-    CertificationArtifactDigest, CertificationArtifactKind, CertificationArtifactRef,
-    CertificationCheckAssessment, CertificationCheckStatus, CertificationChecks,
-    CertificationClass, CertificationControlPolicy, CertificationElectronRuntimeDigest,
-    CertificationEvidence, CertificationExceptionProvenanceDigest, CertificationExpectedStatus,
+    AdapterId, ApplicationFamilyId, CertificationArtifactDigest, CertificationArtifactKind,
+    CertificationArtifactRef, CertificationCheckAssessment, CertificationCheckStatus,
+    CertificationChecks, CertificationClass, CertificationControlPolicy,
+    CertificationElectronRuntimeDigest, CertificationEvidence,
+    CertificationExceptionProvenanceDigest, CertificationExpectedStatus,
     CertificationHostAgentDigest, CertificationHostImageDigest, CertificationHostPatchSetDigest,
     CertificationLanguageRuntimeSetDigest, CertificationPolicyRevisionDigest,
     CertificationPolicyRevocationDigest, CertificationProbeAssetSetDigest, CertificationProfile,
@@ -25,20 +26,25 @@ use weregopher_domain::{
     CertificationRunnerPolicyRevocationDigest, CertificationRunnerProvenanceIdentity,
     CertificationRunnerToolingIdentity, CertificationSourceRevisionDigest, CertificationTarget,
     CertificationToolchainSetDigest, CertificationVerifierDigest, CompatibilityAnalysisDigest,
-    ExecutableDigest, ExecutionArtifactSourceDigest, ExecutionContractDigest,
-    ExecutionResolutionEvidenceDigest, FeatureId, MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS,
-    PublicationStatus, Sha256Digest,
+    DisposableCertificationScenario, DisposableScenarioArgument, DisposableScenarioLimits,
+    DisposableScenarioStateRoot, ExecutableDigest, ExecutionArgument,
+    ExecutionArtifactSourceDigest, ExecutionContractDigest, ExecutionPackagePath,
+    ExecutionResolutionEvidenceDigest, ExecutionResourceLimits, FeatureId,
+    MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS, PublicationStatus, ScenarioId,
+    ScenarioStateRootId, Sha256Digest,
 };
 use weregopher_transform::{
     AttestedCertificationPublicationError, AttestedLocalCertificationPublication,
     CertificationArtifactVerificationLimits, CertificationRunnerComponentVerificationError,
-    CertificationRunnerComponentVerificationLimits, LocalAttestedCertificationPublicationStore,
+    CertificationRunnerComponentVerificationLimits,
+    DisposableCertificationScenarioVerificationError, LocalAttestedCertificationPublicationStore,
     LocalCertificationLedger, LocalCertificationLedgerError, LocalCertificationPolicy,
     LocalCertificationPolicyStore, LocalCertificationRunnerPolicy,
     LocalCertificationRunnerPolicyStore, approve_local_certification_runner,
     assign_local_certification, begin_local_certification_run,
     prepare_attested_local_certification_publication, publish_attested_local_certification,
     verify_certification_artifacts, verify_certification_runner_components,
+    verify_disposable_certification_scenario,
 };
 
 const REPORT_BYTES: &[u8] = b"semantic certification report";
@@ -75,6 +81,88 @@ fn exact_runner_component_descriptors_and_artifacts_produce_a_current_opaque_pro
         verified.descriptor_set_digest().as_sha256(),
         &Sha256Digest::from_bytes([0; 32])
     );
+    Ok(())
+}
+
+#[test]
+fn disposable_scenario_selection_requires_one_exact_canonical_probe_asset()
+-> Result<(), Box<dyn std::error::Error>> {
+    let scenario = disposable_scenario_fixture()?;
+    let scenario_bytes = scenario.canonical_json_bytes()?;
+    let artifact_name = CertificationRunnerArtifactName::new("scenarios/test.json")?;
+    let fixture = RunnerFixture::with_probe_asset(artifact_name.clone(), scenario_bytes.clone())?;
+    let policy = LocalCertificationRunnerPolicy::new(
+        fixture.identity.canonical_document_digest()?,
+        CertificationRunnerPolicyRevisionDigest::new(digest(0x8f)),
+    );
+    let store = LocalCertificationRunnerPolicyStore::new(policy);
+    let approved = approve_local_certification_runner(fixture.identity.clone(), &store)?;
+    let borrowed = fixture.borrowed_artifacts();
+    let verified = verify_certification_runner_components(
+        approved,
+        &fixture.descriptors,
+        &borrowed,
+        CertificationRunnerComponentVerificationLimits::new(128 * 1024, 1024, 256 * 1024)?,
+    )?;
+    let verified_scenario =
+        verify_disposable_certification_scenario(verified, artifact_name.clone())?;
+
+    assert_eq!(verified_scenario.artifact_name(), &artifact_name);
+    assert_eq!(verified_scenario.scenario(), &scenario);
+    assert_eq!(
+        verified_scenario.scenario_digest(),
+        scenario.canonical_document_digest()?
+    );
+    assert_eq!(verified_scenario.runner_policy_generation(), 1);
+
+    let missing_fixture =
+        RunnerFixture::with_probe_asset(artifact_name.clone(), scenario_bytes.clone())?;
+    let missing_policy = LocalCertificationRunnerPolicy::new(
+        missing_fixture.identity.canonical_document_digest()?,
+        CertificationRunnerPolicyRevisionDigest::new(digest(0x8e)),
+    );
+    let missing_store = LocalCertificationRunnerPolicyStore::new(missing_policy);
+    let missing_approved =
+        approve_local_certification_runner(missing_fixture.identity.clone(), &missing_store)?;
+    let missing_borrowed = missing_fixture.borrowed_artifacts();
+    let missing_verified = verify_certification_runner_components(
+        missing_approved,
+        &missing_fixture.descriptors,
+        &missing_borrowed,
+        CertificationRunnerComponentVerificationLimits::new(128 * 1024, 1024, 256 * 1024)?,
+    )?;
+    assert!(matches!(
+        verify_disposable_certification_scenario(
+            missing_verified,
+            CertificationRunnerArtifactName::new("scenarios/other.json")?,
+        ),
+        Err(DisposableCertificationScenarioVerificationError::MissingProbeAsset(_))
+    ));
+
+    let mut noncanonical_bytes = scenario_bytes;
+    noncanonical_bytes.push(b'\n');
+    let noncanonical_fixture =
+        RunnerFixture::with_probe_asset(artifact_name.clone(), noncanonical_bytes)?;
+    let noncanonical_policy = LocalCertificationRunnerPolicy::new(
+        noncanonical_fixture.identity.canonical_document_digest()?,
+        CertificationRunnerPolicyRevisionDigest::new(digest(0x8d)),
+    );
+    let noncanonical_store = LocalCertificationRunnerPolicyStore::new(noncanonical_policy);
+    let noncanonical_approved = approve_local_certification_runner(
+        noncanonical_fixture.identity.clone(),
+        &noncanonical_store,
+    )?;
+    let noncanonical_borrowed = noncanonical_fixture.borrowed_artifacts();
+    let noncanonical_verified = verify_certification_runner_components(
+        noncanonical_approved,
+        &noncanonical_fixture.descriptors,
+        &noncanonical_borrowed,
+        CertificationRunnerComponentVerificationLimits::new(128 * 1024, 1024, 256 * 1024)?,
+    )?;
+    assert!(matches!(
+        verify_disposable_certification_scenario(noncanonical_verified, artifact_name),
+        Err(DisposableCertificationScenarioVerificationError::NonCanonicalScenarioArtifact)
+    ));
     Ok(())
 }
 
@@ -661,13 +749,36 @@ struct RunnerFixture {
 
 impl RunnerFixture {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        Self::with_optional_probe_asset(None)
+    }
+
+    fn with_probe_asset(
+        name: CertificationRunnerArtifactName,
+        bytes: Vec<u8>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let probe_asset = (name, bytes);
+        Self::with_optional_probe_asset(Some(&probe_asset))
+    }
+
+    fn with_optional_probe_asset(
+        probe_asset: Option<&(CertificationRunnerArtifactName, Vec<u8>)>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut descriptors = BTreeMap::new();
         let mut artifacts = BTreeMap::new();
         let mut descriptor_digests = BTreeMap::new();
         for (index, role) in runner_roles().into_iter().enumerate() {
             let tag = u8::try_from(index + 1)?;
-            let bytes = vec![tag; 3];
-            let name = CertificationRunnerArtifactName::new(format!("role/{tag:02}.bin"))?;
+            let (name, bytes) = if role == CertificationRunnerComponentRole::ProbeAssetSet {
+                probe_asset.cloned().unwrap_or((
+                    CertificationRunnerArtifactName::new(format!("role/{tag:02}.bin"))?,
+                    vec![tag; 3],
+                ))
+            } else {
+                (
+                    CertificationRunnerArtifactName::new(format!("role/{tag:02}.bin"))?,
+                    vec![tag; 3],
+                )
+            };
             let artifact = CertificationRunnerComponentArtifact::new(
                 name.clone(),
                 sha256(&bytes),
@@ -762,6 +873,38 @@ impl RunnerFixture {
             })
             .collect()
     }
+}
+
+fn disposable_scenario_fixture()
+-> Result<DisposableCertificationScenario, Box<dyn std::error::Error>> {
+    let success = ScenarioStateRootId::new("success")?;
+    DisposableCertificationScenario::new(
+        ScenarioId::new("test.disposable-success")?,
+        ApplicationFamilyId::new("test-app")?,
+        AdapterId::new("test.disposable-success.v1")?,
+        FeatureId::new("test.disposable-success")?,
+        ExecutionPackagePath::new("TestApp.exe")?,
+        vec![DisposableScenarioStateRoot::success_file(
+            success.clone(),
+            sha256(b"success\n"),
+            u64::try_from(b"success\n".len())?,
+            128,
+        )?],
+        vec![DisposableScenarioArgument::state_path(
+            success,
+            ExecutionArgument::new("--success-file=")?,
+        )],
+        DisposableScenarioLimits::new(
+            Duration::from_secs(10),
+            Duration::from_millis(50),
+            Duration::from_secs(2),
+            4,
+            8_192,
+            32_767,
+            ExecutionResourceLimits::new(4, 512 * 1024 * 1024, 1024 * 1024 * 1024)?,
+        )?,
+    )
+    .map_err(Into::into)
 }
 
 struct CertificationFixture {

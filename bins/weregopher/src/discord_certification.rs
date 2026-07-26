@@ -437,7 +437,7 @@ fn build_certification_evidence(
             ExecutionContractDigest::new(report.execution_contract_digest()),
             ExecutionResolutionEvidenceDigest::new(report.execution_resolution_evidence_digest()),
             ExecutionArtifactSourceDigest::new(report.execution_artifact_source_digest()),
-            ExecutableDigest::new(*report.runtime_observation().managed_executable_sha256()),
+            ExecutableDigest::new(report.runtime_observation().managed_executable_sha256()),
         ),
         profile_digest,
         checks,
@@ -628,7 +628,8 @@ mod tests {
     use tempfile::tempdir;
     use weregopher_adapter_discord::{
         DiscordSmokeCertificationReport, DiscordSmokeRuntimeObservation,
-        DiscordSmokeStaticObservation, SMOKE_MARKER_CONTENT, transform_smoke_source,
+        DiscordSmokeStaticObservation, SMOKE_MARKER_CONTENT, discord_smoke_scenario,
+        transform_smoke_source,
     };
     use weregopher_domain::{
         AnalysisDisposition, CertificationArtifactDigest, CertificationArtifactKind,
@@ -644,8 +645,9 @@ mod tests {
         CertificationRunnerIdentity, CertificationRunnerImageDigest,
         CertificationRunnerPolicyRevisionDigest, CertificationRunnerProvenanceIdentity,
         CertificationRunnerToolingIdentity, CertificationSourceRevisionDigest,
-        CertificationToolchainSetDigest, CertificationVerifierDigest, PublicationStatus,
-        Sha256Digest,
+        CertificationToolchainSetDigest, CertificationVerifierDigest,
+        DisposableCertificationScenarioReport, DisposableScenarioPackageObservation,
+        PublicationStatus, Sha256Digest,
     };
     use weregopher_transform::{
         CertificationRunnerComponentVerificationLimits, LocalCertificationLedger,
@@ -743,15 +745,20 @@ mod tests {
             source,
             &transformed,
         )?;
-        let runtime_observation = DiscordSmokeRuntimeObservation::successful(
+        let package_observation = DisposableScenarioPackageObservation::new(
             digest(b"managed package"),
             digest(b"managed executable"),
             42,
             1_024,
-            source_app_asar_sha256,
-            SMOKE_MARKER_CONTENT.as_bytes(),
-            20,
         )?;
+        let scenario_report = DisposableCertificationScenarioReport::successful(
+            discord_smoke_scenario()?,
+            package_observation,
+            Duration::from_secs(20),
+            SMOKE_MARKER_CONTENT.as_bytes(),
+        )?;
+        let runtime_observation =
+            DiscordSmokeRuntimeObservation::successful(scenario_report, source_app_asar_sha256)?;
         Ok(DiscordSmokeCertificationReport::new(
             static_observation,
             runtime_observation,

@@ -14,75 +14,6 @@
       "pattern": "^(?!.*\\.\\.)[a-z0-9](?:[a-z0-9._-]{0,253}[a-z0-9])?$",
       "type": "string"
     },
-    "DiscordSmokeCertificationReportFormatVersion": {
-      "enum": [
-        "2"
-      ],
-      "type": "string"
-    },
-    "DiscordSmokeRuntimeObservation": {
-      "additionalProperties": false,
-      "description": "Deterministic outcome of one successful disposable-state Job-owned smoke probe.",
-      "properties": {
-        "omitted_mutable_paths": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 2,
-          "minItems": 2,
-          "type": "array"
-        },
-        "scenario_report": {
-          "$ref": "#/$defs/DisposableCertificationScenarioReport"
-        },
-        "scenario_sha256": {
-          "$ref": "#/$defs/DisposableCertificationScenarioDigest"
-        },
-        "source_app_asar_after_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        }
-      },
-      "required": [
-        "scenario_sha256",
-        "scenario_report",
-        "source_app_asar_after_sha256",
-        "omitted_mutable_paths"
-      ],
-      "type": "object"
-    },
-    "DiscordSmokeStaticObservation": {
-      "additionalProperties": false,
-      "description": "Exact static input and output identities accepted by the Discord smoke adapter.",
-      "properties": {
-        "adapter_contract_digest": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "package_manifest_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "source_app_asar_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "source_main_entry_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "transformed_app_asar_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        },
-        "transformed_main_entry_sha256": {
-          "$ref": "#/$defs/Sha256Digest"
-        }
-      },
-      "required": [
-        "adapter_contract_digest",
-        "source_app_asar_sha256",
-        "transformed_app_asar_sha256",
-        "package_manifest_sha256",
-        "source_main_entry_sha256",
-        "transformed_main_entry_sha256"
-      ],
-      "type": "object"
-    },
     "DisposableCertificationScenario": {
       "additionalProperties": false,
       "description": "Canonical bounded description of one exact disposable-state diagnostic scenario.\n\nParsing and content addressing do not authenticate these bytes or authorize their launch.",
@@ -139,40 +70,11 @@
       ],
       "type": "object"
     },
-    "DisposableCertificationScenarioDigest": {
-      "$ref": "#/$defs/Sha256Digest",
-      "description": "Identity of one canonical disposable certification-scenario definition."
-    },
     "DisposableCertificationScenarioFormatVersion": {
       "enum": [
         "1"
       ],
       "type": "string"
-    },
-    "DisposableCertificationScenarioReport": {
-      "additionalProperties": false,
-      "description": "Canonical non-authorizing report from one successful disposable-state scenario.",
-      "properties": {
-        "execution": {
-          "$ref": "#/$defs/DisposableScenarioExecutionObservation"
-        },
-        "format_version": {
-          "$ref": "#/$defs/DisposableCertificationScenarioReportFormatVersion"
-        },
-        "package": {
-          "$ref": "#/$defs/DisposableScenarioPackageObservation"
-        },
-        "scenario": {
-          "$ref": "#/$defs/DisposableCertificationScenario"
-        }
-      },
-      "required": [
-        "format_version",
-        "scenario",
-        "package",
-        "execution"
-      ],
-      "type": "object"
     },
     "DisposableCertificationScenarioReportFormatVersion": {
       "enum": [
@@ -610,24 +512,28 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Canonical non-authorizing semantic report for one exact Discord smoke probe.",
+  "description": "Canonical non-authorizing report from one successful disposable-state scenario.",
   "properties": {
+    "execution": {
+      "$ref": "#/$defs/DisposableScenarioExecutionObservation"
+    },
     "format_version": {
-      "$ref": "#/$defs/DiscordSmokeCertificationReportFormatVersion"
+      "$ref": "#/$defs/DisposableCertificationScenarioReportFormatVersion"
     },
-    "runtime_observation": {
-      "$ref": "#/$defs/DiscordSmokeRuntimeObservation"
+    "package": {
+      "$ref": "#/$defs/DisposableScenarioPackageObservation"
     },
-    "static_observation": {
-      "$ref": "#/$defs/DiscordSmokeStaticObservation"
+    "scenario": {
+      "$ref": "#/$defs/DisposableCertificationScenario"
     }
   },
   "required": [
     "format_version",
-    "static_observation",
-    "runtime_observation"
+    "scenario",
+    "package",
+    "execution"
   ],
-  "title": "DiscordSmokeCertificationReport",
+  "title": "DisposableCertificationScenarioReport",
   "type": "object",
-  "x-weregopher-maxDocumentBytes": 65536
+  "x-weregopher-maxDocumentBytes": 131072
 }

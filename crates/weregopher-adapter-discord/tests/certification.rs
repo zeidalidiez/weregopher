@@ -1,14 +1,18 @@
 //! Discord disposable-smoke certification artifact behavior tests.
 
+use std::time::Duration;
+
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use weregopher_adapter_discord::{
     DISCORD_SMOKE_CERTIFICATION_REPORT_FORMAT_VERSION, DiscordSmokeCertificationReport,
     DiscordSmokeCertificationReportError, DiscordSmokeRuntimeObservation,
     DiscordSmokeStaticObservation, MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES,
-    SMOKE_MARKER_CONTENT, transform_smoke_source,
+    SMOKE_MARKER_CONTENT, discord_smoke_scenario, transform_smoke_source,
 };
-use weregopher_domain::Sha256Digest;
+use weregopher_domain::{
+    DisposableCertificationScenarioReport, DisposableScenarioPackageObservation, Sha256Digest,
+};
 
 #[test]
 fn certification_report_round_trips_and_binds_exact_smoke_semantics()
@@ -30,19 +34,23 @@ fn certification_report_round_trips_and_binds_exact_smoke_semantics()
         parsed.canonical_document_digest()?.as_sha256(),
         &digest(&canonical)
     );
-    let golden =
-        include_bytes!("fixtures/discord-smoke-certification-report-v1.golden.json").as_slice();
-    let golden = golden
-        .strip_suffix(b"\n")
-        .ok_or("golden fixture must end with exactly one repository newline")?;
-    assert_eq!(canonical, golden);
-    assert_eq!(
-        report.canonical_document_digest()?.to_string(),
-        "sha256:c5a244ab795fa2b5e4a1787658cf864a32e828c2693c48a81a1ea7eafd0fdfe2"
-    );
     assert_eq!(
         parsed.runtime_observation().marker_sha256(),
-        &digest(SMOKE_MARKER_CONTENT.as_bytes())
+        digest(SMOKE_MARKER_CONTENT.as_bytes())
+    );
+    assert_eq!(
+        parsed.runtime_observation().scenario_report().scenario(),
+        &discord_smoke_scenario()?
+    );
+    assert_eq!(
+        canonical,
+        golden_without_repository_line_ending(include_bytes!(
+            "fixtures/discord-smoke-certification-report-v2.golden.json"
+        ))
+    );
+    assert_eq!(
+        report.canonical_document_digest()?.to_string(),
+        "sha256:30844df75e173807a25cf235deef14abceb5d4c480841f9c999331724c6287cf"
     );
     assert!(canonical.len() <= MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES);
     Ok(())
@@ -53,15 +61,21 @@ fn certification_report_rejects_tampered_probe_semantics_and_unbounded_input()
 -> Result<(), Box<dyn std::error::Error>> {
     let report = fixture_report()?;
     let mut wrong_marker = serde_json::to_value(&report)?;
-    wrong_marker["runtime_observation"]["marker_sha256"] = json!(digest(b"wrong marker"));
-    let Err(error) =
+    wrong_marker["runtime_observation"]["scenario_report"]["execution"]["success_file"]["sha256"] =
+        json!(digest(b"wrong marker"));
+    assert!(
         DiscordSmokeCertificationReport::from_json_slice(&serde_json::to_vec(&wrong_marker)?)
-    else {
-        return Err("tampered marker evidence was accepted".into());
-    };
+            .is_err()
+    );
+
+    let mut wrong_scenario_identity = serde_json::to_value(&report)?;
+    wrong_scenario_identity["runtime_observation"]["scenario_sha256"] =
+        json!(digest(b"wrong scenario"));
     assert!(matches!(
-        error,
-        DiscordSmokeCertificationReportError::MarkerMismatch
+        DiscordSmokeCertificationReport::from_json_slice(&serde_json::to_vec(
+            &wrong_scenario_identity
+        )?),
+        Err(DiscordSmokeCertificationReportError::ScenarioIdentityMismatch)
     ));
 
     let mut vendor_changed = serde_json::to_value(&report)?;
@@ -89,6 +103,12 @@ fn certification_report_rejects_tampered_probe_semantics_and_unbounded_input()
         DiscordSmokeCertificationReport::from_json_slice(&oversized),
         Err(DiscordSmokeCertificationReportError::DocumentTooLarge)
     ));
+    assert!(
+        DiscordSmokeCertificationReport::from_json_slice(include_bytes!(
+            "fixtures/discord-smoke-certification-report-v1.golden.json"
+        ))
+        .is_err()
+    );
     Ok(())
 }
 
@@ -134,15 +154,19 @@ fn fixture_report() -> Result<DiscordSmokeCertificationReport, Box<dyn std::erro
         source,
         &transformed,
     )?;
-    let runtime_observation = DiscordSmokeRuntimeObservation::successful(
-        digest(b"managed package"),
-        digest(b"managed executable"),
-        42,
-        1_024,
-        source_app_asar_sha256,
+    let scenario_report = DisposableCertificationScenarioReport::successful(
+        discord_smoke_scenario()?,
+        DisposableScenarioPackageObservation::new(
+            digest(b"managed package"),
+            digest(b"managed executable"),
+            42,
+            1_024,
+        )?,
+        Duration::from_secs(20),
         SMOKE_MARKER_CONTENT.as_bytes(),
-        20,
     )?;
+    let runtime_observation =
+        DiscordSmokeRuntimeObservation::successful(scenario_report, source_app_asar_sha256)?;
     Ok(DiscordSmokeCertificationReport::new(
         static_observation,
         runtime_observation,
@@ -151,4 +175,8 @@ fn fixture_report() -> Result<DiscordSmokeCertificationReport, Box<dyn std::erro
 
 fn digest(bytes: &[u8]) -> Sha256Digest {
     Sha256Digest::from_bytes(Sha256::digest(bytes).into())
+}
+
+fn golden_without_repository_line_ending(bytes: &[u8]) -> &[u8] {
+    bytes.strip_suffix(b"\n").unwrap_or(bytes)
 }

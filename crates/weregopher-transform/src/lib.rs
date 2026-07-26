@@ -12,7 +12,9 @@
 //! identity to exact descriptor and artifact bytes; a single-use monotonic challenge connects that
 //! proof to one semantic report; an atomic boundary publishes the attestation and historical
 //! receipt only while both policies remain current; and a bounded hash-chained filesystem ledger
-//! can retain those local results under an independently pinned head. None of these boundaries
+//! can retain those local results under an independently pinned head. A separate verified
+//! disposable-scenario boundary selects exact probe assets and, on Windows, can drive one retained
+//! package-snapshot executable through a closed success-file lifecycle. None of these boundaries
 //! authenticates bundle distribution or adapter signatures, prevents unrestricted same-user
 //! mutation, authorizes execution, or authorizes launch.
 
@@ -34,6 +36,7 @@ mod certification_policy;
 mod certification_publication;
 mod certification_runner_components;
 mod certification_runner_policy;
+mod certification_scenario;
 mod emission;
 #[cfg(windows)]
 mod execution_authorization;
@@ -86,6 +89,15 @@ pub use certification_runner_policy::{
     CertificationRunnerPolicyRevocationDigest, LocalCertificationRunnerPolicy,
     LocalCertificationRunnerPolicyStore, LocallyApprovedCertificationRunner,
     approve_local_certification_runner,
+};
+#[cfg(windows)]
+pub use certification_scenario::{
+    CompletedDisposableCertificationScenario, DisposableCertificationScenarioDiagnostics,
+    DisposableCertificationScenarioExecutionError, execute_disposable_certification_scenario,
+};
+pub use certification_scenario::{
+    DisposableCertificationScenarioRunMode, DisposableCertificationScenarioVerificationError,
+    VerifiedDisposableCertificationScenario, verify_disposable_certification_scenario,
 };
 pub use emission::{
     EmittedMatchEvidence, EmittedTransformedSource, MatchEvidenceError, MatchEvidenceLimits,

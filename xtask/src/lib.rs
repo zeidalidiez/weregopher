@@ -10,15 +10,15 @@ use weregopher_domain::{
     AdapterExecutionAuthority, AdapterTransformAuthority, BuildFingerprint, CallContext,
     CandidateInstallationEvidence, CandidateProfile, CertificationClass, CertificationEvidence,
     CertificationProfile, CertificationRunnerComponentDescriptor, CertificationRunnerIdentity,
-    CompatibilityAnalysis, EffectiveSecurityPosture, ExecutionResolutionEvidence,
-    ExecutionTargetContract, FrameHeader, GeneratedExecutionOverlay, GeneratedTransformOverlay,
-    LocalCertificationLedgerRecord, LocalCertificationRunAttestation, ProtocolLimits,
-    PublicationStatus, TrustMode, WireValue,
+    CompatibilityAnalysis, DisposableCertificationScenario, DisposableCertificationScenarioReport,
+    EffectiveSecurityPosture, ExecutionResolutionEvidence, ExecutionTargetContract, FrameHeader,
+    GeneratedExecutionOverlay, GeneratedTransformOverlay, LocalCertificationLedgerRecord,
+    LocalCertificationRunAttestation, ProtocolLimits, PublicationStatus, TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 26] = [
+pub const SCHEMA_FILENAMES: [&str; 28] = [
     "adapter-execution-authority.schema.json",
     "adapter-transform-authority.schema.json",
     "build-fingerprint.schema.json",
@@ -31,6 +31,8 @@ pub const SCHEMA_FILENAMES: [&str; 26] = [
     "certification-runner-component-descriptor.schema.json",
     "certification-runner-identity.schema.json",
     "compatibility-analysis.schema.json",
+    "disposable-certification-scenario-report.schema.json",
+    "disposable-certification-scenario.schema.json",
     "discord-smoke-certification-report.schema.json",
     "effective-security-posture.schema.json",
     "execution-resolution-evidence.schema.json",
@@ -129,20 +131,22 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
         schema_document::<CertificationRunnerComponentDescriptor>(SCHEMA_FILENAMES[9])?,
         schema_document::<CertificationRunnerIdentity>(SCHEMA_FILENAMES[10])?,
         schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[11])?,
-        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[12])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[13])?,
-        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[14])?,
-        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[15])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[16])?,
-        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[17])?,
-        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[18])?,
-        schema_document::<LocalCertificationLedgerRecord>(SCHEMA_FILENAMES[19])?,
-        schema_document::<LocalCertificationRunAttestation>(SCHEMA_FILENAMES[20])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[21])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[22])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[23])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[24])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[25])?,
+        schema_document::<DisposableCertificationScenarioReport>(SCHEMA_FILENAMES[12])?,
+        schema_document::<DisposableCertificationScenario>(SCHEMA_FILENAMES[13])?,
+        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[14])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[15])?,
+        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[16])?,
+        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[17])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[18])?,
+        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[19])?,
+        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[20])?,
+        schema_document::<LocalCertificationLedgerRecord>(SCHEMA_FILENAMES[21])?,
+        schema_document::<LocalCertificationRunAttestation>(SCHEMA_FILENAMES[22])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[23])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[24])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[25])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[26])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[27])?,
     ])
 }
 
@@ -182,6 +186,17 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
     if filename == "compatibility-analysis.schema.json" {
         require_evidence_for_resolved_compatibility_assessments(document)?;
     }
+    if filename == "disposable-certification-scenario.schema.json" {
+        annotate_disposable_certification_scenario(document)?;
+    }
+    if filename == "disposable-certification-scenario-report.schema.json"
+        && let Value::Object(root) = document
+    {
+        root.insert(
+            "x-weregopher-maxDocumentBytes".to_owned(),
+            json!(weregopher_domain::MAX_DISPOSABLE_CERTIFICATION_SCENARIO_REPORT_BYTES),
+        );
+    }
     if filename == "discord-smoke-certification-report.schema.json"
         && let Value::Object(root) = document
     {
@@ -216,6 +231,68 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn annotate_disposable_certification_scenario(document: &mut Value) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .context("disposable certification scenario schema root is not an object")?;
+    root.insert(
+        "x-weregopher-maxDocumentBytes".to_owned(),
+        json!(weregopher_domain::MAX_DISPOSABLE_CERTIFICATION_SCENARIO_BYTES),
+    );
+
+    let execution = document
+        .pointer_mut("/$defs/DisposableScenarioExecution/properties")
+        .and_then(Value::as_object_mut)
+        .context("disposable certification scenario schema is missing execution properties")?;
+    execution.insert(
+        "state_mode".to_owned(),
+        json!({
+            "const": "disposable",
+            "type": "string"
+        }),
+    );
+    execution.insert(
+        "security_posture".to_owned(),
+        json!({
+            "const": "vendor_equivalent_full_trust",
+            "type": "string"
+        }),
+    );
+    execution.insert(
+        "dependency_policy".to_owned(),
+        json!({
+            "const": "vendor_default_ambient",
+            "type": "string"
+        }),
+    );
+
+    let state_roots = document
+        .pointer_mut("/properties/state_roots")
+        .and_then(Value::as_object_mut)
+        .context("disposable certification scenario schema is missing state roots")?;
+    state_roots.insert(
+        "contains".to_owned(),
+        json!({
+            "type": "object",
+            "required": ["definition"],
+            "properties": {
+                "definition": {
+                    "type": "object",
+                    "required": ["kind"],
+                    "properties": {
+                        "kind": {
+                            "const": "success_file"
+                        }
+                    }
+                }
+            }
+        }),
+    );
+    state_roots.insert("minContains".to_owned(), json!(1));
+    state_roots.insert("maxContains".to_owned(), json!(1));
     Ok(())
 }
 

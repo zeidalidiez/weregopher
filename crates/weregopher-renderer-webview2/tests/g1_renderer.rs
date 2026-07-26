@@ -17,7 +17,7 @@ use weregopher_domain::{
     ProtocolSessionId, ProtocolVersion, ProtocolVersionRange, RendererBridgeInvocation,
     RendererBridgeNonce, RendererBridgeReply, RendererId, RuntimeBackendId, RuntimeBackendIdentity,
     RuntimeCall, RuntimeCallResult, RuntimeHello, RuntimeId, RuntimeShutdown,
-    RuntimeShutdownReason, Sha256Digest, WireValue,
+    RuntimeShutdownReason, Sha256Digest,
 };
 use weregopher_renderer::{
     ImmutablePackage, PackageAsset, PackageOrigin, PackageOriginLimits, PrivateOrigin,

@@ -6,13 +6,15 @@
 //! establishes byte-for-digest conformance, and materialization planning emits closed relative
 //! content-addressed intent. Separate Windows-only managed-store and package-snapshot boundaries can
 //! publish exact verified bytes outside a vendor installation and retain reverified file and
-//! directory identities for a later consumer. A generation-aware local policy may conditionally
-//! assign a trusted certification class to exact verified certification artifacts, and an atomic
-//! bounded in-memory boundary can publish a local-only historical receipt while that policy remains
-//! current through commit. A separate generation-aware policy can approve one exact canonical
-//! certification-runner identity without proving a run or authenticating the external component
-//! descriptors it names. None of these boundaries authenticates adapter signatures, prevents
-//! unrestricted same-user mutation, authorizes execution, or authorizes launch.
+//! directory identities for a later consumer. Generation-aware local policies may conditionally
+//! approve one exact canonical certification runner and assign a trusted certification class to
+//! exact verified certification artifacts. A bounded component verifier connects the runner
+//! identity to exact descriptor and artifact bytes; a single-use monotonic challenge connects that
+//! proof to one semantic report; an atomic boundary publishes the attestation and historical
+//! receipt only while both policies remain current; and a bounded hash-chained filesystem ledger
+//! can retain those local results under an independently pinned head. None of these boundaries
+//! authenticates bundle distribution or adapter signatures, prevents unrestricted same-user
+//! mutation, authorizes execution, or authorizes launch.
 
 #![forbid(unsafe_code)]
 
@@ -26,8 +28,11 @@ use weregopher_domain::{
 
 mod bundle;
 mod certification_artifacts;
+mod certification_attestation;
+mod certification_ledger;
 mod certification_policy;
 mod certification_publication;
+mod certification_runner_components;
 mod certification_runner_policy;
 mod emission;
 #[cfg(windows)]
@@ -50,6 +55,15 @@ pub use certification_artifacts::{
     MAX_TOTAL_CERTIFICATION_ARTIFACT_BYTES, VerifiedCertificationArtifacts,
     verify_certification_artifacts,
 };
+pub use certification_attestation::{
+    AttestedCertificationPublicationError, AttestedLocalCertificationPublication,
+    LocalAttestedCertificationPublicationStore, PendingLocalCertificationRun,
+    PreparedAttestedLocalCertificationPublication, begin_local_certification_run,
+    prepare_attested_local_certification_publication, publish_attested_local_certification,
+};
+pub use certification_ledger::{
+    LocalCertificationLedger, LocalCertificationLedgerAppendReceipt, LocalCertificationLedgerError,
+};
 pub use certification_policy::{
     CertificationPolicyError, CertificationPolicyRevisionDigest,
     CertificationPolicyRevocationDigest, LocalCertificationPolicy, LocalCertificationPolicyStore,
@@ -60,6 +74,12 @@ pub use certification_publication::{
     LocalCertificationPublicationReceipt, LocalCertificationPublicationStore,
     MAX_LOCAL_CERTIFICATION_PUBLICATIONS, PreparedLocalCertificationPublication,
     prepare_local_certification_publication, publish_local_certification,
+};
+pub use certification_runner_components::{
+    CertificationRunnerComponentVerificationError, CertificationRunnerComponentVerificationLimits,
+    MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_COUNT,
+    MAX_TOTAL_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES, VerifiedCertificationRunnerComponents,
+    verify_certification_runner_components,
 };
 pub use certification_runner_policy::{
     CertificationRunnerPolicyError, CertificationRunnerPolicyRevisionDigest,

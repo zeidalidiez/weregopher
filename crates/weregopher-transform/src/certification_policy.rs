@@ -13,59 +13,13 @@ use std::{
 use thiserror::Error;
 use weregopher_domain::{
     CertificationClass, CertificationEvidenceDigest, CertificationEvidenceDisposition,
-    CertificationProfileClass, CertificationProfileDigest, CertificationTarget, Sha256Digest,
+    CertificationProfileClass, CertificationProfileDigest, CertificationTarget,
+};
+pub use weregopher_domain::{
+    CertificationPolicyRevisionDigest, CertificationPolicyRevocationDigest,
 };
 
 use crate::VerifiedCertificationArtifacts;
-
-/// Role-specific identity of one local certification-policy revision.
-///
-/// Revision and revocation-evidence identities cannot be substituted:
-///
-/// ```compile_fail
-/// use weregopher_domain::Sha256Digest;
-/// use weregopher_transform::{
-///     CertificationPolicyRevisionDigest, CertificationPolicyRevocationDigest,
-/// };
-///
-/// let revision = CertificationPolicyRevisionDigest::new(Sha256Digest::from_bytes([0; 32]));
-/// let revocation: CertificationPolicyRevocationDigest = revision;
-/// # let _ = revocation;
-/// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CertificationPolicyRevisionDigest(Sha256Digest);
-
-impl CertificationPolicyRevisionDigest {
-    /// Creates a policy-revision identity from a canonical SHA-256 digest.
-    #[must_use]
-    pub const fn new(digest: Sha256Digest) -> Self {
-        Self(digest)
-    }
-
-    /// Returns the wire-compatible SHA-256 value at a hashing or transport boundary.
-    #[must_use]
-    pub const fn as_sha256(&self) -> &Sha256Digest {
-        &self.0
-    }
-}
-
-/// Role-specific identity of evidence that revokes a local certification policy.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CertificationPolicyRevocationDigest(Sha256Digest);
-
-impl CertificationPolicyRevocationDigest {
-    /// Creates a revocation-evidence identity from a canonical SHA-256 digest.
-    #[must_use]
-    pub const fn new(digest: Sha256Digest) -> Self {
-        Self(digest)
-    }
-
-    /// Returns the wire-compatible SHA-256 value at a hashing or transport boundary.
-    #[must_use]
-    pub const fn as_sha256(&self) -> &Sha256Digest {
-        &self.0
-    }
-}
 
 /// Exact immutable identities and trusted class approved by one local policy revision.
 #[derive(Clone, Debug, Eq, PartialEq)]

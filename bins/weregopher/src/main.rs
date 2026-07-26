@@ -27,6 +27,7 @@ use weregopher_fingerprint::{
 
 mod discord_certification;
 mod live_smoke;
+mod runner_bundle;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -46,7 +47,7 @@ enum Command {
     /// Apply an application-family transform to a distinct managed artifact.
     Transform(TransformArguments),
     /// Materialize and Job-launch the exact Discord smoke adapter locally.
-    LiveSmokeDiscord(DiscordLiveSmokeArguments),
+    LiveSmokeDiscord(Box<DiscordLiveSmokeArguments>),
 }
 
 #[derive(Debug, Args)]
@@ -63,12 +64,70 @@ struct DiscordLiveSmokeArguments {
     /// Explicitly authorize this non-certified local smoke run.
     #[arg(long)]
     allow_uncertified_local_smoke: bool,
+    /// Closed runner bundle containing identity.json, role descriptors, and exact artifacts.
+    #[arg(
+        long,
+        requires_all = [
+            "expected_runner_identity",
+            "runner_policy_revision",
+            "snapshot_store_root"
+        ]
+    )]
+    runner_bundle: Option<PathBuf>,
+    /// Exact canonical runner identity approved by trusted local configuration.
+    #[arg(
+        long,
+        requires_all = [
+            "runner_bundle",
+            "runner_policy_revision",
+            "snapshot_store_root"
+        ]
+    )]
+    expected_runner_identity: Option<Sha256Digest>,
+    /// Trusted runner-policy revision identity for the exact runner bundle.
+    #[arg(
+        long,
+        requires_all = [
+            "runner_bundle",
+            "expected_runner_identity",
+            "snapshot_store_root"
+        ]
+    )]
+    runner_policy_revision: Option<Sha256Digest>,
+    /// Existing disjoint managed content-addressed store used for the launched package snapshot.
+    #[arg(
+        long,
+        requires_all = [
+            "runner_bundle",
+            "expected_runner_identity",
+            "runner_policy_revision"
+        ]
+    )]
+    snapshot_store_root: Option<PathBuf>,
     /// Exact semantic report digest explicitly approved for a local smoke decision.
-    #[arg(long, requires = "local_policy_revision")]
+    #[arg(
+        long,
+        requires_all = ["local_policy_revision", "certification_ledger"]
+    )]
     expected_certification_report: Option<Sha256Digest>,
     /// Trusted local policy-revision identity for the exact approved report.
-    #[arg(long, requires = "expected_certification_report")]
+    #[arg(
+        long,
+        requires_all = ["expected_certification_report", "certification_ledger"]
+    )]
     local_policy_revision: Option<Sha256Digest>,
+    /// New or existing durable local certification-ledger directory.
+    #[arg(
+        long,
+        requires_all = ["expected_certification_report", "local_policy_revision"]
+    )]
+    certification_ledger: Option<PathBuf>,
+    /// Independently persisted exact head required when reopening an existing ledger.
+    #[arg(long, requires = "certification_ledger")]
+    expected_ledger_head: Option<Sha256Digest>,
+    /// Maximum monotonic age of a trusted run attestation.
+    #[arg(long, default_value_t = 300)]
+    certification_freshness_seconds: u64,
 }
 
 #[derive(Debug, Args)]
@@ -177,15 +236,25 @@ fn main() -> Result<()> {
 }
 
 fn run_discord_live_smoke(arguments: &DiscordLiveSmokeArguments) -> Result<()> {
-    let report = live_smoke::run_discord_live_smoke(
-        &arguments.vendor_root,
-        &arguments.managed_root,
-        &arguments.marker_path,
-        Duration::from_secs(arguments.timeout_seconds),
-        arguments.allow_uncertified_local_smoke,
-        arguments.expected_certification_report,
-        arguments.local_policy_revision,
-    )?;
+    let request = live_smoke::DiscordLiveSmokeRequest {
+        vendor_root: &arguments.vendor_root,
+        managed_root: &arguments.managed_root,
+        marker_path: &arguments.marker_path,
+        timeout: Duration::from_secs(arguments.timeout_seconds),
+        allow_uncertified_local_smoke: arguments.allow_uncertified_local_smoke,
+        runner_bundle: arguments.runner_bundle.as_deref(),
+        expected_runner_identity: arguments.expected_runner_identity,
+        runner_policy_revision: arguments.runner_policy_revision,
+        snapshot_store_root: arguments.snapshot_store_root.as_deref(),
+        expected_certification_report: arguments.expected_certification_report,
+        local_policy_revision: arguments.local_policy_revision,
+        certification_ledger: arguments.certification_ledger.as_deref(),
+        expected_ledger_head: arguments
+            .expected_ledger_head
+            .map(weregopher_domain::LocalCertificationLedgerRecordDigest::new),
+        certification_freshness: Duration::from_secs(arguments.certification_freshness_seconds),
+    };
+    let report = live_smoke::run_discord_live_smoke(&request)?;
     let stdout = io::stdout();
     let mut output = stdout.lock();
     serde_json::to_writer(&mut output, &report).context("failed to serialize live smoke report")?;

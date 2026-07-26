@@ -1,4 +1,4 @@
-//! Discord smoke-report analysis and local certification resolution.
+//! Discord smoke-report analysis, freshness-bound local attestation, and durable ledger recording.
 
 #![cfg_attr(
     not(windows),
@@ -8,7 +8,10 @@
     )
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -19,21 +22,28 @@ use weregopher_adapter_discord::{
 use weregopher_domain::{
     CertificationArtifactDigest, CertificationArtifactKind, CertificationArtifactRef,
     CertificationCheckAssessment, CertificationCheckStatus, CertificationChecks,
-    CertificationClass, CertificationContractError, CertificationEvidence,
-    CertificationEvidenceDigest, CertificationExpectedStatus, CertificationProfile,
-    CertificationProfileChecks, CertificationProfileClass, CertificationProfileDigest,
-    CertificationProfileValidationError, CertificationTarget, CompatibilityAnalysis,
-    CompatibilityAnalysisDigest, CompatibilityContractError, CompatibilityDimensions,
-    CompatibilityEvidenceKind, CompatibilityEvidenceRef, CompatibilityTarget, DimensionAssessment,
-    DimensionStatus, ExecutableDigest, ExecutionArtifactSourceDigest, ExecutionContractDigest,
-    ExecutionResolutionEvidenceDigest, FeatureId, IdentifierError, PublicationStatus, Sha256Digest,
+    CertificationClass, CertificationContractError, CertificationControlPolicy,
+    CertificationEvidence, CertificationEvidenceDigest, CertificationExpectedStatus,
+    CertificationProfile, CertificationProfileChecks, CertificationProfileClass,
+    CertificationProfileDigest, CertificationProfileValidationError,
+    CertificationRunAttestationError, CertificationRunnerDescriptorSetDigest,
+    CertificationRunnerIdentityDigest, CertificationRunnerPolicyRevisionDigest,
+    CertificationTarget, CompatibilityAnalysis, CompatibilityAnalysisDigest,
+    CompatibilityContractError, CompatibilityDimensions, CompatibilityEvidenceKind,
+    CompatibilityEvidenceRef, CompatibilityTarget, DimensionAssessment, DimensionStatus,
+    ExecutableDigest, ExecutionArtifactSourceDigest, ExecutionContractDigest,
+    ExecutionResolutionEvidenceDigest, FeatureId, IdentifierError,
+    LocalCertificationLedgerRecordDigest, LocalCertificationRunAttestationDigest,
+    PublicationStatus, Sha256Digest,
 };
 use weregopher_transform::{
-    CertificationArtifactSetDigest, CertificationArtifactVerificationError,
-    CertificationArtifactVerificationLimits, CertificationPolicyError,
-    CertificationPolicyRevisionDigest, CertificationPublicationError, LocalCertificationPolicy,
-    LocalCertificationPolicyStore, LocalCertificationPublicationStore, assign_local_certification,
-    prepare_local_certification_publication, publish_local_certification,
+    AttestedCertificationPublicationError, CertificationArtifactSetDigest,
+    CertificationArtifactVerificationError, CertificationArtifactVerificationLimits,
+    CertificationPolicyError, CertificationPolicyRevisionDigest,
+    LocalAttestedCertificationPublicationStore, LocalCertificationLedger,
+    LocalCertificationLedgerError, LocalCertificationPolicy, LocalCertificationPolicyStore,
+    PendingLocalCertificationRun, assign_local_certification,
+    prepare_attested_local_certification_publication, publish_attested_local_certification,
     verify_certification_artifacts,
 };
 
@@ -91,8 +101,8 @@ impl DiscordSmokeCertificationBundle {
     }
 }
 
-/// Copyable summary of one locally trusted, locally published smoke decision.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Owned summary of one locally trusted, attested, durably recorded smoke decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DiscordSmokeLocalCertificationDecision {
     report_digest: DiscordSmokeCertificationReportDigest,
     compatibility_analysis_digest: CompatibilityAnalysisDigest,
@@ -105,6 +115,18 @@ pub(crate) struct DiscordSmokeLocalCertificationDecision {
     policy_generation: u64,
     artifact_count: usize,
     total_artifact_bytes: usize,
+    semantic_report: CertificationArtifactRef,
+    runner_identity_digest: CertificationRunnerIdentityDigest,
+    descriptor_set_digest: CertificationRunnerDescriptorSetDigest,
+    runner_policy_revision_digest: CertificationRunnerPolicyRevisionDigest,
+    runner_policy_generation: u64,
+    attestation_digest: LocalCertificationRunAttestationDigest,
+    freshness_challenge: uuid::Uuid,
+    freshness_elapsed_millis: u64,
+    freshness_maximum_elapsed_millis: u64,
+    ledger_head_digest: LocalCertificationLedgerRecordDigest,
+    ledger_sequence: u64,
+    ledger_record_count: usize,
 }
 
 impl DiscordSmokeLocalCertificationDecision {
@@ -151,6 +173,56 @@ impl DiscordSmokeLocalCertificationDecision {
     pub(crate) const fn total_artifact_bytes(&self) -> usize {
         self.total_artifact_bytes
     }
+
+    pub(crate) const fn semantic_report(&self) -> &CertificationArtifactRef {
+        &self.semantic_report
+    }
+
+    pub(crate) const fn runner_identity_digest(&self) -> CertificationRunnerIdentityDigest {
+        self.runner_identity_digest
+    }
+
+    pub(crate) const fn descriptor_set_digest(&self) -> CertificationRunnerDescriptorSetDigest {
+        self.descriptor_set_digest
+    }
+
+    pub(crate) const fn runner_policy_revision_digest(
+        &self,
+    ) -> CertificationRunnerPolicyRevisionDigest {
+        self.runner_policy_revision_digest
+    }
+
+    pub(crate) const fn runner_policy_generation(&self) -> u64 {
+        self.runner_policy_generation
+    }
+
+    pub(crate) const fn attestation_digest(&self) -> LocalCertificationRunAttestationDigest {
+        self.attestation_digest
+    }
+
+    pub(crate) const fn freshness_challenge(&self) -> uuid::Uuid {
+        self.freshness_challenge
+    }
+
+    pub(crate) const fn freshness_elapsed_millis(&self) -> u64 {
+        self.freshness_elapsed_millis
+    }
+
+    pub(crate) const fn freshness_maximum_elapsed_millis(&self) -> u64 {
+        self.freshness_maximum_elapsed_millis
+    }
+
+    pub(crate) const fn ledger_head_digest(&self) -> LocalCertificationLedgerRecordDigest {
+        self.ledger_head_digest
+    }
+
+    pub(crate) const fn ledger_sequence(&self) -> u64 {
+        self.ledger_sequence
+    }
+
+    pub(crate) const fn ledger_record_count(&self) -> usize {
+        self.ledger_record_count
+    }
 }
 
 /// Builds exact-target compatibility and certification documents from one validated report.
@@ -181,11 +253,14 @@ pub(crate) fn build_discord_smoke_certification(
     })
 }
 
-/// Assigns and atomically publishes local smoke trust only for an operator-pinned exact report.
-pub(crate) fn approve_discord_smoke_certification(
+/// Assigns, freshness-attests, atomically publishes, and durably records one pinned smoke report.
+pub(crate) fn attest_discord_smoke_certification(
     report: &DiscordSmokeCertificationReport,
     expected_report_digest: Sha256Digest,
     policy_revision_digest: Sha256Digest,
+    pending: PendingLocalCertificationRun<'_, '_, '_>,
+    ledger_root: &Path,
+    expected_ledger_head: Option<LocalCertificationLedgerRecordDigest>,
 ) -> Result<DiscordSmokeLocalCertificationDecision, DiscordSmokeCertificationError> {
     let bundle = build_discord_smoke_certification(report)?;
     let actual_report_digest = *bundle.report_digest.as_sha256();
@@ -195,7 +270,13 @@ pub(crate) fn approve_discord_smoke_certification(
             actual: actual_report_digest,
         });
     }
-    resolve_local_decision(bundle, policy_revision_digest)
+    resolve_attested_local_decision(
+        bundle,
+        policy_revision_digest,
+        pending,
+        ledger_root,
+        expected_ledger_head,
+    )
 }
 
 fn build_compatibility_analysis(
@@ -364,9 +445,12 @@ fn build_certification_evidence(
     )?)
 }
 
-fn resolve_local_decision(
+fn resolve_attested_local_decision(
     bundle: DiscordSmokeCertificationBundle,
     policy_revision_digest: Sha256Digest,
+    pending: PendingLocalCertificationRun<'_, '_, '_>,
+    ledger_root: &Path,
+    expected_ledger_head: Option<LocalCertificationLedgerRecordDigest>,
 ) -> Result<DiscordSmokeLocalCertificationDecision, DiscordSmokeCertificationError> {
     let report_digest = bundle.report_digest;
     let compatibility_analysis_digest =
@@ -400,13 +484,46 @@ fn resolve_local_decision(
         CertificationPolicyRevisionDigest::new(policy_revision_digest),
     )?;
     let policy_store = LocalCertificationPolicyStore::new(policy);
-    let publication_store = LocalCertificationPublicationStore::new(1)?;
     let certified = assign_local_certification(verified, &policy_store)?;
-    let class = certified.current_class()?;
-    let receipt = publish_local_certification(
-        prepare_local_certification_publication(certified)?,
+    let publication_store = LocalAttestedCertificationPublicationStore::new(1)?;
+    let publication = publish_attested_local_certification(
+        prepare_attested_local_certification_publication(pending, certified)?,
         &publication_store,
     )?;
+
+    let attestation = publication.attestation();
+    let result = attestation.result();
+    let control_policy = CertificationControlPolicy::new(
+        attestation.runner().clone(),
+        result.semantic_report().clone(),
+        result.target().clone(),
+        result.profile_digest(),
+        result.evidence_digest(),
+        result.artifact_set_digest(),
+        result.class(),
+        result.policy_revision_digest(),
+        result.policy_generation(),
+    )?;
+    let (ledger_head_digest, ledger_sequence, ledger_record_count) = if ledger_root.exists() {
+        let expected = expected_ledger_head
+            .ok_or(DiscordSmokeCertificationError::MissingExpectedLedgerHead)?;
+        let ledger = LocalCertificationLedger::open(ledger_root, expected)?;
+        let appended = ledger.append_publication(&publication)?;
+        (
+            appended.record_digest(),
+            appended.sequence(),
+            appended.record_count(),
+        )
+    } else {
+        if expected_ledger_head.is_some() {
+            return Err(DiscordSmokeCertificationError::UnexpectedExpectedLedgerHead);
+        }
+        let ledger = LocalCertificationLedger::create(ledger_root, control_policy, &publication)?;
+        (ledger.head_digest()?, 1, ledger.record_count()?)
+    };
+
+    let receipt = publication.receipt();
+    let attestation_digest = attestation.canonical_document_digest()?;
     Ok(DiscordSmokeLocalCertificationDecision {
         report_digest,
         compatibility_analysis_digest,
@@ -414,11 +531,23 @@ fn resolve_local_decision(
         evidence_digest,
         artifact_set_digest: receipt.artifact_set_digest(),
         policy_revision_digest: receipt.policy_revision_digest(),
-        class,
+        class: receipt.class(),
         publication_status: receipt.publication_status(),
         policy_generation: receipt.policy_generation(),
         artifact_count: receipt.artifact_count(),
         total_artifact_bytes: receipt.total_artifact_bytes(),
+        semantic_report: result.semantic_report().clone(),
+        runner_identity_digest: attestation.runner().runner_identity_digest(),
+        descriptor_set_digest: attestation.runner().descriptor_set_digest(),
+        runner_policy_revision_digest: attestation.runner().policy_revision_digest(),
+        runner_policy_generation: attestation.runner().policy_generation(),
+        attestation_digest,
+        freshness_challenge: attestation.freshness().challenge(),
+        freshness_elapsed_millis: attestation.freshness().elapsed_millis(),
+        freshness_maximum_elapsed_millis: attestation.freshness().maximum_elapsed_millis(),
+        ledger_head_digest,
+        ledger_sequence,
+        ledger_record_count,
     })
 }
 
@@ -475,27 +604,57 @@ pub(crate) enum DiscordSmokeCertificationError {
     #[error(transparent)]
     Policy(#[from] CertificationPolicyError),
     #[error(transparent)]
-    Publication(#[from] CertificationPublicationError),
+    AttestedPublication(#[from] AttestedCertificationPublicationError),
+    #[error(transparent)]
+    ControlPolicy(#[from] CertificationRunAttestationError),
+    #[error(transparent)]
+    Ledger(#[from] LocalCertificationLedgerError),
+    #[error("an existing certification ledger requires --expected-ledger-head")]
+    MissingExpectedLedgerHead,
+    #[error("a new certification ledger cannot accept --expected-ledger-head")]
+    UnexpectedExpectedLedgerHead,
     #[error("failed to serialize canonical Discord smoke certification evidence")]
     Serialization(#[from] serde_json::Error),
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        time::Duration,
+    };
+
     use sha2::{Digest as _, Sha256};
+    use tempfile::tempdir;
     use weregopher_adapter_discord::{
         DiscordSmokeCertificationReport, DiscordSmokeRuntimeObservation,
         DiscordSmokeStaticObservation, SMOKE_MARKER_CONTENT, transform_smoke_source,
     };
     use weregopher_domain::{
-        AnalysisDisposition, CertificationClass, CertificationEvidenceDisposition,
-        CertificationProfileClass, PublicationStatus, Sha256Digest,
+        AnalysisDisposition, CertificationArtifactDigest, CertificationArtifactKind,
+        CertificationArtifactRef, CertificationElectronRuntimeDigest,
+        CertificationEvidenceDisposition, CertificationExceptionProvenanceDigest,
+        CertificationHostAgentDigest, CertificationHostImageDigest,
+        CertificationHostPatchSetDigest, CertificationLanguageRuntimeSetDigest,
+        CertificationProbeAssetSetDigest, CertificationProfileClass,
+        CertificationRunnerArtifactName, CertificationRunnerComponentArtifact,
+        CertificationRunnerComponentDescriptor, CertificationRunnerComponentId,
+        CertificationRunnerComponentProvenanceDigest, CertificationRunnerComponentRole,
+        CertificationRunnerComponentVersion, CertificationRunnerEnvironmentIdentity,
+        CertificationRunnerIdentity, CertificationRunnerImageDigest,
+        CertificationRunnerPolicyRevisionDigest, CertificationRunnerProvenanceIdentity,
+        CertificationRunnerToolingIdentity, CertificationSourceRevisionDigest,
+        CertificationToolchainSetDigest, CertificationVerifierDigest, PublicationStatus,
+        Sha256Digest,
+    };
+    use weregopher_transform::{
+        CertificationRunnerComponentVerificationLimits, LocalCertificationLedger,
+        LocalCertificationRunnerPolicy, LocalCertificationRunnerPolicyStore,
+        approve_local_certification_runner, begin_local_certification_run,
+        verify_certification_runner_components,
     };
 
-    use super::{
-        DiscordSmokeCertificationError, approve_discord_smoke_certification,
-        build_discord_smoke_certification,
-    };
+    use super::{attest_discord_smoke_certification, build_discord_smoke_certification};
 
     #[test]
     fn exact_smoke_report_builds_a_complete_locally_trusted_vertical_slice()
@@ -516,34 +675,59 @@ mod tests {
             bundle.certification_evidence().disposition(),
             CertificationEvidenceDisposition::Complete
         );
-        let decision = approve_discord_smoke_certification(
-            &report,
-            *report_digest.as_sha256(),
-            digest(b"local policy revision"),
-        )?;
-        assert_eq!(decision.class(), CertificationClass::SmokeVerified);
-        assert_eq!(decision.publication_status(), PublicationStatus::LocalOnly);
-        assert_eq!(decision.policy_generation(), 1);
-        assert!(decision.artifact_count() >= 1);
+        assert_eq!(bundle.report_digest(), report_digest);
         Ok(())
     }
 
     #[test]
-    fn local_trust_requires_the_exact_operator_pinned_report()
+    fn exact_report_and_pre_run_capability_create_an_attested_durable_decision()
     -> Result<(), Box<dyn std::error::Error>> {
         let report = fixture_report()?;
-
-        let Err(error) = approve_discord_smoke_certification(
+        let report_digest = report.canonical_document_digest()?;
+        let runner = RunnerFixture::new()?;
+        let runner_policy = LocalCertificationRunnerPolicy::new(
+            runner.identity.canonical_document_digest()?,
+            CertificationRunnerPolicyRevisionDigest::new(digest(b"runner policy")),
+        );
+        let runner_store = LocalCertificationRunnerPolicyStore::new(runner_policy);
+        let approved = approve_local_certification_runner(runner.identity.clone(), &runner_store)?;
+        let borrowed = runner.borrowed_artifacts();
+        let verified = verify_certification_runner_components(
+            approved,
+            &runner.descriptors,
+            &borrowed,
+            CertificationRunnerComponentVerificationLimits::new(8 * 1024, 8 * 1024, 64 * 1024)?,
+        )?;
+        let semantic_report = CertificationArtifactRef::new(
+            CertificationArtifactKind::RuntimeProbe,
+            CertificationArtifactDigest::new(*report_digest.as_sha256()),
+        );
+        let pending = begin_local_certification_run(
+            verified,
+            semantic_report.clone(),
+            Duration::from_secs(30),
+        )?;
+        let fixture = tempdir()?;
+        let ledger_root = fixture.path().join("ledger");
+        let decision = attest_discord_smoke_certification(
             &report,
-            digest(b"different report"),
-            digest(b"local policy revision"),
-        ) else {
-            return Err("a report outside the operator pin received local trust".into());
-        };
-        assert!(matches!(
-            error,
-            DiscordSmokeCertificationError::ReportDigestMismatch { .. }
-        ));
+            *report_digest.as_sha256(),
+            digest(b"certification policy"),
+            pending,
+            &ledger_root,
+            None,
+        )?;
+
+        assert_eq!(decision.report_digest(), report_digest);
+        assert_eq!(decision.semantic_report(), &semantic_report);
+        assert_eq!(decision.publication_status(), PublicationStatus::LocalOnly);
+        assert_eq!(decision.ledger_sequence(), 1);
+        assert_eq!(decision.ledger_record_count(), 1);
+        assert_eq!(
+            LocalCertificationLedger::open(&ledger_root, decision.ledger_head_digest(),)?
+                .record_count()?,
+            1
+        );
         Ok(())
     }
 
@@ -576,5 +760,146 @@ mod tests {
 
     fn digest(bytes: &[u8]) -> Sha256Digest {
         Sha256Digest::from_bytes(Sha256::digest(bytes).into())
+    }
+
+    struct RunnerFixture {
+        identity: CertificationRunnerIdentity,
+        descriptors:
+            BTreeMap<CertificationRunnerComponentRole, CertificationRunnerComponentDescriptor>,
+        artifacts: BTreeMap<
+            CertificationRunnerComponentRole,
+            BTreeMap<CertificationRunnerArtifactName, Vec<u8>>,
+        >,
+    }
+
+    impl RunnerFixture {
+        fn new() -> Result<Self, Box<dyn std::error::Error>> {
+            let mut descriptors = BTreeMap::new();
+            let mut artifacts = BTreeMap::new();
+            let mut descriptor_digests = BTreeMap::new();
+            for (index, role) in runner_roles().into_iter().enumerate() {
+                let tag = u8::try_from(index + 1)?;
+                let bytes = vec![tag; 3];
+                let name = CertificationRunnerArtifactName::new(format!("role/{tag:02}.bin"))?;
+                let descriptor = CertificationRunnerComponentDescriptor::new(
+                    role,
+                    CertificationRunnerComponentId::new(format!("weregopher.test.{tag:02}"))?,
+                    CertificationRunnerComponentVersion::new(format!("1.0.{tag}"))?,
+                    CertificationRunnerComponentProvenanceDigest::new(digest(&[tag, 0])),
+                    BTreeSet::from([CertificationRunnerComponentArtifact::new(
+                        name.clone(),
+                        digest(&bytes),
+                        u64::try_from(bytes.len())?,
+                    )?]),
+                )?;
+                descriptor_digests
+                    .insert(role, *descriptor.canonical_document_digest()?.as_sha256());
+                descriptors.insert(role, descriptor);
+                artifacts.insert(role, BTreeMap::from([(name, bytes)]));
+            }
+            let identity = CertificationRunnerIdentity::new(
+                CertificationRunnerEnvironmentIdentity::windows_x86_64(
+                    CertificationRunnerImageDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::RunnerImage,
+                    )?),
+                    CertificationHostImageDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::HostImage,
+                    )?),
+                    CertificationHostPatchSetDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::HostPatchSet,
+                    )?),
+                    CertificationElectronRuntimeDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::ElectronRuntime,
+                    )?),
+                    CertificationLanguageRuntimeSetDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::LanguageRuntimeSet,
+                    )?),
+                ),
+                CertificationRunnerToolingIdentity::new(
+                    CertificationToolchainSetDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::ToolchainSet,
+                    )?),
+                    CertificationHostAgentDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::HostAgent,
+                    )?),
+                    CertificationVerifierDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::Verifier,
+                    )?),
+                    CertificationProbeAssetSetDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::ProbeAssetSet,
+                    )?),
+                ),
+                CertificationRunnerProvenanceIdentity::new(
+                    CertificationSourceRevisionDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::SourceRevision,
+                    )?),
+                    CertificationExceptionProvenanceDigest::new(role_digest(
+                        &descriptor_digests,
+                        CertificationRunnerComponentRole::ExceptionProvenance,
+                    )?),
+                ),
+            );
+            Ok(Self {
+                identity,
+                descriptors,
+                artifacts,
+            })
+        }
+
+        fn borrowed_artifacts(
+            &self,
+        ) -> BTreeMap<
+            CertificationRunnerComponentRole,
+            BTreeMap<CertificationRunnerArtifactName, &[u8]>,
+        > {
+            self.artifacts
+                .iter()
+                .map(|(role, artifacts)| {
+                    (
+                        *role,
+                        artifacts
+                            .iter()
+                            .map(|(name, bytes)| (name.clone(), bytes.as_slice()))
+                            .collect(),
+                    )
+                })
+                .collect()
+        }
+    }
+
+    fn role_digest(
+        digests: &BTreeMap<CertificationRunnerComponentRole, Sha256Digest>,
+        role: CertificationRunnerComponentRole,
+    ) -> Result<Sha256Digest, Box<dyn std::error::Error>> {
+        digests
+            .get(&role)
+            .copied()
+            .ok_or_else(|| format!("missing runner descriptor for {role:?}").into())
+    }
+
+    const fn runner_roles() -> [CertificationRunnerComponentRole; 11] {
+        [
+            CertificationRunnerComponentRole::RunnerImage,
+            CertificationRunnerComponentRole::HostImage,
+            CertificationRunnerComponentRole::HostPatchSet,
+            CertificationRunnerComponentRole::ElectronRuntime,
+            CertificationRunnerComponentRole::LanguageRuntimeSet,
+            CertificationRunnerComponentRole::ToolchainSet,
+            CertificationRunnerComponentRole::HostAgent,
+            CertificationRunnerComponentRole::Verifier,
+            CertificationRunnerComponentRole::ProbeAssetSet,
+            CertificationRunnerComponentRole::SourceRevision,
+            CertificationRunnerComponentRole::ExceptionProvenance,
+        ]
     }
 }

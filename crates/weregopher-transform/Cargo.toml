@@ -17,11 +17,11 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+uuid.workspace = true
 weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
 weregopher-fingerprint = { version = "0.1.0", path = "../weregopher-fingerprint" }
 
 [target.'cfg(windows)'.dependencies]
-uuid.workspace = true
 weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }
 windows-sys.workspace = true
 

@@ -1,0 +1,21 @@
+[package]
+name = "weregopher-renderer"
+description = "Portable packaged-renderer origin, lifecycle, and bridge authority"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+sha2.workspace = true
+thiserror.workspace = true
+weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
+
+[dev-dependencies]
+serde_json.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

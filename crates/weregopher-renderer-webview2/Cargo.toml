@@ -1,0 +1,37 @@
+[package]
+name = "weregopher-renderer-webview2"
+description = "Windows WebView2 packaged-renderer fixture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[target.'cfg(windows)'.dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+webview2-com.workspace = true
+windows.workspace = true
+weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
+weregopher-renderer = { version = "0.1.0", path = "../weregopher-renderer" }
+
+[target.'cfg(windows)'.dev-dependencies]
+serde.workspace = true
+uuid.workspace = true
+weregopher-runtime-protocol = { version = "0.1.0", path = "../weregopher-runtime-protocol" }
+weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

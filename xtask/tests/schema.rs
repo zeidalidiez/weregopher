@@ -47,6 +47,9 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "protocol-version.schema.json",
         "protocol-version-range.schema.json",
         "publication-status.schema.json",
+        "renderer-bridge-invocation.schema.json",
+        "renderer-bridge-reply.schema.json",
+        "renderer-envelope.schema.json",
         "runtime-backend-identity.schema.json",
         "runtime-call.schema.json",
         "runtime-call-error.schema.json",
@@ -150,6 +153,102 @@ fn runtime_protocol_schemas_are_closed_and_expose_static_bounds()
         output.path().join("runtime-stream-open.schema.json"),
     )?)?;
     assert_eq!(stream_open["properties"]["initial_credit"]["minimum"], 1);
+    Ok(())
+}
+
+#[test]
+fn renderer_bridge_schemas_are_closed_bounded_and_authority_safe()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+
+    for filename in [
+        "renderer-bridge-invocation.schema.json",
+        "renderer-bridge-reply.schema.json",
+        "renderer-envelope.schema.json",
+    ] {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.path().join(filename))?)?;
+        assert_eq!(
+            document["additionalProperties"], false,
+            "schema {filename} must be closed"
+        );
+    }
+
+    for filename in [
+        "renderer-bridge-invocation.schema.json",
+        "renderer-envelope.schema.json",
+    ] {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.path().join(filename))?)?;
+        assert_eq!(
+            document["$defs"]["RendererBridgeNonce"]["minItems"], 16,
+            "schema {filename} must retain the exact nonce width"
+        );
+        assert_eq!(
+            document["$defs"]["RendererBridgeNonce"]["maxItems"], 16,
+            "schema {filename} must retain the exact nonce width"
+        );
+        assert_eq!(
+            document["$defs"]["RendererBridgeNonce"]["not"]["const"],
+            serde_json::json!([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            "schema {filename} must reject the reserved all-zero nonce"
+        );
+    }
+
+    let invocation: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("renderer-bridge-invocation.schema.json"),
+    )?)?;
+    assert_required_properties(&invocation, &["nonce", "request_id", "method", "args"])?;
+    assert_eq!(invocation["properties"]["request_id"]["minimum"], 1);
+    assert_eq!(invocation["properties"]["method"]["minLength"], 1);
+    assert_eq!(invocation["properties"]["method"]["maxLength"], 255);
+    assert_eq!(
+        invocation["properties"]["method"]["x-weregopher-maxUtf8Bytes"],
+        255
+    );
+    for forbidden in [
+        "app",
+        "renderer",
+        "frame",
+        "world",
+        "origin",
+        "service",
+        "deadline_ms",
+        "authority",
+    ] {
+        assert!(invocation["properties"].get(forbidden).is_none());
+    }
+
+    let reply: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("renderer-bridge-reply.schema.json"),
+    )?)?;
+    assert_eq!(reply["properties"]["request_id"]["minimum"], 1);
+    assert_eq!(
+        reply["oneOf"].as_array().map(Vec::len),
+        Some(2),
+        "reply schema must require exactly one non-null outcome"
+    );
+
+    let envelope: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("renderer-envelope.schema.json"),
+    )?)?;
+    assert_required_properties(
+        &envelope,
+        &[
+            "app",
+            "renderer",
+            "frame",
+            "world",
+            "navigation_generation",
+            "nonce",
+            "payload",
+        ],
+    )?;
+    assert_eq!(
+        envelope["properties"]["navigation_generation"]["minimum"],
+        1
+    );
     Ok(())
 }
 

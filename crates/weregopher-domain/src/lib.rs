@@ -19,6 +19,7 @@ mod execution_digest;
 mod execution_target;
 mod ids;
 mod protocol;
+mod renderer;
 mod runtime_protocol;
 mod security;
 mod transformation;
@@ -148,6 +149,11 @@ pub use protocol::{
     OpaqueHandle, OriginIdentity, ProtocolLimitError, ProtocolLimits, RemoteFunctionHandle,
     RemotePromiseHandle, ScriptWorldKind, SharedBufferHandle, StreamHandle, TypedArrayKind,
     WireError, WireObjectEntry, WireValue, WorldIdentity,
+};
+pub use renderer::{
+    MAX_RENDERER_BRIDGE_ERROR_BYTES, MAX_RENDERER_BRIDGE_NAME_BYTES, RENDERER_BRIDGE_NONCE_BYTES,
+    RendererBridgeFailure, RendererBridgeInvocation, RendererBridgeNonce, RendererBridgeReply,
+    RendererContractError, RendererEnvelope,
 };
 pub use runtime_protocol::{
     CallTarget, G1_PROTOCOL_MAJOR, G1_PROTOCOL_MINOR, HeartbeatPolicy,

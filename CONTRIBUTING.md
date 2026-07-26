@@ -23,7 +23,10 @@ Generated schemas must be reproducible and clean after `cargo xtask schema` once
 Windows protocol and process changes also follow the
 [runtime protocol testing matrix](docs/testing/runtime-protocol-matrix.md). Linux
 Cargo under WSL is not native Windows evidence; use the documented PowerShell/native
-Cargo lane with a separate Windows target directory.
+Cargo lane with a separate Windows target directory. On a constrained shared
+WSL/Windows host, keep local checks focused and single-job, do not run the Linux and
+native Windows lanes concurrently, and leave the complete Windows/WebView2 matrix to
+hosted CI and the final Windows 10/11 tester pass.
 
 ## Licensing contributions
 

@@ -3824,6 +3824,38 @@ Suspension is an optional resource policy, not a compatibility assumption. It is
 
 Unloading destroys the renderer and releases its memory but loses in-memory page state. It is adapter-specific and must not be applied generically to active desktop clients.
 
+## 25.10 Implemented G1 packaged-renderer fixture
+
+[ADR 0040](../adr/0040-immutable-g1-webview2-renderer-fixture.md) implements the
+synthetic packaged-renderer half of G1. A portable renderer crate binds bounded
+immutable in-memory assets to an application-scoped HTTPS-like private origin,
+normalizes lifecycle/navigation generations, and converts untrusted page invocations
+into backend-authoritative renderer envelopes and runtime calls.
+
+The Windows fixture uses an installed Evergreen WebView2 runtime, hidden ordinary
+controller, and exclusive ephemeral user-data folder. It intercepts every resource
+request: exact-origin `GET`/`HEAD` requests resolve only through the immutable asset
+map, while malformed, cross-origin, and otherwise unsupported requests receive a
+closed denial with no filesystem or network fallback. Native host objects, developer
+tools, default context menus, browser extensions, and OS-primary-account single
+sign-on are disabled.
+
+A per-navigation document-start script uses only WebView2's JSON message transport.
+The page cannot provide application, renderer, frame, world, origin, service,
+deadline, user-activation, or capability authority. The host verifies the
+backend-reported source, navigation nonce, replay state, and budget, then derives a
+synthetic main-frame/main-world `CallContext` and sends the resulting call through
+G1's authenticated worker protocol. The fixture completes only after observing the
+round-trip result in the DOM, closing the controller, observing the exclusive browser
+process exit, removing the ephemeral user-data folder, and gracefully stopping the
+worker.
+
+This is fixture evidence, not the production `RendererBackend` implementation. It
+does not provide a shared profile manager, general ASAR/VFS mapping, range requests,
+service-worker policy, preload compilation, `contextBridge`, isolated-world or
+subframe fidelity, renderer recovery, sync IPC, shared buffers, interactive window
+behavior, CEF, vendor-package compatibility, a sandbox, or an efficiency claim.
+
 ---
 
 # 26. Preload, context isolation, and renderer bridging
@@ -4437,10 +4469,10 @@ The protocol parser and wire codec require:
 - shared-buffer lifetime races;
 - libFuzzer/AFL-compatible fuzz targets where practical.
 
-## 27.16 Implemented G1 control slice
+## 27.16 Implemented G1 synthetic vertical slice
 
 [ADR 0039](../adr/0039-authenticated-g1-runtime-control-protocol.md) implements the
-standalone worker/shell half of the G1 synthetic vertical slice. Canonical closed Rust
+standalone worker/shell protocol. Canonical closed Rust
 contracts and generated schemas cover version/feature/limit negotiation, authenticated
 hello/welcome/reject, asynchronous calls/results/errors, cancellation, ordered events,
 credit-controlled inline streams, and graceful shutdown. The portable codec uses
@@ -4453,11 +4485,20 @@ Job membership, then authenticates a one-use nonce delivered through inherited
 standard input. This fixture is spawn-then-assign test orchestration; it does not
 replace the atomic suspended production launch boundary or make the Job a sandbox.
 
-This slice does not complete WP-D. Production nonce-handle launch, connection-bound
-validation for non-call handle-bearing messages, the synchronous lane and deadlock
-fixture, authenticated shared buffers, broader forged-client cases, large-data
-stress, and protocol fuzzing remain open. G1 also still requires its packaged
-renderer fixture.
+[ADR 0040](../adr/0040-immutable-g1-webview2-renderer-fixture.md) completes the G1
+packaged-renderer fixture. Closed renderer invocation/reply/envelope contracts,
+generated schemas, an immutable application-scoped private origin, backend-derived
+frame/world authority, monotonic lifecycle state, a hidden exclusive WebView2
+environment, and a native integration scenario carry one page call through the
+authenticated worker protocol and back into the DOM. Completion waits for WebView2
+browser exit, ephemeral user-data removal, and graceful worker exit.
+
+G1 completion does not complete WP-D or establish an application-compatibility,
+security-posture, efficiency, or production-shell claim. Production nonce-handle
+launch, connection-bound validation for non-call handle-bearing messages, the
+synchronous lane and deadlock fixture, authenticated shared buffers, broader
+forged-client cases, large-data stress, protocol fuzzing, and G2 preload/
+`contextBridge` fidelity remain open.
 
 
 ---

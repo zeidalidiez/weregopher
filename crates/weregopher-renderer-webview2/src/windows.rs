@@ -159,7 +159,7 @@ impl HiddenWindow {
         };
         // SAFETY: `class` is fully initialized and its static class-name pointer outlives the
         // registration. A zero atom is rejected before attempting window creation.
-        if unsafe { RegisterClassW(&class) } == 0 {
+        if unsafe { RegisterClassW(&raw const class) } == 0 {
             // SAFETY: the immediately preceding registration call failed, so this observes its
             // thread-local extended error before any other fallible platform call.
             let error = unsafe { GetLastError() };
@@ -287,7 +287,7 @@ impl WebView2Fixture {
         // SAFETY: the environment and callback are live COM objects and token points to initialized
         // writable storage retained for later removal.
         unsafe {
-            environment5.add_BrowserProcessExited(&browser_handler, &mut browser_exit_token)?;
+            environment5.add_BrowserProcessExited(&browser_handler, &raw mut browser_exit_token)?;
         }
 
         let controller = create_controller(&environment, window.handle())?;
@@ -372,7 +372,7 @@ impl WebView2Fixture {
         }));
         let mut dom_token = 0;
         // SAFETY: live COM object/callback and initialized token storage.
-        unsafe { webview2.add_DOMContentLoaded(&dom_handler, &mut dom_token)? };
+        unsafe { webview2.add_DOMContentLoaded(&dom_handler, &raw mut dom_token)? };
 
         let (completed_tx, completed_rx) = mpsc::channel();
         let completed_handler =
@@ -380,14 +380,14 @@ impl WebView2Fixture {
                 let mut succeeded = BOOL::default();
                 if let Some(args) = args {
                     // SAFETY: callback supplies a live event-args object and writable BOOL.
-                    unsafe { args.IsSuccess(&mut succeeded)? };
+                    unsafe { args.IsSuccess(&raw mut succeeded)? };
                 }
                 let _ = completed_tx.send(succeeded.as_bool());
                 Ok(())
             }));
         let mut completed_token = 0;
         // SAFETY: live COM object/callback and initialized token storage.
-        unsafe { webview.add_NavigationCompleted(&completed_handler, &mut completed_token)? };
+        unsafe { webview.add_NavigationCompleted(&completed_handler, &raw mut completed_token)? };
 
         let navigation_result = (|| {
             let target = CoTaskMemPWSTR::from(url);
@@ -661,7 +661,7 @@ fn read_browser_version(
     let mut version = PWSTR::null();
     // SAFETY: `version` is initialized writable out storage; `take_pwstr` adopts and frees the
     // successful COM allocation exactly once.
-    unsafe { environment.BrowserVersionString(&mut version)? };
+    unsafe { environment.BrowserVersionString(&raw mut version)? };
     let version = take_pwstr(version);
     if version.is_empty() || version.len() > MAX_BROWSER_VERSION_BYTES {
         return Err(WebView2FixtureError::InvalidBrowserVersion {
@@ -692,8 +692,8 @@ fn install_package_origin(
         let mut method = PWSTR::null();
         // SAFETY: WebView2 allocates both out strings; `take_pwstr` adopts/frees each exactly once.
         unsafe {
-            request.Uri(&mut uri)?;
-            request.Method(&mut method)?;
+            request.Uri(&raw mut uri)?;
+            request.Method(&raw mut method)?;
         }
         let uri = take_pwstr(uri);
         let method = take_pwstr(method);
@@ -711,7 +711,7 @@ fn install_package_origin(
     // network access for resources outside the private immutable package.
     unsafe {
         webview.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
-        webview.add_WebResourceRequested(&handler, &mut token)?;
+        webview.add_WebResourceRequested(&handler, &raw mut token)?;
     }
     Ok(token)
 }
@@ -733,8 +733,8 @@ fn install_message_capture(
         // SAFETY: callback out pointers are writable; WebView2 allocates both returned strings and
         // `take_pwstr` adopts/frees each exactly once.
         unsafe {
-            args.Source(&mut source)?;
-            args.WebMessageAsJson(&mut json)?;
+            args.Source(&raw mut source)?;
+            args.WebMessageAsJson(&raw mut json)?;
         }
         let source = take_pwstr(source);
         let json = take_pwstr(json);
@@ -758,7 +758,7 @@ fn install_message_capture(
     }));
     let mut token = 0;
     // SAFETY: live webview/callback and initialized writable token.
-    unsafe { webview.add_WebMessageReceived(&handler, &mut token)? };
+    unsafe { webview.add_WebMessageReceived(&handler, &raw mut token)? };
     Ok((token, receiver))
 }
 
@@ -957,14 +957,14 @@ fn pump_receiver<T>(
         let mut message = MSG::default();
         // SAFETY: message points to initialized writable storage; each removed message is
         // translated/dispatched before the next queue check.
-        while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+        while unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
             if message.message == WM_QUIT {
                 return Err(WebView2FixtureError::MessageLoopQuit);
             }
             // SAFETY: the message was populated by PeekMessageW for this thread.
             unsafe {
-                let _ = TranslateMessage(&message);
-                DispatchMessageW(&message);
+                let _ = TranslateMessage(&raw const message);
+                DispatchMessageW(&raw const message);
             }
         }
     }

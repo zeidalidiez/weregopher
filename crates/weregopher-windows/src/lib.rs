@@ -1,5 +1,5 @@
-//! Minimal safe wrappers for Windows handle identity, process-tree ownership, and atomic
-//! Job-owned suspended launch.
+//! Minimal safe wrappers for Windows handle identity, process-tree ownership, atomic
+//! Job-owned suspended launch, and current-user named-pipe transport.
 //!
 //! This crate is the workspace's explicit unsafe-code exception. Each unsafe block isolates one
 //! documented Win32 call over live owned handles and exactly sized initialized storage. Executable
@@ -17,10 +17,15 @@ use windows_sys::Win32::Storage::FileSystem::{
 
 mod job;
 mod path;
+mod pipe;
 mod process;
 
 pub use job::{JobLimits, KillOnCloseJob};
 pub use path::windows_ordinal_case_key;
+pub use pipe::{
+    CurrentUserNamedPipeServer, NamedPipeAddress, NamedPipeClient, VerifiedNamedPipe,
+    connect_named_pipe,
+};
 pub use process::{LockedExecutable, OwnedJobProcess, PreparedProcessLaunch, ProcessLaunchLimits};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

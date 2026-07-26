@@ -9,6 +9,7 @@ authors.workspace = true
 publish = false
 
 [target.'cfg(windows)'.dependencies]
+uuid.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]

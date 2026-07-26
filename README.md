@@ -46,6 +46,7 @@ never makes an application compatible by itself.
 | Area | Current state |
 | --- | --- |
 | Domain and protocol contracts | Implemented in Rust with deterministic JSON Schemas, including bounded execution-target, generated resolution-evidence, disposable certification-scenario, and successful scenario-report documents |
+| Runtime protocol G1 control slice | Portable closed contracts, bounded native-binary MessagePack framing, authenticated handshake negotiation, request cancellation/deadlines, ordered events, and credit-controlled inline streams are implemented with a current-user Windows named-pipe fixture. Production atomic nonce-handle launch, non-call session/app binding, sync/deadlock handling, shared buffers, fuzzing/stress, and the packaged renderer fixture remain pending |
 | Package manifest construction | Deterministic construction from pre-observed file records, with read-only public accessors, closed transport objects, a 256-component path ceiling, a 65,536-record ceiling, and a 16 MiB aggregate normalized-path budget |
 | Portable package fingerprint scan | Complete two-pass file/link scanning validates canonical path syntax and fixed record/path ceilings before hashing or retention, rejects non-root empty directories that format v1 cannot encode, and emits manifests only through the canonical builder; this is stable observational evidence, not an immutable snapshot or retained build lease |
 | Windows file observation | Bounded direct-file hashing with retained handle identity checks |
@@ -92,6 +93,7 @@ crates/
   weregopher-domain/       Canonical contracts and protocol types
   weregopher-discovery/    Read-only installed-application discovery
   weregopher-fingerprint/  Package records, classification, and manifests
+  weregopher-runtime-protocol/  Bounded portable framing and session state
   weregopher-transform/    Bounded semantic-transform planning and artifact verification
   weregopher-windows/      Narrow Windows platform primitives
 docs/
@@ -116,13 +118,20 @@ CI.
 git clone https://github.com/zeidalidiez/weregopher.git
 cd weregopher
 
-cargo test --workspace --all-features
+cargo test --workspace --all-targets --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 ```
 
 The complete local gate also checks generated schemas, dependency policy, doctests,
 Rustdoc warnings, and locked release builds.
+
+For Windows transport or process changes, follow the
+[runtime protocol testing matrix](docs/testing/runtime-protocol-matrix.md). It
+separates portable Linux/WSL checks, native Windows tests invoked from WSL, clean
+`windows-latest` CI, and the Windows 10/11 user-testing lanes. It also documents a
+focused-only path for constrained development machines and moves their full matrix
+to isolated CI.
 
 ## Discord local certification control plane
 

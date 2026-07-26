@@ -19,6 +19,7 @@ mod execution_digest;
 mod execution_target;
 mod ids;
 mod protocol;
+mod runtime_protocol;
 mod security;
 mod transformation;
 
@@ -137,9 +138,9 @@ pub use execution_target::{
 };
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,
-    FeatureId, IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId, RuntimeId,
-    ScenarioId, ScenarioStateRootId, SourceUnitId, TraceId, TransformRuleId, UserActivationId,
-    WindowId,
+    FeatureId, IdentifierError, ObjectId, ProfileId, ProtocolSessionId, RendererId,
+    RuntimeBackendId, RuntimeId, ScenarioId, ScenarioStateRootId, SourceUnitId, TraceId,
+    TransformRuleId, UserActivationId, WindowId,
 };
 pub use protocol::{
     BufferStorage, CallAuthority, CallContext, ContentBlobId, FRAME_HEADER_LEN, FrameHeader,
@@ -147,6 +148,15 @@ pub use protocol::{
     OpaqueHandle, OriginIdentity, ProtocolLimitError, ProtocolLimits, RemoteFunctionHandle,
     RemotePromiseHandle, ScriptWorldKind, SharedBufferHandle, StreamHandle, TypedArrayKind,
     WireError, WireObjectEntry, WireValue, WorldIdentity,
+};
+pub use runtime_protocol::{
+    CallTarget, G1_PROTOCOL_MAJOR, G1_PROTOCOL_MINOR, HeartbeatPolicy,
+    MAX_PROTOCOL_BACKEND_VERSION_BYTES, MAX_PROTOCOL_REJECT_DETAIL_BYTES, ProtocolFeatures,
+    ProtocolReject, ProtocolRejectCode, ProtocolVersion, ProtocolVersionRange,
+    RuntimeBackendIdentity, RuntimeCall, RuntimeCallError, RuntimeCallResult, RuntimeCancel,
+    RuntimeEvent, RuntimeHello, RuntimeProtocolContractError, RuntimeShutdown,
+    RuntimeShutdownReason, RuntimeStreamData, RuntimeStreamOpen, RuntimeStreamWindow,
+    RuntimeWelcome, WireValueBudget, validate_wire_value_graph, validate_wire_value_graph_for_app,
 };
 pub use security::EffectiveSecurityPosture;
 pub use transformation::{

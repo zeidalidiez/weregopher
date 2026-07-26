@@ -4437,6 +4437,28 @@ The protocol parser and wire codec require:
 - shared-buffer lifetime races;
 - libFuzzer/AFL-compatible fuzz targets where practical.
 
+## 27.16 Implemented G1 control slice
+
+[ADR 0039](../adr/0039-authenticated-g1-runtime-control-protocol.md) implements the
+standalone worker/shell half of the G1 synthetic vertical slice. Canonical closed Rust
+contracts and generated schemas cover version/feature/limit negotiation, authenticated
+hello/welcome/reject, asynchronous calls/results/errors, cancellation, ordered events,
+credit-controlled inline streams, and graceful shutdown. The portable codec uses
+bounded named-field MessagePack with iterative structural preflight, native binary
+byte fields, exact per-direction sequencing, and post-decode semantic validation.
+
+The Windows fixture creates a random single-instance current-user-only local named
+pipe, rejects remote clients, verifies the kernel-reported PID, current-user SID, and
+Job membership, then authenticates a one-use nonce delivered through inherited
+standard input. This fixture is spawn-then-assign test orchestration; it does not
+replace the atomic suspended production launch boundary or make the Job a sandbox.
+
+This slice does not complete WP-D. Production nonce-handle launch, connection-bound
+validation for non-call handle-bearing messages, the synchronous lane and deadlock
+fixture, authenticated shared buffers, broader forged-client cases, large-data
+stress, and protocol fuzzing remain open. G1 also still requires its packaged
+renderer fixture.
+
 
 ---
 

@@ -1,0 +1,23 @@
+[package]
+name = "weregopher-runtime-protocol"
+description = "Bounded authenticated worker/host protocol state and framing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+rmp-serde.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
+
+[target.'cfg(windows)'.dependencies]
+weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }
+
+[lints]
+workspace = true

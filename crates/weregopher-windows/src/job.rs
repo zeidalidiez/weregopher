@@ -14,6 +14,7 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_PROCESS_MEMORY, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
 };
+use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
 /// Nonzero process-count and memory caps applied to one Windows Job Object.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,6 +142,11 @@ impl KillOnCloseJob {
     pub(crate) fn contains_process(&self, process: &OwnedHandle) -> io::Result<bool> {
         contains_process_handle(&self.handle, process.as_raw_handle())
     }
+
+    pub(crate) fn contains_process_id(&self, process_id: u32) -> io::Result<bool> {
+        let process = open_process_for_membership(process_id)?;
+        self.contains_process(&process)
+    }
 }
 
 impl fmt::Debug for KillOnCloseJob {
@@ -234,6 +240,24 @@ fn contains_process_handle(
         return Err(io::Error::last_os_error());
     }
     Ok(result != 0)
+}
+
+#[allow(
+    unsafe_code,
+    reason = "isolated query-only OpenProcess call; a non-null returned handle is adopted once"
+)]
+fn open_process_for_membership(process_id: u32) -> io::Result<OwnedHandle> {
+    if process_id == 0 {
+        return Err(invalid_limits("process ID must be nonzero"));
+    }
+    // SAFETY: access is query-only, inheritance is disabled, and null is
+    // handled before the unique returned handle is adopted.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+    if process.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful OpenProcess transferred one owned handle.
+    Ok(unsafe { OwnedHandle::from_raw_handle(process) })
 }
 
 #[allow(

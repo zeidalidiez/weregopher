@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Additive features negotiated for one protocol session.",
+  "properties": {
+    "calls": {
+      "description": "Asynchronous calls and results.",
+      "type": "boolean"
+    },
+    "cancellation": {
+      "description": "Idempotent request cancellation.",
+      "type": "boolean"
+    },
+    "credit_streams": {
+      "description": "Credit-controlled byte streams.",
+      "type": "boolean"
+    },
+    "events": {
+      "description": "Ordered connection events.",
+      "type": "boolean"
+    },
+    "shared_buffers": {
+      "description": "Authenticated duplicated shared-buffer handles.",
+      "type": "boolean"
+    },
+    "sync_lane": {
+      "description": "Strict single-outstanding-call synchronous lane.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "calls",
+    "cancellation",
+    "events",
+    "credit_streams",
+    "sync_lane",
+    "shared_buffers"
+  ],
+  "title": "ProtocolFeatures",
+  "type": "object"
+}

@@ -9,6 +9,7 @@
       "description": "Storage backing for bytes or a typed array.",
       "oneOf": [
         {
+          "additionalProperties": false,
           "description": "Bounded bytes carried in the containing message.",
           "properties": {
             "kind": {
@@ -33,6 +34,7 @@
           "type": "object"
         },
         {
+          "additionalProperties": false,
           "description": "Authenticated broker-created shared mapping.",
           "properties": {
             "handle": {
@@ -51,6 +53,7 @@
           "type": "object"
         },
         {
+          "additionalProperties": false,
           "description": "Credit-controlled stream.",
           "properties": {
             "handle": {
@@ -69,6 +72,7 @@
           "type": "object"
         },
         {
+          "additionalProperties": false,
           "description": "Content-addressed file/blob transport.",
           "properties": {
             "id": {
@@ -89,6 +93,7 @@
       ]
     },
     "ContentBlobId": {
+      "additionalProperties": false,
       "description": "Content-addressed immutable blob reference.",
       "properties": {
         "byte_len": {
@@ -110,6 +115,7 @@
       "type": "object"
     },
     "ObjectHandle": {
+      "additionalProperties": false,
       "description": "Generation-protected, application-scoped remote object reference.",
       "properties": {
         "app": {
@@ -230,6 +236,7 @@
       ]
     },
     "OpaqueHandle": {
+      "additionalProperties": false,
       "description": "Generation-protected opaque protocol handle.",
       "properties": {
         "app": {
@@ -326,6 +333,7 @@
       ]
     },
     "WireError": {
+      "additionalProperties": false,
       "description": "JavaScript-visible error shape plus an internal classification.",
       "properties": {
         "cause": {
@@ -384,6 +392,7 @@
       "type": "object"
     },
     "WireObjectEntry": {
+      "additionalProperties": false,
       "description": "One ordered JavaScript object property in a serialized graph.",
       "properties": {
         "key": {
@@ -406,6 +415,7 @@
   "description": "Backend-neutral semantic value model for worker, host, helper, and renderer bridges.",
   "oneOf": [
     {
+      "additionalProperties": false,
       "description": "JavaScript `undefined`.",
       "properties": {
         "kind": {
@@ -419,6 +429,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "JavaScript `null`.",
       "properties": {
         "kind": {
@@ -432,6 +443,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Boolean primitive.",
       "properties": {
         "kind": {
@@ -450,6 +462,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Integer representable as signed 64 bits.",
       "properties": {
         "kind": {
@@ -471,6 +484,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Finite non-integer IEEE-754 value.",
       "properties": {
         "kind": {
@@ -490,6 +504,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "IEEE-754 negative zero.",
       "properties": {
         "kind": {
@@ -503,6 +518,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "IEEE-754 not-a-number.",
       "properties": {
         "kind": {
@@ -516,6 +532,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Positive infinity.",
       "properties": {
         "kind": {
@@ -529,6 +546,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Negative infinity.",
       "properties": {
         "kind": {
@@ -542,6 +560,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Arbitrary-precision integer.",
       "properties": {
         "kind": {
@@ -571,6 +590,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "UTF-8 string.",
       "properties": {
         "kind": {
@@ -589,6 +609,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Bounded inline byte sequence.",
       "properties": {
         "kind": {
@@ -613,6 +634,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Ordered array values.",
       "properties": {
         "kind": {
@@ -634,6 +656,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Ordered own string-keyed properties.",
       "properties": {
         "entries": {
@@ -655,6 +678,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Message-local reference used for cycles and repeated identity.",
       "properties": {
         "id": {
@@ -676,6 +700,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "JavaScript date milliseconds since the Unix epoch.",
       "properties": {
         "kind": {
@@ -697,6 +722,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "JavaScript regular expression.",
       "properties": {
         "flags": {
@@ -720,6 +746,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "JavaScript-compatible error.",
       "properties": {
         "kind": {
@@ -738,6 +765,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Remote Electron-compatible object.",
       "properties": {
         "kind": {
@@ -756,6 +784,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Remote callable function.",
       "properties": {
         "kind": {
@@ -774,6 +803,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Remote promise.",
       "properties": {
         "kind": {
@@ -792,6 +822,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Remote message port.",
       "properties": {
         "kind": {
@@ -810,6 +841,7 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
       "description": "Typed-array view over bounded storage.",
       "properties": {
         "array_kind": {

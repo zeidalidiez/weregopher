@@ -20,7 +20,7 @@ use webview2_com::{
         ICoreWebView2Environment5, ICoreWebView2EnvironmentOptions,
     },
     NavigationCompletedEventHandler, WebMessageReceivedEventHandler,
-    WebResourceRequestedEventHandler, string_from_pcwstr, take_pwstr,
+    WebResourceRequestedEventHandler, take_pwstr,
 };
 use weregopher_domain::{RendererBridgeNonce, RendererBridgeReply};
 use weregopher_renderer::{
@@ -47,7 +47,7 @@ use windows::{
             },
         },
     },
-    core::{BOOL, Error as WindowsError, Interface as _, PCWSTR, PWSTR, w},
+    core::{BOOL, Error as WindowsError, HRESULT, Interface as _, PCWSTR, PWSTR, w},
 };
 
 const WINDOW_CLASS: PCWSTR = w!("WeregopherG1RendererFixture");
@@ -159,13 +159,16 @@ impl HiddenWindow {
         };
         // SAFETY: `class` is fully initialized and its static class-name pointer outlives the
         // registration. A zero atom is rejected before attempting window creation.
-        if unsafe { RegisterClassW(&class) } == 0
-            && unsafe { GetLastError() } != ERROR_CLASS_ALREADY_EXISTS
-        {
-            return Err(WindowsError::from_win32().into());
+        if unsafe { RegisterClassW(&class) } == 0 {
+            // SAFETY: the immediately preceding registration call failed, so this observes its
+            // thread-local extended error before any other fallible platform call.
+            let error = unsafe { GetLastError() };
+            if error != ERROR_CLASS_ALREADY_EXISTS {
+                return Err(WindowsError::from_hresult(HRESULT::from_win32(error.0)).into());
+            }
         }
         // SAFETY: the registered class and module remain valid. No raw creation parameter is
-        // supplied, and a null/invalid result is checked before ownership.
+        // supplied, and the generated wrapper rejects a null/invalid result before ownership.
         let window = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
@@ -182,9 +185,6 @@ impl HiddenWindow {
                 None,
             )?
         };
-        if window.0.is_null() {
-            return Err(WindowsError::from_win32().into());
-        }
         Ok(Self(window))
     }
 
@@ -866,6 +866,10 @@ fn bridge_bootstrap(nonce: RendererBridgeNonce) -> String {
     )
 }
 
+#[allow(
+    unsafe_code,
+    reason = "registers one retained document-start script through the checked WebView2 callback API"
+)]
 fn add_document_start_script(
     webview: &ICoreWebView2,
     source: &str,
@@ -887,6 +891,10 @@ fn add_document_start_script(
     Ok(())
 }
 
+#[allow(
+    unsafe_code,
+    reason = "executes one diagnostic script through the checked WebView2 callback API"
+)]
 fn execute_script(webview: &ICoreWebView2, source: &str) -> Result<String, WebView2FixtureError> {
     let webview = webview.clone();
     let source = source.to_owned();
@@ -904,7 +912,7 @@ fn execute_script(webview: &ICoreWebView2, source: &str) -> Result<String, WebVi
         Box::new(move |error_code, result| {
             error_code?;
             sender
-                .send(string_from_pcwstr(&result))
+                .send(result)
                 .map_err(|_| WindowsError::from(E_FAIL))?;
             Ok(())
         }),

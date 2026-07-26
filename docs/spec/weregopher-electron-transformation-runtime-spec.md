@@ -6612,13 +6612,51 @@ replacement, revocation, store loss, or synchronization failure. This currentnes
 point-in-time; any later attestation or effect must retain the runner-policy guard through its own
 commit point.
 
-Local class assignment, local-only receipt publication, and local runner-identity approval do not
-validate artifact semantics, authenticate external component descriptors, prove a run, establish
-freshness, authorize transformation or execution, or establish durable registry, signature, or
-remote-revocation trust. Concrete certification probes, component-descriptor verification, semantic
-report parsing, per-run attestation, authenticated registry publication, durable policy/receipt
-persistence, and the disposable-state runner remain separate layers. Parsing, hashing, or locally
-approving a runner identity does not bind any report to that runner.
+Local class assignment, local-only receipt publication, and local runner-identity approval alone do
+not validate artifact semantics, authenticate external component descriptors, prove a run,
+establish freshness, authorize transformation or execution, or establish durable registry,
+signature, or remote-revocation trust. Parsing, hashing, or locally approving a runner identity
+does not bind any report to that runner.
+
+### Implemented Discord disposable-smoke slice
+
+[ADR 0036](../adr/0036-discord-disposable-smoke-certification-slice.md) connects one concrete,
+deliberately narrow adapter workflow to the generic certification layers. Format-`"1"`
+`DiscordSmokeCertificationReport` binds exact source/transformed ASAR and main-entry identities,
+the fixed adapter contract, one transformed managed-package Merkle root, executable identity,
+exact marker semantics, post-probe source stability, disposable-state omissions, timeout, and
+fixed Job/launch limits. Its authoritative parser enforces a 64 KiB ceiling; compact canonical
+bytes and SHA-256 identity are frozen by a checked-in golden vector and a generated closed schema.
+
+The Windows command stages a new disjoint package copy, requires the Discord dispatch log to be a
+file and the Krisp log directory to be empty before omitting those two exact mutable paths,
+rebuilds and reparses the transformed ASAR, fingerprints the managed package twice before launch,
+uses a new sibling user-data directory, verifies Job membership and exact marker bytes, confirms
+primary-process termination, and rehashes the vendor ASAR after the probe. Kill-on-close Job
+ownership remains live through report construction. A Job Object is still an accounting and
+lifecycle boundary, not a sandbox.
+
+Marker-adapter version 2 writes with create-new semantics and immediately exits marker-mode
+execution before the retained vendor main JavaScript can run. Without the private marker argument,
+the byte-exact retained source remains the normal continuation. The adapter implementation bytes
+are part of the domain-separated adapter-contract identity.
+
+The report deterministically derives an adapter-scoped compatibility analysis, a
+`smoke_verified` profile, complete evidence, and exact document identities for only workflow
+`discord.smoke-marker`. A first run emits a candidate without trust. A second run must receive both
+the exact expected report digest and a trusted local policy-revision identity before it may assign
+`SmokeVerified` and atomically publish an in-memory `LocalOnly` receipt. The uncertified local
+launch flag remains mandatory because classification occurs after the diagnostic process exits and
+does not authorize that run or any future run.
+
+This probe intentionally launches a copied vendor Discord/Electron tree to test transform and
+staging behavior. It is not the Weregopher replacement runtime, a helper, an ABI island, full
+Discord compatibility, production-state evidence, a security sandbox, or an efficiency result.
+Renderer/preload parity, module/native/helper analysis, ordinary application workflows,
+component-descriptor authentication, runner-approval integration, per-run attestation and
+freshness, independent retrieval of named proprietary artifacts, signed registry publication,
+durable policy/receipt persistence, and the general disposable-state scenario runner remain
+separate layers.
 
 ## 35.6 Stable adapter gates
 

@@ -2,16 +2,29 @@
 
 use thiserror::Error;
 
+mod certification;
+
+pub use certification::{
+    DISCORD_SMOKE_CERTIFICATION_REPORT_FORMAT_VERSION, DISCORD_SMOKE_WORKFLOW_ID,
+    DiscordSmokeCertificationReport, DiscordSmokeCertificationReportDigest,
+    DiscordSmokeCertificationReportError, DiscordSmokeRuntimeObservation,
+    DiscordSmokeStaticObservation, MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES,
+    SMOKE_ACTIVE_PROCESS_LIMIT, SMOKE_COMMAND_LINE_UTF16_LIMIT, SMOKE_JOB_MEMORY_LIMIT_BYTES,
+    SMOKE_LAUNCH_ARGUMENT_BYTES, SMOKE_LAUNCH_ARGUMENT_LIMIT, SMOKE_MUTABLE_DISPATCH_LOG_PATH,
+    SMOKE_MUTABLE_KRISP_LOG_DIRECTORY_PATH, SMOKE_PER_PROCESS_MEMORY_LIMIT_BYTES,
+    SMOKE_TIMEOUT_MAX_SECONDS,
+};
+
 const MAX_PACKAGE_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_MAIN_SOURCE_BYTES: usize = 64 * 1024 * 1024;
 const DISCORD_MAIN_PREFIX: &[u8] = b"(()=>{";
-const SMOKE_PREFIX: &[u8] = br#";(()=>{const __weregopherAdapter="discord.smoke-marker.v1";const __weregopherPrefix="--weregopher-smoke-marker=";const __weregopherArgument=process.argv.find(__weregopherValue=>__weregopherValue.startsWith(__weregopherPrefix));if(__weregopherArgument){const __weregopherMarker=__weregopherArgument.slice(__weregopherPrefix.length);if(__weregopherMarker){require("node:fs").writeFileSync(__weregopherMarker,"weregopher-discord-smoke-v1\n",{encoding:"utf8",flag:"wx"});}}void __weregopherAdapter;})();
+const SMOKE_PREFIX: &[u8] = br#";(()=>{const __weregopherAdapter="discord.smoke-marker.v2";const __weregopherPrefix="--weregopher-smoke-marker=";const __weregopherArgument=process.argv.find(__weregopherValue=>__weregopherValue.startsWith(__weregopherPrefix));if(__weregopherArgument){const __weregopherMarker=__weregopherArgument.slice(__weregopherPrefix.length);if(!__weregopherMarker){process.exit(64);}require("node:fs").writeFileSync(__weregopherMarker,"weregopher-discord-smoke-v2\n",{encoding:"utf8",flag:"wx"});process.exit(0);}void __weregopherAdapter;})();
 "#;
 
 /// Stable identity of the deliberately narrow Discord smoke adapter.
-pub const SMOKE_ADAPTER_ID: &str = "discord.smoke-marker.v1";
+pub const SMOKE_ADAPTER_ID: &str = "discord.smoke-marker.v2";
 /// Exact bytes written by the adapter when its private marker argument is present.
-pub const SMOKE_MARKER_CONTENT: &str = "weregopher-discord-smoke-v1\n";
+pub const SMOKE_MARKER_CONTENT: &str = "weregopher-discord-smoke-v2\n";
 /// Exact private command-line prefix consumed by the smoke adapter.
 pub const SMOKE_MARKER_ARGUMENT_PREFIX: &str = "--weregopher-smoke-marker=";
 /// ASAR member containing Discord's packaged main process source.
@@ -23,8 +36,10 @@ pub const DISCORD_PACKAGE_MANIFEST: &str = "package.json";
 ///
 /// The adapter accepts only a Discord package manifest whose main entry is `bundle.js` and the
 /// Rspack bootstrap shape observed for the supported family. The original source is retained
-/// byte-for-byte after the injected prefix. The marker write occurs only when the launch command
-/// supplies [`SMOKE_MARKER_ARGUMENT_PREFIX`]; this function itself performs no filesystem access.
+/// byte-for-byte after the injected prefix. When the launch command supplies
+/// [`SMOKE_MARKER_ARGUMENT_PREFIX`], the prefix writes the marker with create-new semantics and
+/// exits before the vendor main source executes. Without that private argument, execution
+/// continues into the retained source. This function itself performs no filesystem access.
 ///
 /// # Errors
 ///

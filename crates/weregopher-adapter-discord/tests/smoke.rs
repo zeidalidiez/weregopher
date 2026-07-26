@@ -29,6 +29,15 @@ fn discord_smoke_adapter_injects_an_observable_prefix_into_the_real_main_shape()
             .windows(encoded_marker.len())
             .any(|window| { window == encoded_marker.as_bytes() })
     );
+    let injected = transformed
+        .strip_suffix(source)
+        .ok_or("adapter did not retain the source as an exact suffix")?;
+    assert!(
+        injected
+            .windows(b"process.exit(0)".len())
+            .any(|window| window == b"process.exit(0)"),
+        "marker mode did not exit before the vendor main source"
+    );
     Ok(())
 }
 

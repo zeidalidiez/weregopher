@@ -27,6 +27,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "certification-profile.schema.json",
         "certification-runner-identity.schema.json",
         "compatibility-analysis.schema.json",
+        "discord-smoke-certification-report.schema.json",
         "effective-security-posture.schema.json",
         "execution-resolution-evidence.schema.json",
         "execution-target-contract.schema.json",
@@ -52,6 +53,37 @@ fn schema_generation_is_complete_deterministic_and_checkable()
             serde_json::json!("https://json-schema.org/draft/2020-12/schema")
         );
     }
+    Ok(())
+}
+
+#[test]
+fn discord_smoke_certification_report_schema_is_closed_and_bounded()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("discord-smoke-certification-report.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &[
+            "format_version",
+            "static_observation",
+            "runtime_observation",
+        ],
+    )?;
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_adapter_discord::MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES
+    );
+    assert_eq!(
+        document["$defs"]["DiscordSmokeCertificationReportFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
     Ok(())
 }
 

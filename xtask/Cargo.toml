@@ -12,6 +12,7 @@ authors.workspace = true
 anyhow.workspace = true
 schemars.workspace = true
 serde_json.workspace = true
+weregopher-adapter-discord = { version = "0.1.0", path = "../crates/weregopher-adapter-discord" }
 weregopher-domain = { version = "0.1.0", path = "../crates/weregopher-domain" }
 weregopher-fingerprint = { version = "0.1.0", path = "../crates/weregopher-fingerprint" }
 

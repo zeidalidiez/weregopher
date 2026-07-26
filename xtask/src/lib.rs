@@ -5,6 +5,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result, bail};
 use schemars::{JsonSchema, schema_for};
 use serde_json::{Value, json};
+use weregopher_adapter_discord::DiscordSmokeCertificationReport;
 use weregopher_domain::{
     AdapterExecutionAuthority, AdapterTransformAuthority, BuildFingerprint, CallContext,
     CandidateInstallationEvidence, CandidateProfile, CertificationClass, CertificationEvidence,
@@ -16,7 +17,7 @@ use weregopher_domain::{
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 22] = [
+pub const SCHEMA_FILENAMES: [&str; 23] = [
     "adapter-execution-authority.schema.json",
     "adapter-transform-authority.schema.json",
     "build-fingerprint.schema.json",
@@ -28,6 +29,7 @@ pub const SCHEMA_FILENAMES: [&str; 22] = [
     "certification-profile.schema.json",
     "certification-runner-identity.schema.json",
     "compatibility-analysis.schema.json",
+    "discord-smoke-certification-report.schema.json",
     "effective-security-posture.schema.json",
     "execution-resolution-evidence.schema.json",
     "execution-target-contract.schema.json",
@@ -122,17 +124,18 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
         schema_document::<CertificationProfile>(SCHEMA_FILENAMES[8])?,
         schema_document::<CertificationRunnerIdentity>(SCHEMA_FILENAMES[9])?,
         schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[10])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[11])?,
-        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[12])?,
-        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[13])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[14])?,
-        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[15])?,
-        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[16])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[17])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[18])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[19])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[20])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[21])?,
+        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[11])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[12])?,
+        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[13])?,
+        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[14])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[15])?,
+        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[16])?,
+        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[17])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[18])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[19])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[20])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[21])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[22])?,
     ])
 }
 
@@ -168,6 +171,14 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
     }
     if filename == "compatibility-analysis.schema.json" {
         require_evidence_for_resolved_compatibility_assessments(document)?;
+    }
+    if filename == "discord-smoke-certification-report.schema.json"
+        && let Value::Object(root) = document
+    {
+        root.insert(
+            "x-weregopher-maxDocumentBytes".to_owned(),
+            json!(weregopher_adapter_discord::MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES),
+        );
     }
     match filename {
         "execution-target-contract.schema.json" => annotate_execution_target_limits(document)?,

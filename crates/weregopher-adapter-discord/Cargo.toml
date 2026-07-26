@@ -8,8 +8,12 @@ rust-version.workspace = true
 authors.workspace = true
 
 [dependencies]
+schemars.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
+weregopher-domain = { version = "0.1.0", path = "../weregopher-domain" }
 
 [lints]
 workspace = true

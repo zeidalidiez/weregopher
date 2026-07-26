@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "DiscordSmokeCertificationReportFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DiscordSmokeRuntimeObservation": {
+      "additionalProperties": false,
+      "description": "Deterministic outcome of one successful disposable-state Job-owned smoke probe.",
+      "properties": {
+        "active_process_limit": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "command_line_utf16_limit": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "job_memory_limit_bytes": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "launch_argument_bytes": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "launch_argument_limit": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "managed_executable_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "managed_package_tree_merkle": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "marker_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "omitted_mutable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "package_bytes": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "package_files": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "per_process_memory_limit_bytes": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_app_asar_after_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "timeout_seconds": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "managed_package_tree_merkle",
+        "managed_executable_sha256",
+        "package_files",
+        "package_bytes",
+        "source_app_asar_after_sha256",
+        "marker_sha256",
+        "timeout_seconds",
+        "active_process_limit",
+        "per_process_memory_limit_bytes",
+        "job_memory_limit_bytes",
+        "launch_argument_limit",
+        "launch_argument_bytes",
+        "command_line_utf16_limit",
+        "omitted_mutable_paths"
+      ],
+      "type": "object"
+    },
+    "DiscordSmokeStaticObservation": {
+      "additionalProperties": false,
+      "description": "Exact static input and output identities accepted by the Discord smoke adapter.",
+      "properties": {
+        "adapter_contract_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "package_manifest_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "source_app_asar_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "source_main_entry_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "transformed_app_asar_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "transformed_main_entry_sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        }
+      },
+      "required": [
+        "adapter_contract_digest",
+        "source_app_asar_sha256",
+        "transformed_app_asar_sha256",
+        "package_manifest_sha256",
+        "source_main_entry_sha256",
+        "transformed_main_entry_sha256"
+      ],
+      "type": "object"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical non-authorizing semantic report for one exact Discord smoke probe.",
+  "properties": {
+    "format_version": {
+      "$ref": "#/$defs/DiscordSmokeCertificationReportFormatVersion"
+    },
+    "runtime_observation": {
+      "$ref": "#/$defs/DiscordSmokeRuntimeObservation"
+    },
+    "static_observation": {
+      "$ref": "#/$defs/DiscordSmokeStaticObservation"
+    }
+  },
+  "required": [
+    "format_version",
+    "static_observation",
+    "runtime_observation"
+  ],
+  "title": "DiscordSmokeCertificationReport",
+  "type": "object",
+  "x-weregopher-maxDocumentBytes": 65536
+}

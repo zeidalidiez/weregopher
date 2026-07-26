@@ -25,6 +25,7 @@ use weregopher_fingerprint::{
     fingerprint_package,
 };
 
+mod discord_certification;
 mod live_smoke;
 
 #[derive(Debug, Parser)]
@@ -62,6 +63,12 @@ struct DiscordLiveSmokeArguments {
     /// Explicitly authorize this non-certified local smoke run.
     #[arg(long)]
     allow_uncertified_local_smoke: bool,
+    /// Exact semantic report digest explicitly approved for a local smoke decision.
+    #[arg(long, requires = "local_policy_revision")]
+    expected_certification_report: Option<Sha256Digest>,
+    /// Trusted local policy-revision identity for the exact approved report.
+    #[arg(long, requires = "expected_certification_report")]
+    local_policy_revision: Option<Sha256Digest>,
 }
 
 #[derive(Debug, Args)]
@@ -176,6 +183,8 @@ fn run_discord_live_smoke(arguments: &DiscordLiveSmokeArguments) -> Result<()> {
         &arguments.marker_path,
         Duration::from_secs(arguments.timeout_seconds),
         arguments.allow_uncertified_local_smoke,
+        arguments.expected_certification_report,
+        arguments.local_policy_revision,
     )?;
     let stdout = io::stdout();
     let mut output = stdout.lock();

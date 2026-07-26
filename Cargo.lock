@@ -1035,11 +1035,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "thiserror",
  "walkdir",
  "weregopher-adapter-discord",
  "weregopher-asar",
  "weregopher-domain",
  "weregopher-fingerprint",
+ "weregopher-transform",
  "weregopher-windows",
  "windows-sys",
 ]
@@ -1048,8 +1050,12 @@ dependencies = [
 name = "weregopher-adapter-discord"
 version = "0.1.0"
 dependencies = [
+ "schemars",
+ "serde",
  "serde_json",
+ "sha2",
  "thiserror",
+ "weregopher-domain",
 ]
 
 [[package]]
@@ -1277,6 +1283,7 @@ dependencies = [
  "schemars",
  "serde_json",
  "tempfile",
+ "weregopher-adapter-discord",
  "weregopher-domain",
  "weregopher-fingerprint",
 ]

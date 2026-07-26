@@ -4,6 +4,7 @@ use std::{fmt, sync::RwLock};
 
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
+pub use weregopher_domain::CertificationArtifactSetDigest;
 use weregopher_domain::{
     CertificationArtifactKind, CertificationClass, CertificationEvidenceDigest,
     CertificationProfileDigest, CertificationTarget, PublicationStatus, Sha256Digest,
@@ -11,47 +12,13 @@ use weregopher_domain::{
 
 use crate::{
     CertificationPolicyError, CertificationPolicyRevisionDigest, LocallyCertifiedArtifacts,
+    VerifiedCertificationArtifacts,
 };
 
 const ARTIFACT_SET_DIGEST_DOMAIN: &[u8] = b"weregopher.certification.artifact-set.v1\0";
 
 /// Hard ceiling for receipts retained by one in-memory local publication store.
 pub const MAX_LOCAL_CERTIFICATION_PUBLICATIONS: usize = 4_096;
-
-/// Role-specific identity of the exact artifact-reference set whose bytes were verified.
-///
-/// Artifact-set identities cannot be substituted for evidence-document identities:
-///
-/// ```compile_fail
-/// use weregopher_domain::{CertificationEvidenceDigest, Sha256Digest};
-/// use weregopher_transform::CertificationArtifactSetDigest;
-///
-/// let artifacts = CertificationArtifactSetDigest::new(Sha256Digest::from_bytes([0; 32]));
-/// let evidence: CertificationEvidenceDigest = artifacts;
-/// # let _ = evidence;
-/// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CertificationArtifactSetDigest(Sha256Digest);
-
-impl CertificationArtifactSetDigest {
-    /// Creates an artifact-set identity from a canonical SHA-256 digest.
-    #[must_use]
-    pub const fn new(digest: Sha256Digest) -> Self {
-        Self(digest)
-    }
-
-    /// Returns the wire-compatible SHA-256 value at a hashing or transport boundary.
-    #[must_use]
-    pub const fn as_sha256(&self) -> &Sha256Digest {
-        &self.0
-    }
-}
-
-impl fmt::Display for CertificationArtifactSetDigest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
 
 /// Historical receipt for one exact local-only certification publication commit.
 ///
@@ -273,21 +240,18 @@ pub fn prepare_local_certification_publication<'artifacts, 'bytes>(
     certified: LocallyCertifiedArtifacts<'artifacts, 'bytes>,
 ) -> Result<PreparedLocalCertificationPublication<'artifacts, 'bytes>, CertificationPublicationError>
 {
+    let receipt = local_certification_receipt(&certified)?;
+    Ok(PreparedLocalCertificationPublication { certified, receipt })
+}
+
+pub(crate) fn local_certification_receipt(
+    certified: &LocallyCertifiedArtifacts<'_, '_>,
+) -> Result<LocalCertificationPublicationReceipt, CertificationPublicationError> {
     let class = certified.current_class()?;
     let verified = certified.verified_artifacts();
     let artifact_count = verified.artifact_count();
-    let encoded_count = u64::try_from(artifact_count)
-        .map_err(|_| CertificationPublicationError::ArtifactCountUnrepresentable)?;
-    let mut hasher = Sha256::new();
-    hasher.update(ARTIFACT_SET_DIGEST_DOMAIN);
-    hasher.update(encoded_count.to_le_bytes());
-    for reference in verified.artifacts().keys() {
-        hasher.update([artifact_kind_tag(reference.kind)]);
-        hasher.update(reference.digest.as_sha256().as_bytes());
-    }
-    let artifact_set_digest =
-        CertificationArtifactSetDigest::new(Sha256Digest::from_bytes(hasher.finalize().into()));
-    let receipt = LocalCertificationPublicationReceipt {
+    let artifact_set_digest = certification_artifact_set_digest(verified)?;
+    Ok(LocalCertificationPublicationReceipt {
         target: certified.target().clone(),
         profile_digest: certified.profile_digest(),
         evidence_digest: certified.evidence_digest(),
@@ -298,8 +262,25 @@ pub fn prepare_local_certification_publication<'artifacts, 'bytes>(
         artifact_count,
         total_artifact_bytes: verified.total_bytes(),
         publication_status: PublicationStatus::LocalOnly,
-    };
-    Ok(PreparedLocalCertificationPublication { certified, receipt })
+    })
+}
+
+pub(crate) fn certification_artifact_set_digest(
+    verified: &VerifiedCertificationArtifacts<'_, '_>,
+) -> Result<CertificationArtifactSetDigest, CertificationPublicationError> {
+    let artifact_count = verified.artifact_count();
+    let encoded_count = u64::try_from(artifact_count)
+        .map_err(|_| CertificationPublicationError::ArtifactCountUnrepresentable)?;
+    let mut hasher = Sha256::new();
+    hasher.update(ARTIFACT_SET_DIGEST_DOMAIN);
+    hasher.update(encoded_count.to_le_bytes());
+    for reference in verified.artifacts().keys() {
+        hasher.update([artifact_kind_tag(reference.kind)]);
+        hasher.update(reference.digest.as_sha256().as_bytes());
+    }
+    Ok(CertificationArtifactSetDigest::new(
+        Sha256Digest::from_bytes(hasher.finalize().into()),
+    ))
 }
 
 /// Atomically commits one local-only receipt while its issuing policy remains current.

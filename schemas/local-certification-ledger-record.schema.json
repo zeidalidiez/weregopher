@@ -1,0 +1,733 @@
+{
+  "$defs": {
+    "CertificationArtifactDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Immutable identity of one certification probe, trace, fixture result, or report artifact."
+    },
+    "CertificationArtifactKind": {
+      "description": "Kind of immutable artifact supporting one certification check.",
+      "oneOf": [
+        {
+          "const": "package_identity",
+          "description": "Package identity, signature, or exact package-layout evidence.",
+          "type": "string"
+        },
+        {
+          "const": "static_analysis",
+          "description": "Deterministic static-analysis evidence.",
+          "type": "string"
+        },
+        {
+          "const": "runtime_probe",
+          "description": "Main-runtime launch or bootstrap probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "renderer_probe",
+          "description": "Renderer or preload probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "state_probe",
+          "description": "State safety or migration-dry-run evidence.",
+          "type": "string"
+        },
+        {
+          "const": "security_probe",
+          "description": "Security-contract probe evidence.",
+          "type": "string"
+        },
+        {
+          "const": "workflow_probe",
+          "description": "Application workflow evidence.",
+          "type": "string"
+        },
+        {
+          "const": "resource_probe",
+          "description": "Resource and process-tree scenario evidence.",
+          "type": "string"
+        },
+        {
+          "const": "helper_probe",
+          "description": "Vendor-helper lifecycle evidence.",
+          "type": "string"
+        },
+        {
+          "const": "exception_verification",
+          "description": "Verification of a declared exception or known gap.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed immutable artifact supporting one certification check.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/CertificationArtifactDigest",
+          "description": "Role-specific content identity of the evidence artifact."
+        },
+        "kind": {
+          "$ref": "#/$defs/CertificationArtifactKind",
+          "description": "Evidence category."
+        }
+      },
+      "required": [
+        "kind",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "CertificationArtifactSetDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the exact verified certification artifact-reference set."
+    },
+    "CertificationClass": {
+      "description": "Strength of compatibility evidence for one environment-bound build contract.",
+      "oneOf": [
+        {
+          "const": "blocked",
+          "description": "Launch is forbidden by policy or known incompatibility.",
+          "type": "string"
+        },
+        {
+          "const": "provisional",
+          "description": "Exploratory evidence only.",
+          "type": "string"
+        },
+        {
+          "const": "structural_verified",
+          "description": "Structural invariants passed without behavioral smoke coverage.",
+          "type": "string"
+        },
+        {
+          "const": "smoke_verified",
+          "description": "A fixed disposable-state smoke profile passed.",
+          "type": "string"
+        },
+        {
+          "const": "contract_verified",
+          "description": "The declared family contract profile passed without authority expansion.",
+          "type": "string"
+        },
+        {
+          "const": "exact_certified",
+          "description": "The exact build and complete configured feature profile passed certification.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationControlPolicy": {
+      "additionalProperties": false,
+      "description": "Exact current local policies accepted by one certification-control ledger generation.",
+      "properties": {
+        "artifact_set_digest": {
+          "$ref": "#/$defs/CertificationArtifactSetDigest"
+        },
+        "class": {
+          "$ref": "#/$defs/CertificationClass",
+          "enum": [
+            "structural_verified",
+            "smoke_verified",
+            "contract_verified",
+            "exact_certified"
+          ]
+        },
+        "evidence_digest": {
+          "$ref": "#/$defs/CertificationEvidenceDigest"
+        },
+        "policy_generation": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "policy_revision_digest": {
+          "$ref": "#/$defs/CertificationPolicyRevisionDigest"
+        },
+        "profile_digest": {
+          "$ref": "#/$defs/CertificationProfileDigest"
+        },
+        "runner": {
+          "$ref": "#/$defs/CertificationRunRunnerIdentity"
+        },
+        "semantic_report": {
+          "$ref": "#/$defs/CertificationArtifactRef"
+        },
+        "target": {
+          "$ref": "#/$defs/CertificationTarget"
+        }
+      },
+      "required": [
+        "runner",
+        "semantic_report",
+        "target",
+        "profile_digest",
+        "evidence_digest",
+        "artifact_set_digest",
+        "class",
+        "policy_revision_digest",
+        "policy_generation"
+      ],
+      "type": "object"
+    },
+    "CertificationEvidenceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Immutable identity of one canonical exact-target certification-evidence document.\n\nEvidence and profile identities are intentionally not substitutable:\n\n```compile_fail\nuse weregopher_domain::{\n    CertificationEvidenceDigest, CertificationProfileDigest, Sha256Digest,\n};\n\nlet evidence = CertificationEvidenceDigest::new(Sha256Digest::from_bytes([0; 32]));\nlet profile: CertificationProfileDigest = evidence;\n# let _ = profile;\n```"
+    },
+    "CertificationPolicyRevisionDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of one local certification policy revision."
+    },
+    "CertificationPolicyRevocationDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of evidence revoking one local certification policy."
+    },
+    "CertificationProfileDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Immutable identity of the exact certification profile and mandatory-suite definition."
+    },
+    "CertificationRunFreshness": {
+      "additionalProperties": false,
+      "description": "Monotonic freshness evidence retained by one local run attestation.",
+      "properties": {
+        "challenge": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "elapsed_millis": {
+          "format": "uint64",
+          "maximum": 600000,
+          "minimum": 0,
+          "type": "integer",
+          "x-weregopher-maximumField": "maximum_elapsed_millis"
+        },
+        "maximum_elapsed_millis": {
+          "format": "uint64",
+          "maximum": 600000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "challenge",
+        "maximum_elapsed_millis",
+        "elapsed_millis"
+      ],
+      "type": "object"
+    },
+    "CertificationRunResultIdentity": {
+      "additionalProperties": false,
+      "description": "Exact report, certification, policy, and artifact identities of one locally attested run.",
+      "properties": {
+        "artifact_count": {
+          "format": "uint32",
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "artifact_set_digest": {
+          "$ref": "#/$defs/CertificationArtifactSetDigest"
+        },
+        "class": {
+          "$ref": "#/$defs/CertificationClass",
+          "enum": [
+            "structural_verified",
+            "smoke_verified",
+            "contract_verified",
+            "exact_certified"
+          ]
+        },
+        "evidence_digest": {
+          "$ref": "#/$defs/CertificationEvidenceDigest"
+        },
+        "policy_generation": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "policy_revision_digest": {
+          "$ref": "#/$defs/CertificationPolicyRevisionDigest"
+        },
+        "profile_digest": {
+          "$ref": "#/$defs/CertificationProfileDigest"
+        },
+        "semantic_report": {
+          "$ref": "#/$defs/CertificationArtifactRef"
+        },
+        "target": {
+          "$ref": "#/$defs/CertificationTarget"
+        },
+        "total_artifact_bytes": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "semantic_report",
+        "target",
+        "profile_digest",
+        "evidence_digest",
+        "artifact_set_digest",
+        "class",
+        "policy_revision_digest",
+        "policy_generation",
+        "artifact_count",
+        "total_artifact_bytes"
+      ],
+      "type": "object"
+    },
+    "CertificationRunRunnerIdentity": {
+      "additionalProperties": false,
+      "description": "Exact runner and runner-policy identities retained by one local run attestation.",
+      "properties": {
+        "descriptor_set_digest": {
+          "$ref": "#/$defs/CertificationRunnerDescriptorSetDigest"
+        },
+        "policy_generation": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "policy_revision_digest": {
+          "$ref": "#/$defs/CertificationRunnerPolicyRevisionDigest"
+        },
+        "runner_identity_digest": {
+          "$ref": "#/$defs/CertificationRunnerIdentityDigest"
+        }
+      },
+      "required": [
+        "runner_identity_digest",
+        "descriptor_set_digest",
+        "policy_revision_digest",
+        "policy_generation"
+      ],
+      "type": "object"
+    },
+    "CertificationRunnerDescriptorSetDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of the complete verified runner-component descriptor set."
+    },
+    "CertificationRunnerIdentityDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of canonical certification-runner identity document bytes.\n\nRunner identities cannot be substituted for runner-image identities:\n\n```compile_fail\nuse weregopher_domain::{\n    CertificationRunnerIdentityDigest, CertificationRunnerImageDigest, Sha256Digest,\n};\n\nlet identity = CertificationRunnerIdentityDigest::new(Sha256Digest::from_bytes([0; 32]));\nlet image: CertificationRunnerImageDigest = identity;\n# let _ = image;\n```"
+    },
+    "CertificationRunnerPolicyRevisionDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of one local certification-runner policy revision."
+    },
+    "CertificationRunnerPolicyRevocationDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of evidence revoking one local certification-runner policy."
+    },
+    "CertificationTarget": {
+      "additionalProperties": false,
+      "description": "Exact immutable inputs against which certification evidence was produced.\n\nRole-specific identities prevent transposing semantically distinct hashes:\n\n```compile_fail\nuse weregopher_domain::{\n    CertificationTarget, CompatibilityAnalysisDigest, ExecutableDigest,\n    ExecutionArtifactSourceDigest, ExecutionContractDigest,\n    ExecutionResolutionEvidenceDigest, Sha256Digest,\n};\nlet raw = Sha256Digest::from_bytes([0x11; 32]);\nlet compatibility = CompatibilityAnalysisDigest::new(raw);\nlet contract = ExecutionContractDigest::new(raw);\nlet resolution = ExecutionResolutionEvidenceDigest::new(raw);\nlet source = ExecutionArtifactSourceDigest::new(raw);\nlet executable = ExecutableDigest::new(raw);\nlet _ = CertificationTarget::new(\n    contract,\n    compatibility,\n    resolution,\n    source,\n    executable,\n);\n```",
+      "properties": {
+        "artifact_source_digest": {
+          "$ref": "#/$defs/ExecutionArtifactSourceDigest"
+        },
+        "compatibility_analysis_digest": {
+          "$ref": "#/$defs/CompatibilityAnalysisDigest"
+        },
+        "executable_digest": {
+          "$ref": "#/$defs/ExecutableDigest"
+        },
+        "execution_contract_digest": {
+          "$ref": "#/$defs/ExecutionContractDigest"
+        },
+        "execution_resolution_evidence_digest": {
+          "$ref": "#/$defs/ExecutionResolutionEvidenceDigest"
+        }
+      },
+      "required": [
+        "compatibility_analysis_digest",
+        "execution_contract_digest",
+        "execution_resolution_evidence_digest",
+        "artifact_source_digest",
+        "executable_digest"
+      ],
+      "type": "object"
+    },
+    "CompatibilityAnalysisDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Complete compatibility-analysis identity."
+    },
+    "ExecutableDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Exact executable byte identity."
+    },
+    "ExecutionArtifactSourceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Package-tree or managed-manifest identity containing an executable."
+    },
+    "ExecutionContractDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical static execution-target contract identity."
+    },
+    "ExecutionResolutionEvidenceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Canonical generated execution-resolution evidence identity."
+    },
+    "LocalCertificationLedgerCertificationRevocation": {
+      "additionalProperties": false,
+      "description": "Local certification-policy revocation event.",
+      "properties": {
+        "evidence_digest": {
+          "$ref": "#/$defs/CertificationPolicyRevocationDigest"
+        }
+      },
+      "required": [
+        "evidence_digest"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationLedgerEvent": {
+      "description": "Closed event vocabulary for the durable local certification ledger.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Ledger creation, policies, and first attested publication.",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/LocalCertificationLedgerGenesis"
+            },
+            "kind": {
+              "const": "genesis",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Later attested local publication.",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/LocalCertificationLedgerPublication"
+            },
+            "kind": {
+              "const": "publication",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Exact replacement of both local policies.",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/LocalCertificationLedgerPolicyReplacement"
+            },
+            "kind": {
+              "const": "policy_replacement",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Certification-policy revocation.",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/LocalCertificationLedgerCertificationRevocation"
+            },
+            "kind": {
+              "const": "certification_revocation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Runner-policy revocation.",
+          "properties": {
+            "body": {
+              "$ref": "#/$defs/LocalCertificationLedgerRunnerRevocation"
+            },
+            "kind": {
+              "const": "runner_revocation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "body"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LocalCertificationLedgerGenesis": {
+      "additionalProperties": false,
+      "description": "Genesis ledger event containing exact policy plus the first attested publication.",
+      "properties": {
+        "attestation": {
+          "$ref": "#/$defs/LocalCertificationRunAttestation"
+        },
+        "policy": {
+          "$ref": "#/$defs/CertificationControlPolicy"
+        },
+        "receipt": {
+          "$ref": "#/$defs/LocalCertificationLedgerReceipt"
+        }
+      },
+      "required": [
+        "policy",
+        "attestation",
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationLedgerPolicyReplacement": {
+      "additionalProperties": false,
+      "description": "Policy replacement retained by a durable local ledger.",
+      "properties": {
+        "policy": {
+          "$ref": "#/$defs/CertificationControlPolicy"
+        }
+      },
+      "required": [
+        "policy"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationLedgerPublication": {
+      "additionalProperties": false,
+      "description": "One later attested local publication event.",
+      "properties": {
+        "attestation": {
+          "$ref": "#/$defs/LocalCertificationRunAttestation"
+        },
+        "receipt": {
+          "$ref": "#/$defs/LocalCertificationLedgerReceipt"
+        }
+      },
+      "required": [
+        "attestation",
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationLedgerReceipt": {
+      "additionalProperties": false,
+      "description": "Durable local-only receipt paired with one exact run attestation.",
+      "properties": {
+        "attestation_digest": {
+          "$ref": "#/$defs/LocalCertificationRunAttestationDigest"
+        },
+        "publication_status": {
+          "$ref": "#/$defs/PublicationStatus",
+          "const": "local_only"
+        }
+      },
+      "required": [
+        "attestation_digest",
+        "publication_status"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationLedgerRecordDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of one canonical local certification-ledger record."
+    },
+    "LocalCertificationLedgerRecordFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "LocalCertificationLedgerRunnerRevocation": {
+      "additionalProperties": false,
+      "description": "Local runner-policy revocation event.",
+      "properties": {
+        "evidence_digest": {
+          "$ref": "#/$defs/CertificationRunnerPolicyRevocationDigest"
+        }
+      },
+      "required": [
+        "evidence_digest"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationRunAttestation": {
+      "additionalProperties": false,
+      "description": "Canonical historical evidence for one freshness-bound local certification run.\n\nThis document does not authorize transformation, execution, or external publication. Generic\ndeserialization is unavailable; use the bounded parser.",
+      "properties": {
+        "format_version": {
+          "$ref": "#/$defs/LocalCertificationRunAttestationFormatVersion"
+        },
+        "freshness": {
+          "$ref": "#/$defs/CertificationRunFreshness"
+        },
+        "result": {
+          "$ref": "#/$defs/CertificationRunResultIdentity"
+        },
+        "runner": {
+          "$ref": "#/$defs/CertificationRunRunnerIdentity"
+        }
+      },
+      "required": [
+        "format_version",
+        "freshness",
+        "runner",
+        "result"
+      ],
+      "type": "object"
+    },
+    "LocalCertificationRunAttestationDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of one canonical local certification-run attestation."
+    },
+    "LocalCertificationRunAttestationFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "PublicationStatus": {
+      "description": "Where certification or adapter metadata has been published.",
+      "oneOf": [
+        {
+          "const": "local_only",
+          "description": "Evidence exists only on the local machine.",
+          "type": "string"
+        },
+        {
+          "const": "draft",
+          "description": "An unpublished artifact is under review.",
+          "type": "string"
+        },
+        {
+          "const": "published",
+          "description": "The artifact is present in an authenticated registry.",
+          "type": "string"
+        },
+        {
+          "const": "withdrawn",
+          "description": "A previously published artifact was withdrawn without a security revocation.",
+          "type": "string"
+        }
+      ]
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "event": {
+            "not": {
+              "properties": {
+                "kind": {
+                  "const": "genesis"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          },
+          "previous_record_digest": {
+            "$ref": "#/$defs/LocalCertificationLedgerRecordDigest"
+          },
+          "sequence": {
+            "minimum": 2
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "sequence": {
+            "const": 1
+          }
+        },
+        "required": [
+          "sequence"
+        ]
+      },
+      "then": {
+        "properties": {
+          "event": {
+            "properties": {
+              "kind": {
+                "const": "genesis"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "previous_record_digest": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
+  "description": "Canonical hash-chained record in one local certification ledger.\n\nGeneric deserialization is unavailable so the fixed parser ceiling cannot be bypassed.",
+  "properties": {
+    "event": {
+      "$ref": "#/$defs/LocalCertificationLedgerEvent"
+    },
+    "format_version": {
+      "$ref": "#/$defs/LocalCertificationLedgerRecordFormatVersion"
+    },
+    "previous_record_digest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalCertificationLedgerRecordDigest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sequence": {
+      "format": "uint64",
+      "maximum": 18446744073709551615,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "format_version",
+    "sequence",
+    "event",
+    "previous_record_digest"
+  ],
+  "title": "LocalCertificationLedgerRecord",
+  "type": "object",
+  "x-weregopher-maxDocumentBytes": 262144
+}

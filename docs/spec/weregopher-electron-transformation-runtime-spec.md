@@ -6602,7 +6602,9 @@ language-runtime set, toolchain set, host agent, verifier, probe-asset set, sour
 approved exception-provenance set. The authoritative parsers enforce a 32 KiB ceiling before
 deserialization, and compact format-v1 bytes plus their SHA-256 identity are frozen by a golden
 vector. Aggregate fields identify external canonical descriptors; a later trusted verifier must
-retrieve, validate, and authenticate those descriptor bytes before relying on them.
+retrieve and validate those descriptor and artifact bytes before relying on them. Exact local
+verification is implemented below; authenticating how a bundle reached the verifier remains a
+separate distribution responsibility.
 
 The generation-aware local runner policy described by
 [ADR 0034](../adr/0034-generation-aware-local-certification-runner-policy.md) may approve one exact
@@ -6612,11 +6614,45 @@ replacement, revocation, store loss, or synchronization failure. This currentnes
 point-in-time; any later attestation or effect must retain the runner-policy guard through its own
 commit point.
 
-Local class assignment, local-only receipt publication, and local runner-identity approval alone do
-not validate artifact semantics, authenticate external component descriptors, prove a run,
-establish freshness, authorize transformation or execution, or establish durable registry,
-signature, or remote-revocation trust. Parsing, hashing, or locally approving a runner identity
-does not bind any report to that runner.
+The freshness-bound local certification control plane described by
+[ADR 0037](../adr/0037-freshness-bound-local-certification-control-plane.md) connects those
+otherwise separate proofs without manufacturing remote trust. Format-`"1"` canonical
+runner-component descriptors cover exactly the eleven runner-identity roles. Each descriptor has a
+bounded identifier/version, provenance identity, and nonempty canonical set of exact logical
+artifact names, byte lengths, and SHA-256 identities. The bounded verifier consumes the opaque
+runner approval, requires exactly one descriptor and artifact set per role, compares each canonical
+descriptor preimage with its role-specific identity slot, enforces caller-tightened hard byte
+ceilings, and verifies every exact artifact length and digest. Its non-cloneable proof retains the
+approval, descriptors, and borrowed bytes and remains conditional on current runner policy.
+
+Immediately before a certifiable process is created, `begin_local_certification_run` consumes that
+proof, generates a cryptographically random UUID challenge, pins one exact semantic-report
+reference, and records a monotonic start instant and a nonzero whole-millisecond maximum no greater
+than ten minutes.
+Final publication consumes this capability once. It requires the selected report in the exact
+verified evidence artifacts, checks elapsed monotonic time, and holds runner policy, certification
+policy, then the bounded destination store in that fixed lock order. The format-`"1"` local
+attestation and matching historical receipt become visible as one in-memory record only while both
+issuing generations remain current and non-revoked.
+
+The attestation binds challenge/freshness, runner identity and descriptor-set identities, runner
+policy revision/generation, semantic report, complete certification target/profile/evidence and
+artifact-set identities, trusted class, certification-policy revision/generation, and exact
+artifact count/bytes. It is local historical evidence, not an authorization token.
+
+The format-`"1"` local certification ledger persists those attestations in canonical compact JSON
+records named by fixed-width one-based sequence only. Genesis binds the exact combined policy and
+first publication; later events cover publication, exact next-generation combined replacement,
+certification revocation, or runner revocation. Opening replays no more than 4,096 records and 256
+MiB, rejects unsafe/unknown entries, gaps, noncanonical bytes, broken links, invalid policy
+transitions, publication under mismatch/revocation, and repeated challenges, then requires an
+independently supplied exact head. Append replays current disk state, uses create-new for the exact
+next sequence, synchronizes the record, and rejects stale concurrent writers. The head must be
+stored in separately trusted configuration: the directory alone is not a rollback anchor.
+
+These local boundaries still do not validate arbitrary artifact semantics, authenticate bundle
+distribution, authorize transformation or execution, or establish signed registry,
+remote-revocation, or same-user sandbox trust.
 
 ### Implemented Discord disposable-smoke slice
 
@@ -6628,13 +6664,26 @@ exact marker semantics, post-probe source stability, disposable-state omissions,
 fixed Job/launch limits. Its authoritative parser enforces a 64 KiB ceiling; compact canonical
 bytes and SHA-256 identity are frozen by a checked-in golden vector and a generated closed schema.
 
-The Windows command stages a new disjoint package copy, requires the Discord dispatch log to be a
-file and the Krisp log directory to be empty before omitting those two exact mutable paths,
-rebuilds and reparses the transformed ASAR, fingerprints the managed package twice before launch,
-uses a new sibling user-data directory, verifies Job membership and exact marker bytes, confirms
-primary-process termination, and rehashes the vendor ASAR after the probe. Kill-on-close Job
-ownership remains live through report construction. A Job Object is still an accounting and
+The Windows command stages a new disjoint package copy through bounded create-new writes that reject
+unstable source lengths, requires the Discord dispatch log to be a file and the Krisp log directory
+to be empty before omitting those two exact mutable paths, rebuilds and reparses the transformed
+ASAR, retains a complete bounded package observation,
+publishes it into a disjoint content-addressed package-snapshot store, and locks the
+manifest-matched snapshot executable before launch. The snapshot lease and identity-matched
+executable capability remain live through process termination, semantic report construction, and a
+final complete-view revalidation that must succeed before attested publication and ledger append.
+The physical snapshot root remains an unrestricted same-user namespace and does not create
+execution authority.
+
+The command uses a new sibling user-data directory, verifies Job membership and exact marker bytes,
+confirms primary-process termination, and rehashes the vendor ASAR after the probe. Kill-on-close
+Job ownership remains live through report construction. A Job Object is still an accounting and
 lifecycle boundary, not a sandbox.
+
+Before any staging write, canonical overlap checks require the managed package, marker,
+disposable user data, snapshot store, and optional ledger to be mutually disjoint and disjoint from
+both the vendor package and runner bundle. No caller-selected control-plane state may be written
+inside either source tree.
 
 Marker-adapter version 2 writes with create-new semantics and immediately exits marker-mode
 execution before the retained vendor main JavaScript can run. Without the private marker argument,
@@ -6643,20 +6692,30 @@ are part of the domain-separated adapter-contract identity.
 
 The report deterministically derives an adapter-scoped compatibility analysis, a
 `smoke_verified` profile, complete evidence, and exact document identities for only workflow
-`discord.smoke-marker`. A first run emits a candidate without trust. A second run must receive both
-the exact expected report digest and a trusted local policy-revision identity before it may assign
-`SmokeVerified` and atomically publish an in-memory `LocalOnly` receipt. The uncertified local
-launch flag remains mandatory because classification occurs after the diagnostic process exits and
-does not authorize that run or any future run.
+`discord.smoke-marker`. Every pass requires a closed runner bundle plus independently supplied
+exact runner-identity and runner-policy-revision pins. The bundle loader rejects noncanonical,
+unsafe, unknown, missing, or excessive identity/descriptor/artifact entries before the generic
+component verifier checks every role preimage and artifact byte against those exact identities.
+
+A first run emits a candidate without class assignment, including exact runner identity and
+descriptor-set identities. A second run additionally receives the exact expected report digest, a
+trusted certification-policy revision, and a new or pinned-head existing ledger. After runner
+verification and snapshot/executable retention but before process creation, it creates the
+single-use pending challenge for the expected runtime-report reference. After process termination
+and semantic report reconstruction, it verifies generic evidence bytes, atomically publishes the
+dual-policy attestation, and creates ledger genesis or appends under the independently supplied
+head. Output includes the attestation and new ledger-head identities.
+
+The uncertified local launch flag remains mandatory because classification occurs after the
+diagnostic process exits and does not authorize that run or any future run.
 
 This probe intentionally launches a copied vendor Discord/Electron tree to test transform and
 staging behavior. It is not the Weregopher replacement runtime, a helper, an ABI island, full
 Discord compatibility, production-state evidence, a security sandbox, or an efficiency result.
 Renderer/preload parity, module/native/helper analysis, ordinary application workflows,
-component-descriptor authentication, runner-approval integration, per-run attestation and
-freshness, independent retrieval of named proprietary artifacts, signed registry publication,
-durable policy/receipt persistence, and the general disposable-state scenario runner remain
-separate layers.
+authenticated runner-bundle distribution, independent retrieval of named proprietary artifacts,
+signed registry publication and key lifecycle, external revocation feeds, and the general
+disposable-state scenario runner remain separate layers.
 
 ## 35.6 Stable adapter gates
 

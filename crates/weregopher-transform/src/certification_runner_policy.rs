@@ -11,59 +11,10 @@ use std::{
 };
 
 use thiserror::Error;
-use weregopher_domain::{
-    CertificationRunnerIdentity, CertificationRunnerIdentityDigest, Sha256Digest,
+use weregopher_domain::{CertificationRunnerIdentity, CertificationRunnerIdentityDigest};
+pub use weregopher_domain::{
+    CertificationRunnerPolicyRevisionDigest, CertificationRunnerPolicyRevocationDigest,
 };
-
-/// Role-specific identity of one local runner-policy revision.
-///
-/// Revision and revocation-evidence identities cannot be substituted:
-///
-/// ```compile_fail
-/// use weregopher_domain::Sha256Digest;
-/// use weregopher_transform::{
-///     CertificationRunnerPolicyRevisionDigest, CertificationRunnerPolicyRevocationDigest,
-/// };
-///
-/// let revision =
-///     CertificationRunnerPolicyRevisionDigest::new(Sha256Digest::from_bytes([0; 32]));
-/// let revocation: CertificationRunnerPolicyRevocationDigest = revision;
-/// # let _ = revocation;
-/// ```
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CertificationRunnerPolicyRevisionDigest(Sha256Digest);
-
-impl CertificationRunnerPolicyRevisionDigest {
-    /// Creates a policy-revision identity from a canonical SHA-256 digest.
-    #[must_use]
-    pub const fn new(digest: Sha256Digest) -> Self {
-        Self(digest)
-    }
-
-    /// Returns the wire-compatible SHA-256 value at a hashing or transport boundary.
-    #[must_use]
-    pub const fn as_sha256(&self) -> &Sha256Digest {
-        &self.0
-    }
-}
-
-/// Role-specific identity of evidence that revokes a local runner policy.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CertificationRunnerPolicyRevocationDigest(Sha256Digest);
-
-impl CertificationRunnerPolicyRevocationDigest {
-    /// Creates a revocation-evidence identity from a canonical SHA-256 digest.
-    #[must_use]
-    pub const fn new(digest: Sha256Digest) -> Self {
-        Self(digest)
-    }
-
-    /// Returns the wire-compatible SHA-256 value at a hashing or transport boundary.
-    #[must_use]
-    pub const fn as_sha256(&self) -> &Sha256Digest {
-        &self.0
-    }
-}
 
 /// Exact certification-runner identity approved by one trusted local policy revision.
 ///
@@ -263,21 +214,37 @@ impl LocallyApprovedCertificationRunner {
     ///
     /// Returns a currentness error if the store was dropped, replaced, revoked, or poisoned.
     pub fn verify_current_policy(&self) -> Result<(), CertificationRunnerPolicyError> {
+        self.commit_while_policy_current(|| ())
+    }
+
+    pub(crate) fn commit_while_policy_current<T>(
+        &self,
+        commit: impl FnOnce() -> T,
+    ) -> Result<T, CertificationRunnerPolicyError> {
         let store = self
             .policy_store
             .upgrade()
             .ok_or(CertificationRunnerPolicyError::PolicyStoreUnavailable)?;
-        let state = store
-            .read()
-            .map_err(|_| CertificationRunnerPolicyError::PolicyStorePoisoned)?;
-        if state.revocation_evidence_digest.is_some() {
-            return Err(CertificationRunnerPolicyError::PolicyRevoked);
-        }
-        if state.generation != self.policy_generation || state.policy != self.policy {
-            return Err(CertificationRunnerPolicyError::PolicyChanged);
-        }
-        Ok(())
+        commit_if_policy_current(&store, &self.policy, self.policy_generation, commit)
     }
+}
+
+fn commit_if_policy_current<T>(
+    store: &RwLock<CertificationRunnerPolicyState>,
+    expected_policy: &LocalCertificationRunnerPolicy,
+    expected_generation: u64,
+    commit: impl FnOnce() -> T,
+) -> Result<T, CertificationRunnerPolicyError> {
+    let state = store
+        .read()
+        .map_err(|_| CertificationRunnerPolicyError::PolicyStorePoisoned)?;
+    if state.revocation_evidence_digest.is_some() {
+        return Err(CertificationRunnerPolicyError::PolicyRevoked);
+    }
+    if state.generation != expected_generation || state.policy != *expected_policy {
+        return Err(CertificationRunnerPolicyError::PolicyChanged);
+    }
+    Ok(commit())
 }
 
 /// Approves one exact canonical runner identity under current trusted local policy.

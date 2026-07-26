@@ -9,15 +9,16 @@ use weregopher_adapter_discord::DiscordSmokeCertificationReport;
 use weregopher_domain::{
     AdapterExecutionAuthority, AdapterTransformAuthority, BuildFingerprint, CallContext,
     CandidateInstallationEvidence, CandidateProfile, CertificationClass, CertificationEvidence,
-    CertificationProfile, CertificationRunnerIdentity, CompatibilityAnalysis,
-    EffectiveSecurityPosture, ExecutionResolutionEvidence, ExecutionTargetContract, FrameHeader,
-    GeneratedExecutionOverlay, GeneratedTransformOverlay, ProtocolLimits, PublicationStatus,
-    TrustMode, WireValue,
+    CertificationProfile, CertificationRunnerComponentDescriptor, CertificationRunnerIdentity,
+    CompatibilityAnalysis, EffectiveSecurityPosture, ExecutionResolutionEvidence,
+    ExecutionTargetContract, FrameHeader, GeneratedExecutionOverlay, GeneratedTransformOverlay,
+    LocalCertificationLedgerRecord, LocalCertificationRunAttestation, ProtocolLimits,
+    PublicationStatus, TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 23] = [
+pub const SCHEMA_FILENAMES: [&str; 26] = [
     "adapter-execution-authority.schema.json",
     "adapter-transform-authority.schema.json",
     "build-fingerprint.schema.json",
@@ -27,6 +28,7 @@ pub const SCHEMA_FILENAMES: [&str; 23] = [
     "certification-class.schema.json",
     "certification-evidence.schema.json",
     "certification-profile.schema.json",
+    "certification-runner-component-descriptor.schema.json",
     "certification-runner-identity.schema.json",
     "compatibility-analysis.schema.json",
     "discord-smoke-certification-report.schema.json",
@@ -36,6 +38,8 @@ pub const SCHEMA_FILENAMES: [&str; 23] = [
     "frame-header.schema.json",
     "generated-execution-overlay.schema.json",
     "generated-transform-overlay.schema.json",
+    "local-certification-ledger-record.schema.json",
+    "local-certification-run-attestation.schema.json",
     "package-tree-manifest.schema.json",
     "protocol-limits.schema.json",
     "publication-status.schema.json",
@@ -122,20 +126,23 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
         schema_document::<CertificationClass>(SCHEMA_FILENAMES[6])?,
         schema_document::<CertificationEvidence>(SCHEMA_FILENAMES[7])?,
         schema_document::<CertificationProfile>(SCHEMA_FILENAMES[8])?,
-        schema_document::<CertificationRunnerIdentity>(SCHEMA_FILENAMES[9])?,
-        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[10])?,
-        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[11])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[12])?,
-        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[13])?,
-        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[14])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[15])?,
-        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[16])?,
-        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[17])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[18])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[19])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[20])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[21])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[22])?,
+        schema_document::<CertificationRunnerComponentDescriptor>(SCHEMA_FILENAMES[9])?,
+        schema_document::<CertificationRunnerIdentity>(SCHEMA_FILENAMES[10])?,
+        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[11])?,
+        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[12])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[13])?,
+        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[14])?,
+        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[15])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[16])?,
+        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[17])?,
+        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[18])?,
+        schema_document::<LocalCertificationLedgerRecord>(SCHEMA_FILENAMES[19])?,
+        schema_document::<LocalCertificationRunAttestation>(SCHEMA_FILENAMES[20])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[21])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[22])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[23])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[24])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[25])?,
     ])
 }
 
@@ -161,6 +168,9 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
     if filename == "certification-profile.schema.json" {
         annotate_certification_profile(document)?;
     }
+    if filename == "certification-runner-component-descriptor.schema.json" {
+        annotate_certification_runner_component(document)?;
+    }
     if filename == "certification-runner-identity.schema.json"
         && let Value::Object(root) = document
     {
@@ -178,6 +188,25 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
         root.insert(
             "x-weregopher-maxDocumentBytes".to_owned(),
             json!(weregopher_adapter_discord::MAX_DISCORD_SMOKE_CERTIFICATION_REPORT_BYTES),
+        );
+    }
+    if matches!(
+        filename,
+        "local-certification-ledger-record.schema.json"
+            | "local-certification-run-attestation.schema.json"
+    ) {
+        annotate_local_certification_attestation_constraints(document)?;
+    }
+    if filename == "local-certification-ledger-record.schema.json" {
+        annotate_local_certification_ledger(document)?;
+    }
+    if filename == "local-certification-run-attestation.schema.json" {
+        let root = document
+            .as_object_mut()
+            .context("local certification attestation schema root is not an object")?;
+        root.insert(
+            "x-weregopher-maxDocumentBytes".to_owned(),
+            json!(weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_ATTESTATION_BYTES),
         );
     }
     match filename {
@@ -233,6 +262,236 @@ fn annotate_certification_profile(document: &mut Value) -> Result<()> {
     root.insert(
         "x-weregopher-maxDocumentBytes".to_owned(),
         json!(weregopher_domain::MAX_CERTIFICATION_PROFILE_DOCUMENT_BYTES),
+    );
+    Ok(())
+}
+
+fn annotate_certification_runner_component(document: &mut Value) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .context("certification runner component schema root is not an object")?;
+    root.insert(
+        "x-weregopher-maxDocumentBytes".to_owned(),
+        json!(weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_DESCRIPTOR_BYTES),
+    );
+    root.insert(
+        "x-weregopher-maxAggregateArtifactNameBytes".to_owned(),
+        json!(weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_NAME_BYTES),
+    );
+
+    for definition in [
+        "CertificationRunnerArtifactName",
+        "CertificationRunnerComponentId",
+        "CertificationRunnerComponentVersion",
+    ] {
+        let text = document
+            .pointer_mut(&format!("/$defs/{definition}"))
+            .and_then(Value::as_object_mut)
+            .with_context(|| {
+                format!(
+                    "certification runner component schema is missing its {definition} definition"
+                )
+            })?;
+        text.insert("minLength".to_owned(), json!(1));
+        text.insert(
+            "maxLength".to_owned(),
+            json!(weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_TEXT_BYTES),
+        );
+        text.insert(
+            "x-weregopher-maxUtf8Bytes".to_owned(),
+            json!(weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_TEXT_BYTES),
+        );
+        text.insert(
+            "pattern".to_owned(),
+            Value::String(
+                r"^(?!/)(?!.*\/$)(?!.*//)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*\\)(?!.*\p{Cc})(?!.*[. ](?:/|$)).+$"
+                    .to_owned(),
+            ),
+        );
+    }
+
+    let artifact_size = document
+        .pointer_mut("/$defs/CertificationRunnerComponentArtifact/properties/size_bytes")
+        .and_then(Value::as_object_mut)
+        .context("certification runner component schema is missing its artifact size definition")?;
+    artifact_size.insert("minimum".to_owned(), json!(1));
+    artifact_size.insert(
+        "maximum".to_owned(),
+        json!(weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES),
+    );
+    Ok(())
+}
+
+fn annotate_local_certification_attestation_constraints(document: &mut Value) -> Result<()> {
+    let freshness = document
+        .pointer_mut("/$defs/CertificationRunFreshness/properties")
+        .and_then(Value::as_object_mut)
+        .context("local certification schema is missing its freshness properties")?;
+    let maximum_elapsed = freshness
+        .get_mut("maximum_elapsed_millis")
+        .and_then(Value::as_object_mut)
+        .context("local certification schema is missing its freshness limit")?;
+    maximum_elapsed.insert("minimum".to_owned(), json!(1));
+    maximum_elapsed.insert(
+        "maximum".to_owned(),
+        json!(weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS),
+    );
+    let elapsed = freshness
+        .get_mut("elapsed_millis")
+        .and_then(Value::as_object_mut)
+        .context("local certification schema is missing its elapsed duration")?;
+    elapsed.insert(
+        "maximum".to_owned(),
+        json!(weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS),
+    );
+    elapsed.insert(
+        "x-weregopher-maximumField".to_owned(),
+        Value::String("maximum_elapsed_millis".to_owned()),
+    );
+
+    set_schema_minimum(
+        document,
+        "/$defs/CertificationRunRunnerIdentity/properties/policy_generation",
+        1,
+        "runner policy generation",
+    )?;
+    set_schema_minimum(
+        document,
+        "/$defs/CertificationRunResultIdentity/properties/policy_generation",
+        1,
+        "certification policy generation",
+    )?;
+    set_schema_minimum(
+        document,
+        "/$defs/CertificationRunResultIdentity/properties/artifact_count",
+        1,
+        "certification artifact count",
+    )?;
+    set_schema_minimum(
+        document,
+        "/$defs/CertificationRunResultIdentity/properties/total_artifact_bytes",
+        1,
+        "certification aggregate artifact bytes",
+    )?;
+    set_assignable_certification_classes(
+        document,
+        "/$defs/CertificationRunResultIdentity/properties/class",
+        "certification result class",
+    )?;
+    Ok(())
+}
+
+fn annotate_local_certification_ledger(document: &mut Value) -> Result<()> {
+    set_schema_minimum(
+        document,
+        "/properties/sequence",
+        1,
+        "local certification ledger sequence",
+    )?;
+    set_schema_minimum(
+        document,
+        "/$defs/CertificationControlPolicy/properties/policy_generation",
+        1,
+        "local certification control-policy generation",
+    )?;
+    set_assignable_certification_classes(
+        document,
+        "/$defs/CertificationControlPolicy/properties/class",
+        "local certification control-policy class",
+    )?;
+    let publication_status = document
+        .pointer_mut("/$defs/LocalCertificationLedgerReceipt/properties/publication_status")
+        .and_then(Value::as_object_mut)
+        .context("local certification ledger schema is missing its receipt publication status")?;
+    publication_status.insert("const".to_owned(), Value::String("local_only".to_owned()));
+
+    let root = document
+        .as_object_mut()
+        .context("local certification ledger schema root is not an object")?;
+    root.insert(
+        "x-weregopher-maxDocumentBytes".to_owned(),
+        json!(weregopher_domain::MAX_LOCAL_CERTIFICATION_LEDGER_RECORD_BYTES),
+    );
+    let required = root
+        .get_mut("required")
+        .and_then(Value::as_array_mut)
+        .context("local certification ledger schema is missing its required fields")?;
+    let previous = Value::String("previous_record_digest".to_owned());
+    if !required.contains(&previous) {
+        required.push(previous);
+    }
+    root.insert(
+        "allOf".to_owned(),
+        json!([{
+            "if": {
+                "properties": {
+                    "sequence": { "const": 1 }
+                },
+                "required": ["sequence"]
+            },
+            "then": {
+                "properties": {
+                    "previous_record_digest": { "type": "null" },
+                    "event": {
+                        "properties": {
+                            "kind": { "const": "genesis" }
+                        },
+                        "required": ["kind"]
+                    }
+                }
+            },
+            "else": {
+                "properties": {
+                    "sequence": { "minimum": 2 },
+                    "previous_record_digest": {
+                        "$ref": "#/$defs/LocalCertificationLedgerRecordDigest"
+                    },
+                    "event": {
+                        "not": {
+                            "properties": {
+                                "kind": { "const": "genesis" }
+                            },
+                            "required": ["kind"]
+                        }
+                    }
+                }
+            }
+        }]),
+    );
+    Ok(())
+}
+
+fn set_schema_minimum(
+    document: &mut Value,
+    pointer: &str,
+    minimum: u64,
+    description: &str,
+) -> Result<()> {
+    let property = document
+        .pointer_mut(pointer)
+        .and_then(Value::as_object_mut)
+        .with_context(|| format!("local certification schema is missing its {description}"))?;
+    property.insert("minimum".to_owned(), json!(minimum));
+    Ok(())
+}
+
+fn set_assignable_certification_classes(
+    document: &mut Value,
+    pointer: &str,
+    description: &str,
+) -> Result<()> {
+    let property = document
+        .pointer_mut(pointer)
+        .and_then(Value::as_object_mut)
+        .with_context(|| format!("local certification schema is missing its {description}"))?;
+    property.insert(
+        "enum".to_owned(),
+        json!([
+            "structural_verified",
+            "smoke_verified",
+            "contract_verified",
+            "exact_certified"
+        ]),
     );
     Ok(())
 }

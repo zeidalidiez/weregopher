@@ -7,6 +7,7 @@
 mod build;
 mod candidate;
 mod certification;
+mod certification_control_plane;
 mod certification_evidence;
 mod certification_runner;
 mod compatibility;
@@ -25,6 +26,34 @@ pub use candidate::{
     CandidateChannelHint, CandidateProfile, CandidateTarget, initial_candidate_profiles,
 };
 pub use certification::{CertificationClass, PublicationStatus, TrustMode};
+pub use certification_control_plane::{
+    BoundedDocumentReadError, CERTIFICATION_RUNNER_COMPONENT_DESCRIPTOR_FORMAT_VERSION,
+    CertificationArtifactSetDigest, CertificationControlPolicy, CertificationPolicyRevisionDigest,
+    CertificationPolicyRevocationDigest, CertificationRunAttestationDocumentError,
+    CertificationRunAttestationError, CertificationRunFreshness, CertificationRunResultIdentity,
+    CertificationRunRunnerIdentity, CertificationRunnerArtifactName,
+    CertificationRunnerComponentArtifact, CertificationRunnerComponentDescriptor,
+    CertificationRunnerComponentDescriptorDigest, CertificationRunnerComponentDescriptorError,
+    CertificationRunnerComponentDocumentError, CertificationRunnerComponentId,
+    CertificationRunnerComponentProvenanceDigest, CertificationRunnerComponentRole,
+    CertificationRunnerComponentTextError, CertificationRunnerComponentVersion,
+    CertificationRunnerDescriptorSetDigest, CertificationRunnerPolicyRevisionDigest,
+    CertificationRunnerPolicyRevocationDigest, LOCAL_CERTIFICATION_LEDGER_RECORD_FORMAT_VERSION,
+    LOCAL_CERTIFICATION_RUN_ATTESTATION_FORMAT_VERSION,
+    LocalCertificationLedgerCertificationRevocation, LocalCertificationLedgerContractError,
+    LocalCertificationLedgerDocumentError, LocalCertificationLedgerEvent,
+    LocalCertificationLedgerGenesis, LocalCertificationLedgerPolicyReplacement,
+    LocalCertificationLedgerPublication, LocalCertificationLedgerReceipt,
+    LocalCertificationLedgerRecord, LocalCertificationLedgerRecordDigest,
+    LocalCertificationLedgerRunnerRevocation, LocalCertificationRunAttestation,
+    LocalCertificationRunAttestationDigest, MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES,
+    MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_NAME_BYTES,
+    MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACTS,
+    MAX_CERTIFICATION_RUNNER_COMPONENT_DESCRIPTOR_BYTES,
+    MAX_CERTIFICATION_RUNNER_COMPONENT_TEXT_BYTES, MAX_LOCAL_CERTIFICATION_LEDGER_BYTES,
+    MAX_LOCAL_CERTIFICATION_LEDGER_RECORD_BYTES, MAX_LOCAL_CERTIFICATION_LEDGER_RECORDS,
+    MAX_LOCAL_CERTIFICATION_RUN_ATTESTATION_BYTES, MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS,
+};
 pub use certification_evidence::{
     CERTIFICATION_EVIDENCE_FORMAT_VERSION, CERTIFICATION_FIXED_CHECK_COUNT,
     CERTIFICATION_PROFILE_FORMAT_VERSION, CertificationArtifactDigest, CertificationArtifactKind,

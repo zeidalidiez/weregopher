@@ -25,6 +25,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "certification-class.schema.json",
         "certification-evidence.schema.json",
         "certification-profile.schema.json",
+        "certification-runner-component-descriptor.schema.json",
         "certification-runner-identity.schema.json",
         "compatibility-analysis.schema.json",
         "discord-smoke-certification-report.schema.json",
@@ -34,6 +35,8 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "frame-header.schema.json",
         "generated-execution-overlay.schema.json",
         "generated-transform-overlay.schema.json",
+        "local-certification-ledger-record.schema.json",
+        "local-certification-run-attestation.schema.json",
         "package-tree-manifest.schema.json",
         "protocol-limits.schema.json",
         "publication-status.schema.json",
@@ -356,6 +359,201 @@ fn certification_runner_identity_schema_is_exact_bounded_and_non_authorizing()
         "transformation_authorized",
         "execution_authorized",
         "certified",
+    ] {
+        assert!(document["properties"].get(forbidden).is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn certification_runner_component_schema_is_closed_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("certification-runner-component-descriptor.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &[
+            "format_version",
+            "role",
+            "component_id",
+            "version",
+            "provenance_digest",
+            "artifacts",
+        ],
+    )?;
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_DESCRIPTOR_BYTES
+    );
+    assert_eq!(
+        document["x-weregopher-maxAggregateArtifactNameBytes"],
+        weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_NAME_BYTES
+    );
+    assert_eq!(document["properties"]["artifacts"]["minItems"], 1);
+    assert_eq!(
+        document["properties"]["artifacts"]["maxItems"],
+        weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACTS
+    );
+    assert_eq!(document["properties"]["artifacts"]["uniqueItems"], true);
+    for definition in [
+        "CertificationRunnerArtifactName",
+        "CertificationRunnerComponentId",
+        "CertificationRunnerComponentVersion",
+    ] {
+        let text = &document["$defs"][definition];
+        assert_eq!(text["minLength"], 1);
+        assert_eq!(
+            text["maxLength"],
+            weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_TEXT_BYTES
+        );
+        assert_eq!(
+            text["x-weregopher-maxUtf8Bytes"],
+            weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_TEXT_BYTES
+        );
+        assert!(text["pattern"].is_string());
+    }
+    let artifact_size =
+        &document["$defs"]["CertificationRunnerComponentArtifact"]["properties"]["size_bytes"];
+    assert_eq!(artifact_size["minimum"], 1);
+    assert_eq!(
+        artifact_size["maximum"],
+        weregopher_domain::MAX_CERTIFICATION_RUNNER_COMPONENT_ARTIFACT_BYTES
+    );
+    for forbidden in [
+        "signature",
+        "trusted",
+        "runner_authenticated",
+        "transformation_authorized",
+        "execution_authorized",
+    ] {
+        assert!(document["properties"].get(forbidden).is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn local_run_attestation_schema_is_closed_bounded_and_non_authorizing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("local-certification-run-attestation.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &["format_version", "freshness", "runner", "result"],
+    )?;
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_ATTESTATION_BYTES
+    );
+    assert_eq!(
+        document["$defs"]["LocalCertificationRunAttestationFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    for group in [
+        "CertificationRunFreshness",
+        "CertificationRunRunnerIdentity",
+        "CertificationRunResultIdentity",
+    ] {
+        assert_eq!(document["$defs"][group]["additionalProperties"], false);
+    }
+    assert_local_certification_attestation_constraints(&document);
+    for forbidden in [
+        "signature",
+        "trusted",
+        "registry_trusted",
+        "transformation_authorized",
+        "execution_authorized",
+        "sandboxed",
+    ] {
+        assert!(document["properties"].get(forbidden).is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn local_certification_ledger_schema_is_closed_bounded_and_hash_chained()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("local-certification-ledger-record.schema.json"),
+    )?)?;
+
+    assert_eq!(document["additionalProperties"], false);
+    assert_required_properties(
+        &document,
+        &[
+            "format_version",
+            "sequence",
+            "previous_record_digest",
+            "event",
+        ],
+    )?;
+    assert_eq!(
+        document["x-weregopher-maxDocumentBytes"],
+        weregopher_domain::MAX_LOCAL_CERTIFICATION_LEDGER_RECORD_BYTES
+    );
+    assert_eq!(
+        document["$defs"]["LocalCertificationLedgerRecordFormatVersion"]["enum"],
+        serde_json::json!(["1"])
+    );
+    assert_eq!(
+        document["properties"]["previous_record_digest"]["anyOf"][0]["$ref"],
+        "#/$defs/LocalCertificationLedgerRecordDigest"
+    );
+    assert_eq!(document["properties"]["sequence"]["minimum"], 1);
+    assert_local_certification_attestation_constraints(&document);
+    let policy = &document["$defs"]["CertificationControlPolicy"]["properties"];
+    assert_eq!(policy["policy_generation"]["minimum"], 1);
+    assert_eq!(
+        policy["class"]["enum"],
+        assignable_local_certification_classes()
+    );
+    assert_eq!(
+        document["$defs"]["LocalCertificationLedgerReceipt"]["properties"]["publication_status"]["const"],
+        "local_only"
+    );
+    let chain_shape = document["allOf"]
+        .as_array()
+        .ok_or("ledger schema must encode its genesis and linked-record shapes")?;
+    assert_eq!(chain_shape.len(), 1);
+    assert_eq!(chain_shape[0]["if"]["properties"]["sequence"]["const"], 1);
+    assert_eq!(
+        chain_shape[0]["then"]["properties"]["previous_record_digest"]["type"],
+        "null"
+    );
+    assert_eq!(
+        chain_shape[0]["then"]["properties"]["event"]["properties"]["kind"]["const"],
+        "genesis"
+    );
+    assert_eq!(
+        chain_shape[0]["else"]["properties"]["previous_record_digest"]["$ref"],
+        "#/$defs/LocalCertificationLedgerRecordDigest"
+    );
+    assert_eq!(
+        chain_shape[0]["else"]["properties"]["event"]["not"]["properties"]["kind"]["const"],
+        "genesis"
+    );
+    for forbidden in [
+        "signature",
+        "registry_trusted",
+        "transformation_authorized",
+        "execution_authorized",
     ] {
         assert!(document["properties"].get(forbidden).is_none());
     }
@@ -1356,6 +1554,44 @@ fn assert_compatibility_target_schema(document: &serde_json::Value) -> Result<()
     assert!(document["$defs"].get("BuildFingerprint").is_none());
     assert!(document["$defs"].get("PackageIdentity").is_none());
     Ok(())
+}
+
+fn assert_local_certification_attestation_constraints(document: &serde_json::Value) {
+    let freshness = &document["$defs"]["CertificationRunFreshness"]["properties"];
+    assert_eq!(freshness["maximum_elapsed_millis"]["minimum"], 1);
+    assert_eq!(
+        freshness["maximum_elapsed_millis"]["maximum"],
+        weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS
+    );
+    assert_eq!(
+        freshness["elapsed_millis"]["maximum"],
+        weregopher_domain::MAX_LOCAL_CERTIFICATION_RUN_FRESHNESS_MILLIS
+    );
+    assert_eq!(
+        freshness["elapsed_millis"]["x-weregopher-maximumField"],
+        "maximum_elapsed_millis"
+    );
+
+    let runner = &document["$defs"]["CertificationRunRunnerIdentity"]["properties"];
+    assert_eq!(runner["policy_generation"]["minimum"], 1);
+
+    let result = &document["$defs"]["CertificationRunResultIdentity"]["properties"];
+    assert_eq!(result["policy_generation"]["minimum"], 1);
+    assert_eq!(result["artifact_count"]["minimum"], 1);
+    assert_eq!(result["total_artifact_bytes"]["minimum"], 1);
+    assert_eq!(
+        result["class"]["enum"],
+        assignable_local_certification_classes()
+    );
+}
+
+fn assignable_local_certification_classes() -> serde_json::Value {
+    serde_json::json!([
+        "structural_verified",
+        "smoke_verified",
+        "contract_verified",
+        "exact_certified"
+    ])
 }
 
 fn schema_string_constants(schema: &serde_json::Value) -> Result<Vec<&str>, &'static str> {

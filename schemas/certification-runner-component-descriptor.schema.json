@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "CertificationRunnerArtifactName": {
+      "description": "Bounded normalized logical artifact name within one runner component.",
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\/$)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*\\p{Cc})(?!.*[. ](?:/|$)).+$",
+      "type": "string",
+      "x-weregopher-maxUtf8Bytes": 256
+    },
+    "CertificationRunnerComponentArtifact": {
+      "additionalProperties": false,
+      "description": "One exact artifact named by a runner-component descriptor.",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/CertificationRunnerArtifactName"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "size_bytes": {
+          "format": "uint64",
+          "maximum": 536870912,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
+    },
+    "CertificationRunnerComponentDescriptorFormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "CertificationRunnerComponentId": {
+      "description": "Bounded stable identifier for one runner component.",
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\/$)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*\\p{Cc})(?!.*[. ](?:/|$)).+$",
+      "type": "string",
+      "x-weregopher-maxUtf8Bytes": 256
+    },
+    "CertificationRunnerComponentProvenanceDigest": {
+      "$ref": "#/$defs/Sha256Digest",
+      "description": "Identity of canonical runner-component provenance bytes."
+    },
+    "CertificationRunnerComponentRole": {
+      "description": "Exact role occupied by one certification-runner component descriptor.",
+      "oneOf": [
+        {
+          "const": "runner_image",
+          "description": "Immutable certification runner image or executable closure.",
+          "type": "string"
+        },
+        {
+          "const": "host_image",
+          "description": "Host operating-system image and build evidence.",
+          "type": "string"
+        },
+        {
+          "const": "host_patch_set",
+          "description": "Exact host patch-set evidence.",
+          "type": "string"
+        },
+        {
+          "const": "electron_runtime",
+          "description": "Exact Electron runtime.",
+          "type": "string"
+        },
+        {
+          "const": "language_runtime_set",
+          "description": "Exact language-runtime set.",
+          "type": "string"
+        },
+        {
+          "const": "toolchain_set",
+          "description": "Exact compiler and toolchain set.",
+          "type": "string"
+        },
+        {
+          "const": "host_agent",
+          "description": "Exact host-agent implementation.",
+          "type": "string"
+        },
+        {
+          "const": "verifier",
+          "description": "Exact semantic verifier implementation.",
+          "type": "string"
+        },
+        {
+          "const": "probe_asset_set",
+          "description": "Complete exact probe-asset set.",
+          "type": "string"
+        },
+        {
+          "const": "source_revision",
+          "description": "Exact certification source revision.",
+          "type": "string"
+        },
+        {
+          "const": "exception_provenance",
+          "description": "Complete approved exception-provenance set.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificationRunnerComponentVersion": {
+      "description": "Bounded exact version spelling for one runner component.",
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\/$)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*\\p{Cc})(?!.*[. ](?:/|$)).+$",
+      "type": "string",
+      "x-weregopher-maxUtf8Bytes": 256
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical descriptor for one exact certification-runner component role.\n\nGeneric deserialization is deliberately unavailable. Use\n[`CertificationRunnerComponentDescriptor::from_json_slice`] or\n[`CertificationRunnerComponentDescriptor::from_json_reader`].",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/CertificationRunnerComponentArtifact"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "component_id": {
+      "$ref": "#/$defs/CertificationRunnerComponentId"
+    },
+    "format_version": {
+      "$ref": "#/$defs/CertificationRunnerComponentDescriptorFormatVersion"
+    },
+    "provenance_digest": {
+      "$ref": "#/$defs/CertificationRunnerComponentProvenanceDigest"
+    },
+    "role": {
+      "$ref": "#/$defs/CertificationRunnerComponentRole"
+    },
+    "version": {
+      "$ref": "#/$defs/CertificationRunnerComponentVersion"
+    }
+  },
+  "required": [
+    "format_version",
+    "role",
+    "component_id",
+    "version",
+    "provenance_digest",
+    "artifacts"
+  ],
+  "title": "CertificationRunnerComponentDescriptor",
+  "type": "object",
+  "x-weregopher-maxAggregateArtifactNameBytes": 16384,
+  "x-weregopher-maxDocumentBytes": 262144
+}

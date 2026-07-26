@@ -1036,6 +1036,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+ "uuid",
  "walkdir",
  "weregopher-adapter-discord",
  "weregopher-asar",

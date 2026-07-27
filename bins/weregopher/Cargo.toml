@@ -17,7 +17,9 @@ sha2.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 weregopher-adapter-discord = { version = "0.1.0", path = "../../crates/weregopher-adapter-discord" }
+weregopher-adapter-openai = { version = "0.1.0", path = "../../crates/weregopher-adapter-openai" }
 weregopher-asar = { version = "0.1.0", path = "../../crates/weregopher-asar" }
+weregopher-discovery = { version = "0.1.0", path = "../../crates/weregopher-discovery" }
 weregopher-domain = { version = "0.1.0", path = "../../crates/weregopher-domain" }
 weregopher-fingerprint = { version = "0.1.0", path = "../../crates/weregopher-fingerprint" }
 weregopher-transform = { version = "0.1.0", path = "../../crates/weregopher-transform" }

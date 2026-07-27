@@ -193,13 +193,15 @@ impl AsarArchive {
 /// are exposed. Unpacked members remain external package evidence and cannot be
 /// read through this API.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AsarReadOnlyIndex {
-    packed_files: BTreeMap<String, Vec<u8>>,
+pub struct AsarReadOnlyIndex<'a> {
+    archive: &'a [u8],
+    data_start: usize,
+    packed_files: BTreeMap<String, IndexedFile>,
     unpacked_file_count: usize,
     limits: AsarLimits,
 }
 
-impl AsarReadOnlyIndex {
+impl<'a> AsarReadOnlyIndex<'a> {
     /// Parses the archive header and validates the complete packed body.
     ///
     /// Every member path is canonical and bounded. Packed offsets must be
@@ -211,7 +213,7 @@ impl AsarReadOnlyIndex {
     ///
     /// Returns a closed [`AsarError`] when framing, paths, limits, packed
     /// layout, link metadata, or packed integrity validation fails.
-    pub fn parse(bytes: &[u8], limits: AsarLimits) -> Result<Self, AsarError> {
+    pub fn parse(bytes: &'a [u8], limits: AsarLimits) -> Result<Self, AsarError> {
         if bytes.len() > limits.max_archive_bytes {
             return Err(AsarError::ArchiveTooLarge);
         }
@@ -227,7 +229,11 @@ impl AsarReadOnlyIndex {
         canonical_archive_path(path, self.limits)
             .ok()
             .and_then(|canonical| self.packed_files.get(&canonical))
-            .map(Vec::as_slice)
+            .and_then(|file| {
+                let start = self.data_start.checked_add(file.offset)?;
+                let end = start.checked_add(file.size)?;
+                self.archive.get(start..end)
+            })
     }
 
     /// Returns validated packed member paths in bytewise lexical order.
@@ -431,7 +437,7 @@ impl<'a> ReadOnlyCollectionState<'a> {
         Ok(size)
     }
 
-    fn finish(self) -> Result<AsarReadOnlyIndex, AsarError> {
+    fn finish(self) -> Result<AsarReadOnlyIndex<'a>, AsarError> {
         let body = self
             .archive
             .get(self.data_start..)
@@ -456,16 +462,24 @@ impl<'a> ReadOnlyCollectionState<'a> {
         }
 
         let mut packed_files = BTreeMap::new();
-        for (path, file) in self.packed_files {
+        for (path, file) in &self.packed_files {
             let end = file
                 .offset
                 .checked_add(file.size)
                 .ok_or(AsarError::InvalidLayout)?;
             let bytes = body.get(file.offset..end).ok_or(AsarError::InvalidLayout)?;
             verify_integrity(bytes, &file.integrity)?;
-            packed_files.insert(path, bytes.to_vec());
+            packed_files.insert(
+                path.clone(),
+                IndexedFile {
+                    offset: file.offset,
+                    size: file.size,
+                },
+            );
         }
         Ok(AsarReadOnlyIndex {
+            archive: self.archive,
+            data_start: self.data_start,
             packed_files,
             unpacked_file_count: self.unpacked_file_count,
             limits: self.limits,
@@ -567,6 +581,12 @@ struct PendingFile {
     size: usize,
     executable: bool,
     integrity: InputIntegrity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct IndexedFile {
+    offset: usize,
+    size: usize,
 }
 
 fn collect_entries(

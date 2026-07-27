@@ -184,7 +184,7 @@ impl ProcessEnvironment {
                 ));
             }
         }
-        encode_environment_block(canonical)
+        encode_environment_block(&canonical)
     }
 
     /// Returns an explicit empty Windows environment block.
@@ -212,7 +212,7 @@ impl fmt::Debug for ProcessEnvironment {
 }
 
 fn encode_environment_block(
-    variables: BTreeMap<String, Vec<u16>>,
+    variables: &BTreeMap<String, Vec<u16>>,
 ) -> io::Result<ProcessEnvironment> {
     if variables.is_empty() {
         return Ok(ProcessEnvironment::empty());

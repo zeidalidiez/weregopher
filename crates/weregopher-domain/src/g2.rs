@@ -605,6 +605,18 @@ impl PreloadBridgeProbeReport {
         self.checks.all_pass()
     }
 
+    /// Returns the exact source build-fingerprint identity.
+    #[must_use]
+    pub const fn source_build_fingerprint_digest(&self) -> &Sha256Digest {
+        &self.source_build_fingerprint_digest
+    }
+
+    /// Returns the exact preload component identity exercised by the probe.
+    #[must_use]
+    pub const fn preload_digest(&self) -> &Sha256Digest {
+        &self.preload_digest
+    }
+
     /// Reports whether this probe exercised the exact installed-package preload.
     #[must_use]
     pub const fn is_exact_package_evidence(&self) -> bool {
@@ -681,6 +693,18 @@ impl AppServerProbeReport {
     #[must_use]
     pub const fn checks_pass(&self) -> bool {
         self.checks.all_pass()
+    }
+
+    /// Returns the exact source build-fingerprint identity.
+    #[must_use]
+    pub const fn source_build_fingerprint_digest(&self) -> &Sha256Digest {
+        &self.source_build_fingerprint_digest
+    }
+
+    /// Returns the exact executable identity exercised by the probe.
+    #[must_use]
+    pub const fn executable_digest(&self) -> &Sha256Digest {
+        &self.executable_digest
     }
 
     /// Reports whether this probe exercised the exact installed-package binary.

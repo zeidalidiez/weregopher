@@ -187,7 +187,7 @@ pub fn analyze_openai_package(
 
 fn analyze_application_archive(
     build: &BuildFingerprint,
-    archive: &AsarReadOnlyIndex,
+    archive: &AsarReadOnlyIndex<'_>,
 ) -> Result<
     (
         G2ComponentEvidence,

@@ -27,6 +27,7 @@ use weregopher_fingerprint::{
 
 mod discord_certification;
 mod live_smoke;
+mod openai_feasibility;
 mod runner_bundle;
 
 #[derive(Debug, Parser)]
@@ -46,8 +47,41 @@ enum Command {
     Fingerprint(FingerprintArguments),
     /// Apply an application-family transform to a distinct managed artifact.
     Transform(TransformArguments),
+    /// Evaluate bounded target-feasibility evidence.
+    Feasibility(FeasibilityArguments),
     /// Materialize and Job-launch the exact Discord smoke adapter locally.
     LiveSmokeDiscord(Box<DiscordLiveSmokeArguments>),
+}
+
+#[derive(Debug, Args)]
+struct FeasibilityArguments {
+    #[command(subcommand)]
+    target: FeasibilityCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum FeasibilityCommand {
+    /// Inventory an exact installed `OpenAI` package and optionally probe its bundled app-server.
+    OpenAi(OpenAiFeasibilityArguments),
+}
+
+#[derive(Debug, Args)]
+struct OpenAiFeasibilityArguments {
+    /// Select one exact registered package full name when multiple versions are installed.
+    #[arg(long)]
+    package_full_name: Option<String>,
+    /// Existing exact-package preload probe report to bind into the aggregate gate.
+    #[arg(long)]
+    preload_report: Option<PathBuf>,
+    /// Execute schema generation and initialize the exact bundled app-server.
+    #[arg(long, requires = "allow_unrestricted_same_user_probe")]
+    probe_app_server: bool,
+    /// Acknowledge that the exact vendor binary is an unrestricted same-user process.
+    #[arg(long, requires = "probe_app_server")]
+    allow_unrestricted_same_user_probe: bool,
+    /// Maximum package-tree entries accepted during read-only fingerprinting.
+    #[arg(long, default_value_t = DEFAULT_MAX_ENTRIES)]
+    max_entries: usize,
 }
 
 #[derive(Debug, Args)]
@@ -230,6 +264,9 @@ fn main() -> Result<()> {
         Command::Fingerprint(arguments) => run_fingerprint(arguments),
         Command::Transform(arguments) => match arguments.adapter {
             TransformCommand::DiscordSmoke(arguments) => run_discord_smoke_transform(&arguments),
+        },
+        Command::Feasibility(arguments) => match arguments.target {
+            FeasibilityCommand::OpenAi(arguments) => openai_feasibility::run(&arguments),
         },
         Command::LiveSmokeDiscord(arguments) => run_discord_live_smoke(&arguments),
     }

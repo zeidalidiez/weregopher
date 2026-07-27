@@ -8070,20 +8070,90 @@ native Windows and optionally runs the exact preload and app-server probes after
 explicit disposable-environment acknowledgement. Preload finishes and cleans up before
 any app-server phase begins. It also accepts a canonical imported exact-package preload
 report only when its scope, build, and component digests match the inventory. G2
-remains operationally incomplete until hosted native tests and the final serial
-user-controlled Windows 10/11 matrix pass for one pinned build. Exact package probes
-run only in a disposable standard-user Windows account or clean VM with no production
-OpenAI state; the app-server's explicit child environment is not a registry,
-credential-store, filesystem, or network sandbox. Public CI uses repository fixtures,
-retains synthetic scope, and never acquires proprietary package bytes. See the
-[G2 testing runbook](../testing/openai-g2-feasibility.md).
+remains operationally incomplete until the final serial user-controlled Windows
+10/11 matrix passes for one pinned build. Public hosted-native gates cover the
+repository-only process and renderer mechanisms on every change, but cannot satisfy
+an exact package lane. Exact package probes run only in a disposable standard-user
+Windows account or clean VM with no production OpenAI state; the app-server's explicit
+child environment is not a registry, credential-store, filesystem, or network
+sandbox. Public CI uses repository fixtures, retains synthetic scope, and never
+acquires proprietary package bytes. See the [G2 testing
+runbook](../testing/openai-g2-feasibility.md).
 
 This harness does not load packaged main/renderer logic through Weregopher, implement
 real vendor IPC, prove that packaged main logic selects the sole static preload
-candidate, implement the transparent app-server proxy, exercise a Codex workflow,
-touch production state, authorize launch, or establish application compatibility,
-certification, security-posture, or efficiency claims. G3 may select a pinned preview
-build only after all exact G2 lanes pass.
+candidate, connect the portable transparent app-server proxy to the supervised exact
+binary, exercise a Codex workflow, touch production state, authorize launch, or
+establish application compatibility, certification, security-posture, or efficiency
+claims. G3 may select a pinned preview build only after all exact G2 lanes pass.
+
+## 36.39 Implemented portable transparent app-server proxy core
+
+[ADR 0042](../adr/0042-bounded-transparent-app-server-proxy-core.md) implements the
+platform-neutral forwarding, backpressure, and correlation core required by Sections
+36.11 through 36.13. This is build-agnostic pre-G3 infrastructure: it does not select
+an OpenAI build, launch the bundled binary, or bypass the exact G2 gate.
+
+`TransparentAppServerProxy` accepts one delimiter-free JSON line from a serialized
+outer transport owner. It bounds bytes before retention, rejects embedded line
+delimiters, parses exactly one object, recursively bounds depth and value nodes, and
+rejects duplicate keys at every depth. It interprets only bounded method and request
+identity metadata needed to classify requests, notifications, success responses, and
+error responses. Fractional, null request, compound, oversized, and control-bearing
+identities fail closed; a null identity is tolerated only on an uncorrelated response.
+
+Accepted frames retain the exact input bytes rather than a serialized `JsonValue`.
+Unknown methods, fields, result variants, key order, whitespace, and numeric spellings
+therefore pass through unchanged. The parsed value tree is discarded after
+classification. Frames returned to an outer transport exclude the newline; exactly
+one delimiter is appended when writing to the peer.
+
+Client-to-server and server-to-client queues have independent message and aggregate
+byte ceilings and remain strict FIFO. Admission is atomic. The core does not drop,
+coalesce, or reorder notifications, requests, or responses when a queue is full; an
+outer nonblocking transport must pause reads or close the session explicitly.
+
+Request correlation is bidirectional. A response is matched only against a request
+originating in the opposite direction, allowing the same wire identity to be live in
+both independent namespaces. The proxy distinguishes queued, pending, completed,
+expired, late, and unmatched states. A response to a request not yet released from its
+queue is impossible relative to observed ordering and fails closed. Unknown responses
+remain forwardable and increment a payload-free unmatched counter.
+
+Deadlines start when a request frame leaves its queue, not during backpressure.
+Caller-provided monotonic clock observations may stay equal or increase; a backward
+clock value fails before any queue, correlation, or expiry mutation.
+Completed and expired identities are retained as bounded domain-separated SHA-256
+digests for the session. Reusing an identity in the same direction fails closed, so a
+duplicate late response cannot complete a newer logical request. A response matching
+digest history is forwarded as late rather than silently dropped. Request-history
+exhaustion requires explicit session replacement instead of evidence eviction.
+
+Initial limits are 1 MiB per line; JSON depth 64 and 65,536 nodes; 256 messages and
+8 MiB per direction queue; 1,024 active requests; 65,536 total request identities per
+session; and a five-minute post-forward timeout. Hard maxima are 16 MiB per line;
+depth 128 and 1,048,576 nodes; 4,096 messages and 64 MiB per queue; 4,096 active
+requests; 1,048,576 request identities; and a 24-hour timeout. Method names are at
+most 1,024 bytes and text request identities at most 256 bytes.
+
+The `Open → Closed` lifecycle clears queued payloads, live request values, and
+digest-only history and reports abandonment counts. Diagnostics contain only
+accepted/forwarded counts, current/peak queue sizes, pending/history counts, and
+expired/late/unmatched totals. Frame, observation, request-identity, expired-request,
+and proxy `Debug` output omit raw payloads, methods, and identities.
+
+Portable deterministic tests cover unknown-message byte preservation, FIFO behavior,
+bidirectional request namespaces, completion, response ordering, backpressure
+atomicity, recursive hostile JSON, deadlines, monotonic clock regression, expiry, late
+and unmatched responses, identity-history bounds, multi-message accounting, closure,
+and redaction. No canonical serialized contract changed, so this milestone does not
+add or revise a generated schema.
+
+The remaining proxy work is process and session integration: supervised exact-binary
+launch, nonblocking standard-I/O ownership, initialization-phase continuity,
+observers/interceptors, thread/turn/item and helper ownership, approval mediation,
+crash/restart state, graceful shutdown, and explicitly redacted persisted traces.
+Those features must remain separately tested and cannot be inferred from this core.
 
 
 ---

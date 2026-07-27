@@ -8,8 +8,8 @@ named pipes, access tokens, process identity, Job Objects, COM, or WebView2.
 
 | Lane | When | What it proves | What it does not prove |
 | --- | --- | --- | --- |
-| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server protocol behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, or installed-package evidence |
-| `windows-latest` CI | Every push and pull request | Clean native Windows build; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
+| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server initialization plus transparent-proxy behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, installed-package evidence, or proxy process integration |
+| `windows-latest` CI | Every push and pull request | Clean native Windows build; all portable proxy behavior; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, long-lived proxy process integration, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
 | WSL to native Windows | Optional final developer preflight on a suitably resourced host | The developer's current Windows kernel executes the focused PE test binaries while the source remains in WSL | A second clean machine or supported-client-OS matrix |
 | User-controlled exact OpenAI package | Final G2 candidate phase, after public CI, in a disposable Windows account/VM | Read-only package identity/inventory and, when explicitly enabled, exact package-derived preload plus bundled app-server schema/initialization evidence | Configured-preload entry resolution, vendor renderer or real IPC compatibility, broader application compatibility, security posture, efficiency, or certification |
 | Windows 10 x64 standard user | Milestone/release candidate | Supported Windows 10 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 11 and ARM64 |
@@ -73,9 +73,39 @@ nonce/identity binding, request bounds/deadlines/cancellation, late-result disca
 and stream credit. It also covers G2 evidence invariants, strict versus read-only ASAR
 semantics, exact OpenAI package-contract analysis over synthetic bytes, fail-closed
 exact-preload source preparation and binding, deterministic schema-bundle hashing, and
-the bounded app-server initialization state machine.
+the bounded app-server initialization state machine. It also covers the transparent
+proxy's exact-byte unknown-message preservation, independent bidirectional request
+spaces, FIFO backpressure, recursive JSON limits, request deadlines/history, late and
+unmatched responses, explicit closure, and debug redaction.
 Windows-only test binaries are compiled as empty targets on Linux and provide no
 native Windows evidence there.
+
+## Portable transparent app-server proxy scenario
+
+The OpenAI adapter's `app_server_proxy` tests require:
+
+- valid unknown requests, notifications, responses, fields, variants, whitespace,
+  number spelling, and key order to retain their exact delimiter-free bytes;
+- client-to-server and server-to-client queues to remain independently bounded FIFO
+  queues with atomic rejection and no notification coalescing or silent drops;
+- recursive duplicate keys, excessive depth/nodes, invalid identities, ambiguous
+  message shapes, and embedded line delimiters to fail closed;
+- client-origin and server-origin request identities to correlate independently;
+- response-before-forwarding, active-request exhaustion, session-local identity
+  reuse, and bounded history exhaustion to fail explicitly;
+- request deadlines to begin only when a frame leaves its queue;
+- a backward-moving caller clock to fail before a deadline or queue transition;
+- completed/expired identities to remain digest-only history so late responses cannot
+  satisfy a newer logical request;
+- genuinely unmatched and known-late responses to remain forwardable and separately
+  counted; and
+- closure and every `Debug`/diagnostic surface to omit payloads, methods, and request
+  identities.
+
+This scenario is entirely in memory. It does not launch the app-server, own
+standard-I/O or WebSocket transport, enforce long-lived initialization, implement
+interceptors, infer thread/turn/helper ownership, mediate approvals, or establish
+exact-build compatibility.
 
 ## Native Windows from WSL
 
@@ -237,13 +267,16 @@ absolute user paths, or unsanitized process diagnostics.
 | ADR 0002/ADR 0040 G1 packaged renderer fixture | Portable origin/lifecycle/authority tests plus hidden native WebView2 → authenticated worker → DOM → browser-exit/profile-cleanup scenario | Implemented |
 | ADR 0002/ADR 0041 G2 canonical evidence | Package, preload/bridge, app-server, gate, and aggregate Rust contracts plus generated schemas | Implemented |
 | ADR 0041 G2 exact package inventory | Maintained x64 MSIX identity and fixed package/ASAR component analysis; explicit native-Windows CLI | Implemented; exact user-controlled run pending |
-| ADR 0041 G2 app-server protocol | Portable bounded JSONL/schema-bundle tests plus atomic Job-owned exact-binary schema/initialize runner | Implemented; hosted primitives pending/required, exact user-controlled run pending |
-| ADR 0041 G2 preload mechanism | Hosted-Windows document-start isolated-world/projection/navigation fixtures plus ASAR/member-revalidating exact package-derived runner | Implemented; hosted engine evidence and exact user-controlled run pending |
+| ADR 0041 G2 app-server protocol | Portable bounded JSONL/schema-bundle tests plus atomic Job-owned exact-binary schema/initialize runner | Implemented; hosted process primitives pass, exact user-controlled run pending |
+| ADR 0041 G2 preload mechanism | Hosted-Windows document-start isolated-world/projection/navigation fixtures plus ASAR/member-revalidating exact package-derived runner | Implemented; hosted engine passes with synthetic scope, exact user-controlled run pending |
 | ADR 0002 G2 aggregate feasibility | Fail-closed three-lane aggregate bound to one source build | Incomplete until all exact lanes pass |
+| ADR 0042 transparent app-server proxy core | Exact-byte unknown-message tests; recursive JSON bounds; independent bounded FIFO queues; bidirectional request/deadline/history correlation; payload-free diagnostics | Implemented as a portable in-memory prerequisite; process/session integration pending |
 
 With both G1 synthetic fixtures passing, G1 is complete. G2 now has its bounded
 evidence contracts and exact package, preload, and app-server workflows, but it is not
-complete until public native tests pass and the final serial user-controlled Windows
-matrix produces passing exact evidence for one pinned build. The incomplete WP-D
-hardening rows remain independently open and must not be inferred from either
-milestone.
+complete until the final serial user-controlled Windows matrix produces passing exact
+evidence for one pinned build. Public native CI covers repository-only mechanisms,
+including the exact-preload engine with synthetic scope. The portable proxy core is a
+build-agnostic prerequisite, not evidence that a pinned G3 preview has begun. The
+incomplete WP-D hardening rows remain independently open and must not be inferred from
+either milestone.

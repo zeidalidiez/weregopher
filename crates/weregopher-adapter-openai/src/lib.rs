@@ -1,8 +1,9 @@
-//! `OpenAI`-family target-feasibility analysis.
+//! `OpenAI`-family feasibility evidence and bounded compatibility prerequisites.
 
 #![forbid(unsafe_code)]
 
 mod app_server;
+mod app_server_proxy;
 #[cfg(windows)]
 mod app_server_windows;
 mod package;
@@ -16,6 +17,12 @@ pub use app_server::{
     AppServerClientInfo, AppServerHandshakeEvidence, AppServerProtocolError,
     AppServerProtocolLimits, AppServerSchemaBundleEvidence, AppServerSchemaError,
     hash_app_server_schema_bundle, probe_app_server_handshake,
+};
+pub use app_server_proxy::{
+    AppServerExpiredRequest, AppServerJsonLimits, AppServerMessageObservation,
+    AppServerProxyCloseReport, AppServerProxyDiagnostics, AppServerProxyDirection,
+    AppServerProxyError, AppServerProxyFrame, AppServerProxyLimits, AppServerProxyMessageKind,
+    AppServerProxyState, AppServerQueueLimits, AppServerRequestId, TransparentAppServerProxy,
 };
 #[cfg(windows)]
 pub use app_server_windows::{ExactAppServerProbeError, probe_exact_app_server};

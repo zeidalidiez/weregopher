@@ -114,4 +114,13 @@ mod tests {
         assert_eq!(renderer_backend_digest(), renderer_backend_digest());
         assert_ne!(renderer_backend_digest().as_bytes(), &[0_u8; 32]);
     }
+
+    #[test]
+    fn complete_program_ceiling_is_enforced_before_output_allocation() {
+        let source = "x".repeat(MAX_PRELOAD_PROBE_PROGRAM_BYTES);
+        assert!(matches!(
+            assemble_isolated_world_program(&source, "preload.js"),
+            Err(PreloadProbeProgramError::ProgramTooLarge)
+        ));
+    }
 }

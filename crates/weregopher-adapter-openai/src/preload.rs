@@ -9,6 +9,9 @@ use weregopher_domain::{G2ComponentSource, G2PackagePath, OpenAiPackageInventory
 
 use crate::{MAX_OPENAI_PRELOAD_SOURCE_BYTES, OPENAI_APPLICATION_ARCHIVE_PATH};
 
+const CONTEXT_BRIDGE_SIGNAL: &[u8] = b"contextBridge";
+const EXPOSE_IN_MAIN_WORLD_SIGNAL: &[u8] = b"exposeInMainWorld";
+
 /// Immutable, content-addressed exact preload source ready for a native probe.
 #[derive(Clone, Eq, PartialEq)]
 pub struct ExactPreloadSource {
@@ -52,9 +55,15 @@ impl ExactPreloadSource {
         &self.path
     }
 
-    /// Returns the validated UTF-8 JavaScript source.
+    /// Returns the validated UTF-8 JavaScript source length.
     #[must_use]
-    pub fn source(&self) -> &str {
+    pub fn source_byte_length(&self) -> usize {
+        self.source.len()
+    }
+
+    /// Borrows source bytes only for the native in-crate probe.
+    #[cfg(windows)]
+    pub(crate) fn source(&self) -> &str {
         &self.source
     }
 }
@@ -92,6 +101,9 @@ pub enum ExactPreloadPreparationError {
     /// Candidate digest did not match exact package evidence.
     #[error("exact preload candidate digest does not match package evidence")]
     PreloadDigestMismatch,
+    /// Candidate bytes no longer satisfy maintained static discovery signals.
+    #[error("exact preload candidate is missing required bridge signals")]
+    MissingBridgeSignals,
     /// Candidate source cannot be injected as JavaScript source text.
     #[error("exact preload candidate is not valid UTF-8 JavaScript source")]
     PreloadSourceNotUtf8,
@@ -160,6 +172,11 @@ pub fn prepare_exact_preload(
     if digest(source_bytes) != *candidate.sha256() {
         return Err(ExactPreloadPreparationError::PreloadDigestMismatch);
     }
+    if !contains_bytes(source_bytes, CONTEXT_BRIDGE_SIGNAL)
+        || !contains_bytes(source_bytes, EXPOSE_IN_MAIN_WORLD_SIGNAL)
+    {
+        return Err(ExactPreloadPreparationError::MissingBridgeSignals);
+    }
     let source = std::str::from_utf8(source_bytes)
         .map_err(|_| ExactPreloadPreparationError::PreloadSourceNotUtf8)?
         .to_owned();
@@ -173,4 +190,10 @@ pub fn prepare_exact_preload(
 
 fn digest(bytes: &[u8]) -> Sha256Digest {
     Sha256Digest::from_bytes(Sha256::digest(bytes).into())
+}
+
+fn contains_bytes(bytes: &[u8], needle: &[u8]) -> bool {
+    bytes
+        .windows(needle.len())
+        .any(|candidate| candidate == needle)
 }

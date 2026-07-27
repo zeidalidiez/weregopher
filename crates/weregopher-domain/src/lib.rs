@@ -17,6 +17,7 @@ mod discovery;
 mod execution;
 mod execution_digest;
 mod execution_target;
+mod g2;
 mod ids;
 mod protocol;
 mod renderer;
@@ -136,6 +137,14 @@ pub use execution_target::{
     MAX_EXECUTION_PACKAGE_PATH_BYTES, MAX_EXECUTION_PACKAGE_PATH_COMPONENTS,
     MAX_EXECUTION_RESOLUTION_DOCUMENT_BYTES, MAX_EXECUTION_TARGET_DOCUMENT_BYTES,
     RequiredSecurityPosture,
+};
+pub use g2::{
+    AppServerProbeChecks, AppServerProbeReport, G2_FEASIBILITY_FORMAT_VERSION, G2ComponentEvidence,
+    G2ComponentSource, G2ContractError, G2FeasibilityDisposition, G2FeasibilityReport,
+    G2GateEvidence, G2GateStatus, G2PackagePath, G2ProbeScope, G2Target,
+    MAX_G2_BACKEND_VERSION_BYTES, MAX_G2_PACKAGE_PATH_BYTES, MAX_G2_PACKAGE_PATH_COMPONENTS,
+    MAX_G2_PRELOAD_ENTRIES, MAX_G2_RENDERER_ENTRIES, OpenAiPackageInventory, PreloadBridgeChecks,
+    PreloadBridgeProbeReport,
 };
 pub use ids::{
     AdapterId, AppInstanceId, ApplicationFamilyId, BuildId, CapabilityGrantId, ExecutionTargetId,

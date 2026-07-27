@@ -11,9 +11,9 @@ use tempfile::TempDir;
 use thiserror::Error;
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, BrowserProcessExitedEventHandler,
-    CoTaskMemPWSTR, CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, DOMContentLoadedEventHandler,
-    ExecuteScriptCompletedHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
+    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
+    DOMContentLoadedEventHandler, ExecuteScriptCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, CreateCoreWebView2EnvironmentWithOptions,
         ICoreWebView2, ICoreWebView2_2, ICoreWebView2Controller, ICoreWebView2Environment,
@@ -56,6 +56,9 @@ const DEFAULT_WINDOW_HEIGHT: i32 = 600;
 const MAX_BROWSER_VERSION_BYTES: usize = 128;
 const MAX_WEB_MESSAGE_SOURCE_BYTES: usize = 4_096;
 const MAX_WEB_MESSAGE_JSON_BYTES: usize = 4 * 1024 * 1024;
+const MAX_DOCUMENT_START_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_ISOLATED_WORLD_NAME_BYTES: usize = 64;
+const MAX_DEVTOOLS_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// One renderer message together with the source URL reported by `WebView2`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -346,6 +349,71 @@ impl WebView2Fixture {
     pub fn install_bridge(&self, nonce: RendererBridgeNonce) -> Result<(), WebView2FixtureError> {
         let script = bridge_bootstrap(nonce);
         add_document_start_script(self.webview()?, &script)
+    }
+
+    /// Installs a bounded fixture script in the page main world at document start.
+    ///
+    /// This is used by renderer compatibility fixtures to model the explicitly
+    /// projected page-facing half of `contextBridge`. It does not expose a
+    /// native host object.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed size error or the underlying `WebView2` registration
+    /// failure.
+    pub fn install_main_world_document_start_script(
+        &self,
+        source: &str,
+    ) -> Result<(), WebView2FixtureError> {
+        validate_document_start_script(source)?;
+        add_document_start_script(self.webview()?, source)
+    }
+
+    /// Installs a bounded script into a named Chromium isolated world for each
+    /// new document.
+    ///
+    /// Registration uses the host-side DevTools protocol and a fixed
+    /// `Page.addScriptToEvaluateOnNewDocument` request. The raw protocol
+    /// channel and response are not exposed to page content.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed validation error for an invalid world/script or an
+    /// underlying `WebView2`/DevTools callback failure.
+    pub fn install_isolated_world_document_start_script(
+        &self,
+        world_name: &str,
+        source: &str,
+    ) -> Result<(), WebView2FixtureError> {
+        validate_isolated_world_name(world_name)?;
+        validate_document_start_script(source)?;
+        let parameters = serde_json::to_string(&serde_json::json!({
+            "source": source,
+            "worldName": world_name,
+            "includeCommandLineAPI": false,
+            "runImmediately": false
+        }))?;
+        let response = call_devtools_protocol(
+            self.webview()?,
+            "Page.addScriptToEvaluateOnNewDocument",
+            &parameters,
+        )?;
+        if response.len() > MAX_DEVTOOLS_RESPONSE_BYTES {
+            return Err(WebView2FixtureError::DevToolsResponseTooLarge {
+                maximum: MAX_DEVTOOLS_RESPONSE_BYTES,
+                actual: response.len(),
+            });
+        }
+        let response: serde_json::Value = serde_json::from_str(&response)?;
+        if response.get("error").is_some()
+            || !response
+                .get("identifier")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|identifier| !identifier.is_empty())
+        {
+            return Err(WebView2FixtureError::InvalidDevToolsResponse);
+        }
+        Ok(())
     }
 
     /// Navigates to one private package URL and records DOM/load lifecycle events.
@@ -866,6 +934,70 @@ fn bridge_bootstrap(nonce: RendererBridgeNonce) -> String {
     )
 }
 
+fn validate_document_start_script(source: &str) -> Result<(), WebView2FixtureError> {
+    if source.is_empty() || source.len() > MAX_DOCUMENT_START_SCRIPT_BYTES {
+        return Err(WebView2FixtureError::InvalidDocumentStartScript {
+            maximum: MAX_DOCUMENT_START_SCRIPT_BYTES,
+            actual: source.len(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_isolated_world_name(world_name: &str) -> Result<(), WebView2FixtureError> {
+    if world_name.is_empty()
+        || world_name.len() > MAX_ISOLATED_WORLD_NAME_BYTES
+        || !world_name.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'_')
+        })
+    {
+        return Err(WebView2FixtureError::InvalidIsolatedWorldName);
+    }
+    Ok(())
+}
+
+#[allow(
+    unsafe_code,
+    reason = "calls one fixed host-side DevTools method through its checked WebView2 callback API"
+)]
+fn call_devtools_protocol(
+    webview: &ICoreWebView2,
+    method: &str,
+    parameters: &str,
+) -> Result<String, WebView2FixtureError> {
+    let webview = webview.clone();
+    let method = method.to_owned();
+    let parameters = parameters.to_owned();
+    let (sender, receiver) = mpsc::channel();
+    CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(
+        Box::new(move |handler| {
+            let method = CoTaskMemPWSTR::from(method.as_str());
+            let parameters = CoTaskMemPWSTR::from(parameters.as_str());
+            // SAFETY: both UTF-16 guards and the completion handler remain live
+            // for the complete protocol registration call.
+            unsafe {
+                webview
+                    .CallDevToolsProtocolMethod(
+                        *method.as_ref().as_pcwstr(),
+                        *parameters.as_ref().as_pcwstr(),
+                        &handler,
+                    )
+                    .map_err(webview2_com::Error::WindowsError)
+            }
+        }),
+        Box::new(move |error_code, result| {
+            error_code?;
+            sender
+                .send(result)
+                .map_err(|_| WindowsError::from(E_FAIL))?;
+            Ok(())
+        }),
+    )?;
+    receiver
+        .recv()
+        .map_err(|_| WebView2FixtureError::CallbackChannelClosed)
+}
+
 #[allow(
     unsafe_code,
     reason = "registers one retained document-start script through the checked WebView2 callback API"
@@ -1004,6 +1136,28 @@ pub enum WebView2FixtureError {
         /// Observed bytes.
         actual: usize,
     },
+    /// A fixture document-start script was empty or exceeded its byte ceiling.
+    #[error("renderer document-start script must contain 1 to {maximum} bytes, got {actual}")]
+    InvalidDocumentStartScript {
+        /// Allowed maximum bytes.
+        maximum: usize,
+        /// Observed bytes.
+        actual: usize,
+    },
+    /// A requested isolated-world name was empty or noncanonical.
+    #[error("renderer isolated-world name is invalid")]
+    InvalidIsolatedWorldName,
+    /// A host-side DevTools response exceeded its byte ceiling.
+    #[error("renderer DevTools response exceeds {maximum} bytes: {actual}")]
+    DevToolsResponseTooLarge {
+        /// Allowed maximum bytes.
+        maximum: usize,
+        /// Observed bytes.
+        actual: usize,
+    },
+    /// The fixed DevTools registration returned no valid script identifier.
+    #[error("renderer DevTools script registration response is invalid")]
+    InvalidDevToolsResponse,
     /// Navigation completed with a `WebView2` failure result.
     #[error("WebView2 navigation failed")]
     NavigationFailed,

@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "G2ComponentEvidence": {
+      "additionalProperties": false,
+      "description": "Exact content identity and size of one package component.",
+      "properties": {
+        "byte_length": {
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "path": {
+          "$ref": "#/$defs/G2PackagePath"
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "source": {
+          "$ref": "#/$defs/G2ComponentSource"
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "sha256",
+        "byte_length"
+      ],
+      "type": "object"
+    },
+    "G2ComponentSource": {
+      "description": "Storage boundary containing one exact G2 package component.",
+      "oneOf": [
+        {
+          "const": "package_file",
+          "description": "Direct file in the observed package tree.",
+          "type": "string"
+        },
+        {
+          "const": "application_archive_member",
+          "description": "Packed member of the exact application archive.",
+          "type": "string"
+        }
+      ]
+    },
+    "G2FormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "G2PackagePath": {
+      "description": "Canonical forward-slash package-relative path used by G2 evidence.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//)(?!.*\\\\)(?!.*\\/$)[^\\u0000-\\u001f]+$",
+      "type": "string",
+      "x-weregopher-maxComponents": 256
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Exact package-derived component inventory for one `OpenAI` Windows build.",
+  "properties": {
+    "app_server": {
+      "$ref": "#/$defs/G2ComponentEvidence"
+    },
+    "application_archive": {
+      "$ref": "#/$defs/G2ComponentEvidence"
+    },
+    "desktop_entry": {
+      "$ref": "#/$defs/G2ComponentEvidence"
+    },
+    "format_version": {
+      "$ref": "#/$defs/G2FormatVersion"
+    },
+    "main_entry": {
+      "$ref": "#/$defs/G2ComponentEvidence"
+    },
+    "package_identity_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "preload_candidates": {
+      "items": {
+        "$ref": "#/$defs/G2ComponentEvidence"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "renderer_candidates": {
+      "items": {
+        "$ref": "#/$defs/G2ComponentEvidence"
+      },
+      "maxItems": 128,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "source_build_fingerprint_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    }
+  },
+  "required": [
+    "format_version",
+    "source_build_fingerprint_digest",
+    "package_identity_digest",
+    "desktop_entry",
+    "application_archive",
+    "main_entry",
+    "preload_candidates",
+    "renderer_candidates",
+    "app_server"
+  ],
+  "title": "OpenAiPackageInventory",
+  "type": "object",
+  "x-weregopher-uniqueComponentLocation": [
+    "source",
+    "path"
+  ]
+}

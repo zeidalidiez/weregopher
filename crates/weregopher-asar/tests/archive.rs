@@ -1,7 +1,7 @@
 //! ASAR archive behavior tests.
 
 use sha2::{Digest as _, Sha256};
-use weregopher_asar::{AsarArchive, AsarError, AsarLimits};
+use weregopher_asar::{AsarArchive, AsarError, AsarLimits, AsarReadOnlyIndex};
 
 #[test]
 fn archive_replacement_is_integrity_checked_and_deterministic()
@@ -48,7 +48,42 @@ fn archive_parser_rejects_tampered_file_bytes() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[test]
+fn read_only_index_accepts_but_does_not_expose_unpacked_members()
+-> Result<(), Box<dyn std::error::Error>> {
+    let package = br#"{"name":"fixture","main":"bundle.js"}"#;
+    let fixture = fixture_archive_with_unpacked(
+        &[
+            ("bundle.js", b"console.log('fixture');"),
+            ("package.json", package),
+        ],
+        &[("native/addon.node", 4_096)],
+    )?;
+
+    assert!(matches!(
+        AsarArchive::parse(&fixture, AsarLimits::initial()),
+        Err(AsarError::UnsupportedEntry)
+    ));
+
+    let index = AsarReadOnlyIndex::parse(&fixture, AsarLimits::initial())?;
+    assert_eq!(index.packed_file("package.json"), Some(package.as_slice()));
+    assert!(index.packed_file("native/addon.node").is_none());
+    assert_eq!(
+        index.packed_file_paths().collect::<Vec<_>>(),
+        vec!["bundle.js", "package.json"]
+    );
+    assert_eq!(index.unpacked_file_count(), 1);
+    Ok(())
+}
+
 fn fixture_archive(files: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fixture_archive_with_unpacked(files, &[])
+}
+
+fn fixture_archive_with_unpacked(
+    files: &[(&str, &[u8])],
+    unpacked: &[(&str, u64)],
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut offset = 0_u64;
     let mut members = serde_json::Map::new();
     let mut body = Vec::new();
@@ -73,6 +108,16 @@ fn fixture_archive(files: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dyn std::erro
             .ok_or("fixture offset overflow")?;
         body.extend_from_slice(bytes);
     }
+    for (path, size) in unpacked {
+        insert_member(
+            &mut members,
+            path,
+            serde_json::json!({
+                "size": size,
+                "unpacked": true
+            }),
+        )?;
+    }
 
     let mut json = serde_json::to_vec(&serde_json::json!({"files": members}))?;
     let json_size = u32::try_from(json.len())?;
@@ -89,6 +134,29 @@ fn fixture_archive(files: &[(&str, &[u8])]) -> Result<Vec<u8>, Box<dyn std::erro
     archive.extend_from_slice(&json);
     archive.extend_from_slice(&body);
     Ok(archive)
+}
+
+fn insert_member(
+    members: &mut serde_json::Map<String, serde_json::Value>,
+    path: &str,
+    entry: serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut components = path.split('/').peekable();
+    let mut current = members;
+    while let Some(component) = components.next() {
+        if components.peek().is_none() {
+            current.insert(component.to_owned(), entry);
+            return Ok(());
+        }
+        let value = current
+            .entry(component.to_owned())
+            .or_insert_with(|| serde_json::json!({"files": {}}));
+        current = value
+            .get_mut("files")
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or("fixture path collided with a file")?;
+    }
+    Err("fixture member path was empty".into())
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

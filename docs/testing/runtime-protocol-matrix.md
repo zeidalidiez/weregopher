@@ -174,6 +174,7 @@ package-derived runner-engine test additionally require:
 - the page-visible projection to be frozen;
 - a function call to round-trip between the projected page API and isolated world;
 - navigation to invalidate the previous projection/handle generation; and
+- a forged package-source observation with the wrong host nonce to be ignored; and
 - browser-process exit and ephemeral-profile cleanup to complete.
 
 Both resulting reports are explicitly `synthetic_fixture` evidence. They validate the

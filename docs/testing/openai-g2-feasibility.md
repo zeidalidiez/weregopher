@@ -139,8 +139,10 @@ renderer, or launch the bundled app-server. It:
    navigation-scoped handles;
 7. performs two serial navigations and verifies document-start execution, world and
    prototype isolation, projection freezing, a harness function round trip, and stale
-   handle rejection; and
-8. requires browser exit and ephemeral-profile cleanup.
+   handle rejection;
+8. accepts the page observation only from the exact private URL with a fresh
+   host-generated nonce; and
+9. requires browser exit and ephemeral-profile cleanup.
 
 The expected aggregate remains `incomplete`: package and preload/bridge are `passed`,
 while app-server is `not_run`. A passing report means the exact candidate bytes ran

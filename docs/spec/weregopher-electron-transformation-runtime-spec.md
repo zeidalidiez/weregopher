@@ -8059,9 +8059,11 @@ Its bounded shim copies and recursively freezes primitive, array, and plain-obje
 projections, maps functions to randomized navigation-scoped handles, rejects
 unsupported values and dangerous keys, and provides inert `ipcRenderer` plus a limited
 sandboxed-preload module surface. Two sequential navigations must pass the declared
-isolation/bridge checks and complete browser/profile cleanup. The backend digest covers
-fixed probe assets; the candidate digest independently identifies the proprietary
-source, which is never retained in canonical output.
+isolation/bridge checks and complete browser/profile cleanup. Rust accepts the page
+observation only from the exact private URL with a fresh host-generated nonce retained
+outside the isolated package source. The backend digest covers fixed probe assets; the
+candidate digest independently identifies the proprietary source, which is never
+retained in canonical output.
 
 `weregopher feasibility open-ai` performs read-only package discovery and inventory on
 native Windows and optionally runs the exact preload and app-server probes after an

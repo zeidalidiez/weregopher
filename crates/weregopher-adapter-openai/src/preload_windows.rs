@@ -21,8 +21,8 @@ use weregopher_renderer_webview2::{WebView2Fixture, WebView2FixtureError};
 use crate::{
     ExactPreloadSource,
     preload_probe::{
-        PRELOAD_PROBE_INDEX_HTML, PRELOAD_PROBE_MAIN_BOOTSTRAP, PRELOAD_PROBE_MAIN_SOURCE,
-        PRELOAD_PROBE_WORLD_NAME, PreloadProbeProgramError, assemble_isolated_world_program,
+        PRELOAD_PROBE_INDEX_HTML, PRELOAD_PROBE_MAIN_SOURCE, PRELOAD_PROBE_WORLD_NAME,
+        PreloadProbeProgramError, assemble_isolated_world_program, assemble_main_world_bootstrap,
         renderer_backend_digest,
     },
 };
@@ -62,6 +62,7 @@ pub enum ExactPreloadProbeError {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ProbeObservation {
     G2ExactPreloadObservation {
+        observation_nonce: String,
         generation: u32,
         checks: PreloadBridgeChecks,
     },
@@ -101,12 +102,21 @@ fn run_preload_probe(
     preload_digest: Sha256Digest,
     scope: G2ProbeScope,
 ) -> Result<PreloadBridgeProbeReport, ExactPreloadProbeError> {
+    let observation_nonce = Uuid::new_v4().simple().to_string();
+    let main_bootstrap =
+        assemble_main_world_bootstrap(&observation_nonce).map_err(map_program_error)?;
     let isolated_program =
         assemble_isolated_world_program(source, archive_path).map_err(map_program_error)?;
     let (package, entry_url) = probe_origin()?;
     let mut fixture = WebView2Fixture::create(package, RendererId::new(PROBE_RENDERER_ID))?;
     let browser_version = fixture.browser_version().to_owned();
-    let probe_result = run_navigations(&mut fixture, &entry_url, &isolated_program);
+    let probe_result = run_navigations(
+        &mut fixture,
+        &entry_url,
+        &main_bootstrap,
+        &isolated_program,
+        &observation_nonce,
+    );
     let close_result = fixture.close(PROBE_TIMEOUT);
     let checks = probe_result?;
     close_result?;
@@ -124,16 +134,30 @@ fn run_preload_probe(
 fn run_navigations(
     fixture: &mut WebView2Fixture,
     entry_url: &str,
+    main_bootstrap: &str,
     isolated_program: &str,
+    observation_nonce: &str,
 ) -> Result<PreloadBridgeChecks, ExactPreloadProbeError> {
-    fixture.install_main_world_document_start_script(PRELOAD_PROBE_MAIN_BOOTSTRAP)?;
+    fixture.install_main_world_document_start_script(main_bootstrap)?;
     fixture
         .install_isolated_world_document_start_script(PRELOAD_PROBE_WORLD_NAME, isolated_program)?;
 
     let first_generation = fixture.navigate(entry_url, PROBE_TIMEOUT)?;
-    let first = wait_for_observation(fixture, entry_url, first_generation.get(), PROBE_TIMEOUT)?;
+    let first = wait_for_observation(
+        fixture,
+        entry_url,
+        first_generation.get(),
+        observation_nonce,
+        PROBE_TIMEOUT,
+    )?;
     let second_generation = fixture.navigate(entry_url, PROBE_TIMEOUT)?;
-    let second = wait_for_observation(fixture, entry_url, second_generation.get(), PROBE_TIMEOUT)?;
+    let second = wait_for_observation(
+        fixture,
+        entry_url,
+        second_generation.get(),
+        observation_nonce,
+        PROBE_TIMEOUT,
+    )?;
     Ok(combine_checks(first, second))
 }
 
@@ -165,6 +189,7 @@ fn wait_for_observation(
     fixture: &WebView2Fixture,
     expected_source: &str,
     expected_generation: u32,
+    expected_observation_nonce: &str,
     timeout: Duration,
 ) -> Result<PreloadBridgeChecks, ExactPreloadProbeError> {
     let deadline = Instant::now()
@@ -185,7 +210,14 @@ fn wait_for_observation(
         let Ok(observation) = serde_json::from_str::<ProbeObservation>(message.json()) else {
             continue;
         };
-        let ProbeObservation::G2ExactPreloadObservation { generation, checks } = observation;
+        let ProbeObservation::G2ExactPreloadObservation {
+            observation_nonce,
+            generation,
+            checks,
+        } = observation;
+        if observation_nonce != expected_observation_nonce {
+            continue;
+        }
         if generation != expected_generation {
             return Err(ExactPreloadProbeError::NavigationGenerationMismatch);
         }
@@ -224,6 +256,19 @@ mod tests {
     fn package_derived_source_runs_without_promoting_fixture_scope()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = r#"
+window.chrome?.webview?.postMessage?.({
+  kind: "g2_exact_preload_observation",
+  observation_nonce: "00000000000000000000000000000000",
+  generation: 1,
+  checks: {
+    document_start: true,
+    isolated_globals: true,
+    prototype_isolation: true,
+    frozen_projection: true,
+    function_round_trip: true,
+    navigation_invalidation: true,
+  },
+});
 const { contextBridge } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
   version: { major: 1, profile: "package-derived-fixture" },

@@ -134,7 +134,10 @@ navigation's randomized function handle. Browser exit and exclusive ephemeral-pr
 removal must also complete. The backend digest covers only the fixed runner assets;
 the separate preload digest identifies the exact vendor bytes. JavaScript
 compatibility failures that remain observable produce a failed canonical report
-without retaining source, values, error text, or raw messages.
+without retaining source, values, error text, or raw messages. A fresh host-generated
+nonce is embedded only in the main-world bootstrap and must accompany the canonical
+page observation, so direct package-origin messages cannot be mistaken for that
+observation.
 
 ### Explicit command and test separation
 
@@ -175,6 +178,9 @@ security-posture evidence.
 8. Exact preload execution uses captured digest-bound bytes, a closed private origin,
    bounded bridge values/messages, and serial navigations; no vendor renderer asset or
    real IPC endpoint is loaded.
+9. The Rust observer accepts a canonical page report only from the exact private URL
+   and with the current host-generated observation nonce; unrelated package messages
+   consume the bounded noise budget but cannot become evidence.
 
 ## Nonclaims
 

@@ -3,6 +3,7 @@
   if (window !== window.top) return;
 
   const channel = "__weregopher_g2_exact_preload_v1";
+  const observationNonce = __WEREGOPHER_OBSERVATION_NONCE__;
   const maxDepth = 16;
   const maxNodes = 4096;
   const maxMessageBytes = 1024 * 1024;
@@ -284,8 +285,17 @@
     };
   };
 
+  const submit = (checks) => {
+    window.chrome.webview.postMessage({
+      kind: "g2_exact_preload_observation",
+      observation_nonce: observationNonce,
+      generation,
+      checks,
+    });
+  };
+
   Object.defineProperty(window, "__weregopherG2PreloadProbe", {
-    value: Object.freeze({ generation, observe }),
+    value: Object.freeze({ generation, observe, submit }),
     writable: false,
     configurable: false,
     enumerable: false,

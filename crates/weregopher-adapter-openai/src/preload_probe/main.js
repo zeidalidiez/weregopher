@@ -21,7 +21,6 @@ const failedChecks = () => ({
 
 window.addEventListener("DOMContentLoaded", async () => {
   let checks = failedChecks();
-  let generation = 0;
   try {
     if (
       probeAtApplicationStart === undefined ||
@@ -29,17 +28,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     ) {
       throw new Error("probe bootstrap was not installed at document start");
     }
-    generation = probeAtApplicationStart.generation;
     checks = await probeAtApplicationStart.observe();
   } catch {
     // Canonical evidence retains booleans only. Exact source errors and values
     // never cross the WebView2 host-message boundary.
   } finally {
-    window.chrome.webview.postMessage({
-      kind: "g2_exact_preload_observation",
-      generation,
-      checks,
-    });
+    if (typeof probeAtApplicationStart?.submit === "function") {
+      probeAtApplicationStart.submit(checks);
+    }
     delete Object.prototype.pollutedByPage;
     delete globalThis.__weregopherG2PageWorld;
   }

@@ -359,6 +359,45 @@ impl AppServerProxyFrame {
     }
 }
 
+/// One structurally validated exact frame awaiting dynamic proxy admission.
+///
+/// Preparation parses and bounds the message but does not mutate queue,
+/// correlation, deadline, or diagnostic state. The candidate is not an
+/// authorization or interception decision. Admission rechecks all dynamic
+/// session state before the exact retained bytes can enter a queue.
+pub struct AppServerProxyCandidate {
+    prepared_limits: AppServerProxyLimits,
+    observation: AppServerMessageObservation,
+    json_bytes: Vec<u8>,
+}
+
+impl fmt::Debug for AppServerProxyCandidate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AppServerProxyCandidate")
+            .field("observation", &self.observation)
+            .field("payload", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+
+impl AppServerProxyCandidate {
+    /// Returns the bounded structural metadata available before admission.
+    #[must_use]
+    pub const fn observation(&self) -> &AppServerMessageObservation {
+        &self.observation
+    }
+
+    /// Returns the exact validated delimiter-free JSON bytes.
+    ///
+    /// Access does not admit the candidate or grant authority. Callers that
+    /// persist these bytes remain responsible for an explicit redaction policy.
+    #[must_use]
+    pub fn json_bytes(&self) -> &[u8] {
+        &self.json_bytes
+    }
+}
+
 /// An unresolved request removed at or after its forwarding deadline.
 #[derive(Clone, Eq, PartialEq)]
 pub struct AppServerExpiredRequest {
@@ -619,6 +658,9 @@ pub enum AppServerProxyError {
     /// The session was already closed.
     #[error("app-server proxy is closed")]
     Closed,
+    /// A prepared frame came from a proxy with different structural limits.
+    #[error("app-server proxy candidate limits do not match this session")]
+    CandidateLimitsMismatch,
     /// The supplied delimiter-free line was empty or all whitespace.
     #[error("app-server proxy received an empty JSON line")]
     EmptyLine,
@@ -876,6 +918,63 @@ impl TransparentAppServerProxy {
         self.ingest(AppServerProxyDirection::ServerToClient, json_line)
     }
 
+    /// Structurally validates one exact client line without admitting it.
+    ///
+    /// This is the non-mutating preflight boundary for an outer observer or
+    /// authority-reducing policy. Dynamic queue and correlation state is
+    /// deliberately rechecked by [`Self::admit`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an explicit lifecycle, framing, JSON, structure, method, or
+    /// request-identity error.
+    pub fn prepare_client(
+        &self,
+        json_line: &[u8],
+    ) -> Result<AppServerProxyCandidate, AppServerProxyError> {
+        self.prepare(AppServerProxyDirection::ClientToServer, json_line)
+    }
+
+    /// Structurally validates one exact server line without admitting it.
+    ///
+    /// This is the non-mutating preflight boundary for an outer observer or
+    /// authority-reducing policy. Dynamic queue and correlation state is
+    /// deliberately rechecked by [`Self::admit`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an explicit lifecycle, framing, JSON, structure, method, or
+    /// request-identity error.
+    pub fn prepare_server(
+        &self,
+        json_line: &[u8],
+    ) -> Result<AppServerProxyCandidate, AppServerProxyError> {
+        self.prepare(AppServerProxyDirection::ServerToClient, json_line)
+    }
+
+    /// Atomically admits one prepared exact frame after dynamic revalidation.
+    ///
+    /// The candidate's original direction and validated bytes are retained.
+    /// Queue capacity, request correlation, history, lifecycle state, and
+    /// diagnostic arithmetic are all checked again immediately before mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a lifecycle, candidate-limit, correlation, queue, history, or
+    /// diagnostic error. A rejected candidate does not mutate proxy state.
+    pub fn admit(
+        &mut self,
+        candidate: AppServerProxyCandidate,
+    ) -> Result<AppServerMessageObservation, AppServerProxyError> {
+        if self.state == AppServerProxyState::Closed {
+            return Err(AppServerProxyError::Closed);
+        }
+        if candidate.prepared_limits != self.limits {
+            return Err(AppServerProxyError::CandidateLimitsMismatch);
+        }
+        self.admit_candidate(candidate)
+    }
+
     /// Releases the next exact client frame toward the app-server.
     ///
     /// A request deadline starts at this transition, not while a frame waits
@@ -1028,6 +1127,15 @@ impl TransparentAppServerProxy {
         direction: AppServerProxyDirection,
         json_line: &[u8],
     ) -> Result<AppServerMessageObservation, AppServerProxyError> {
+        let candidate = self.prepare(direction, json_line)?;
+        self.admit_candidate(candidate)
+    }
+
+    fn prepare(
+        &self,
+        direction: AppServerProxyDirection,
+        json_line: &[u8],
+    ) -> Result<AppServerProxyCandidate, AppServerProxyError> {
         if self.state == AppServerProxyState::Closed {
             return Err(AppServerProxyError::Closed);
         }
@@ -1039,9 +1147,29 @@ impl TransparentAppServerProxy {
             request_id: classified.request_id,
             byte_length: json_line.len(),
         };
-        self.queue(direction).ensure_capacity(json_line.len())?;
+        Ok(AppServerProxyCandidate {
+            prepared_limits: self.limits,
+            observation,
+            json_bytes: json_line.to_vec(),
+        })
+    }
+
+    fn admit_candidate(
+        &mut self,
+        candidate: AppServerProxyCandidate,
+    ) -> Result<AppServerMessageObservation, AppServerProxyError> {
+        if self.state == AppServerProxyState::Closed {
+            return Err(AppServerProxyError::Closed);
+        }
+        let AppServerProxyCandidate {
+            prepared_limits: _,
+            observation,
+            json_bytes,
+        } = candidate;
+        let direction = observation.direction;
+        self.queue(direction).ensure_capacity(json_bytes.len())?;
         let response_action = self.preflight_correlation(&observation)?;
-        let byte_length = u64::try_from(json_line.len())
+        let byte_length = u64::try_from(json_bytes.len())
             .map_err(|_| AppServerProxyError::DiagnosticCounterOverflow)?;
         let (next_messages, next_bytes) = match direction {
             AppServerProxyDirection::ClientToServer => (
@@ -1066,7 +1194,7 @@ impl TransparentAppServerProxy {
 
         let frame = AppServerProxyFrame {
             observation: observation.clone(),
-            json_bytes: json_line.to_vec(),
+            json_bytes,
         };
         self.apply_correlation(&observation, response_action)?;
         self.queue_mut(direction).push_after_capacity_check(frame);

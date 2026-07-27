@@ -8,8 +8,8 @@ named pipes, access tokens, process identity, Job Objects, COM, or WebView2.
 
 | Lane | When | What it proves | What it does not prove |
 | --- | --- | --- | --- |
-| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server initialization, transparent proxy, and repository process-session behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, installed-package evidence, exact-binary launch/identity, Job-owned proxy process trees, or vendor compatibility |
-| `windows-latest` CI | Every push and pull request | Clean native Windows build; all portable proxy and repository process-session behavior; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, authorized connection of the proxy to a Job-owned exact binary, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
+| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server initialization, transparent proxy, redacted controls/ownership labels, and repository process-session behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, installed-package evidence, exact-binary launch/identity, Job-owned proxy process trees, exact-schema semantic derivation, or vendor compatibility |
+| `windows-latest` CI | Every push and pull request | Clean native Windows build; all portable proxy, redacted control/ownership, and repository process-session behavior; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, authorized connection of the proxy to a Job-owned exact binary, exact-schema semantic derivation, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
 | WSL to native Windows | Optional final developer preflight on a suitably resourced host | The developer's current Windows kernel executes the focused PE test binaries while the source remains in WSL | A second clean machine or supported-client-OS matrix |
 | User-controlled exact OpenAI package | Final G2 candidate phase, after public CI, in a disposable Windows account/VM | Read-only package identity/inventory and, when explicitly enabled, exact package-derived preload plus bundled app-server schema/initialization evidence | Configured-preload entry resolution, vendor renderer or real IPC compatibility, broader application compatibility, security posture, efficiency, or certification |
 | Windows 10 x64 standard user | Milestone/release candidate | Supported Windows 10 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 11 and ARM64 |
@@ -79,7 +79,10 @@ spaces, FIFO backpressure, recursive JSON limits, request deadlines/history, lat
 unmatched responses, explicit closure, and debug redaction. The repository process
 fixture additionally covers real piped stdio ownership, initialization delivery
 continuity, request/session deadlines, crash/exit classification, graceful and forced
-shutdown, bounded post-exit pipe drain, and diagnostic redaction.
+shutdown, bounded post-exit pipe drain, prepared-frame admission, exact deny-only
+rules, bounded redacted event loss accounting, and diagnostic redaction. Portable
+control tests separately cover observer-local correlation tokens and non-authorizing
+thread/turn/item resource labels.
 Windows-only test binaries are compiled as empty targets on Linux and provide no
 native Windows evidence there.
 
@@ -107,8 +110,36 @@ The OpenAI adapter's `app_server_proxy` tests require:
 
 This scenario is entirely in memory. It does not launch the app-server, own
 standard-I/O or WebSocket transport, enforce long-lived initialization, implement
-interceptors, infer thread/turn/helper ownership, mediate approvals, or establish
-exact-build compatibility.
+semantic interceptors, infer thread/turn/helper ownership, mediate approvals, or
+establish exact-build compatibility.
+
+## Portable app-server controls and ownership scenario
+
+The OpenAI adapter's `app_server_controls` and `app_server_ownership` tests require:
+
+- preparation to retain exact valid bytes while leaving queue, correlation, history,
+  deadline, and diagnostic state unchanged;
+- admission to recheck current queue capacity and fail atomically after intervening
+  state changes;
+- accepted, forwarded, blocked, and expired-request events to use monotonic local
+  ordering and request tokens without retaining payloads, raw methods, or wire IDs;
+- equal token sequence numbers from separate journals to remain non-interchangeable;
+- bounded event pressure to evict only the oldest redacted event, advance an explicit
+  counter, and leave protocol forwarding unchanged;
+- exact direction/kind/method rules to have only forward or block results;
+- unknown methods to remain transparent and response transformation/replacement to be
+  unavailable;
+- thread/turn/item identifiers to be bounded, hierarchical, and debug-redacted;
+- request-token binding, helper/MCP/command/worktree/browser labeling, duplicates,
+  rebinding, unknown or foreign-journal tokens, and registry capacity to fail closed;
+- item, turn-descendant, thread-descendant, and complete-session label release to
+  remain distinct; and
+- every returned resource to remain a label/cleanup candidate without a PID, handle,
+  effect, or sandbox claim.
+
+These tests use explicit synthetic semantic identities. They do not parse unknown
+app-server payloads or prove exact OpenAI thread/turn/item fields, helper causality,
+resource identity, approval semantics, cleanup execution, or persisted audit traces.
 
 ## Portable app-server process-session scenario
 
@@ -124,7 +155,7 @@ The OpenAI adapter's `app_server_process_session` tests launch only the
 - `initialized` to fail before the matching initialize response leaves the
   client-facing FIFO, even when stdout already delivered it to the proxy;
 - initialize rejection and every other premature client/server shape to terminate
-  the session explicitly;
+  the session explicitly before candidate admission;
 - valid unknown notifications, bidirectional requests, responses, fields, and result
   variants to remain transparent after readiness;
 - an oversized stdout line to fail before proxy retention;
@@ -137,6 +168,10 @@ The OpenAI adapter's `app_server_process_session` tests launch only the
 - stdout/stderr handles inherited by a short-lived fixture descendant to hit the
   bounded post-exit drain and report `streams_drained = false` instead of a clean
   result; and
+- an exact server request rule to block before admission, terminate distinctly, and
+  retain only a redacted event;
+- a two-event journal ceiling to report eviction while exact peer bytes remain
+  unchanged; and
 - diagnostics, errors, exit reports, and `Debug` to omit payloads, method names,
   request identities, and stderr content.
 
@@ -312,13 +347,14 @@ absolute user paths, or unsanitized process diagnostics.
 | ADR 0002 G2 aggregate feasibility | Fail-closed three-lane aggregate bound to one source build | Incomplete until all exact lanes pass |
 | ADR 0042 transparent app-server proxy core | Exact-byte unknown-message tests; recursive JSON bounds; independent bounded FIFO queues; bidirectional request/deadline/history correlation; payload-free diagnostics | Implemented as the portable in-memory core |
 | ADR 0043 portable app-server process session | Repository child over bounded real stdio; initialization-delivery continuity; request/session deadlines; crash/exit/drain classification; graceful/forced shutdown; redaction | Implemented as a build-agnostic portable prerequisite; exact authorized Job-owned binary integration pending |
+| ADR 0044 app-server controls and ownership labels | Non-mutating exact candidates; dynamic admission; bounded redacted pull events with explicit loss; exact deny-only rules; thread/turn/item correlation and resource-label scope release | Implemented as build-agnostic non-authorizing primitives; exact-schema derivation, approval mediation, resource capabilities/effects, and persisted traces pending |
 
 With both G1 synthetic fixtures passing, G1 is complete. G2 now has its bounded
 evidence contracts and exact package, preload, and app-server workflows, but it is not
 complete until the final serial user-controlled Windows matrix produces passing exact
 evidence for one pinned build. Public native CI covers repository-only mechanisms,
 including the exact-preload engine with synthetic scope. The portable proxy core is a
-build-agnostic prerequisite, and the repository process session adds no exact-build
-evidence; neither means that a pinned G3 preview has begun. The incomplete WP-D
-hardening rows remain independently open and must not be inferred from either
-milestone.
+build-agnostic prerequisite; the repository process session and redacted
+control/ownership primitives add no exact-build evidence. None means that a pinned G3
+preview has begun. Exact schema-derived semantics remain gated on G2, and the
+incomplete WP-D hardening rows remain independently open.

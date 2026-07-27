@@ -7,10 +7,12 @@ use std::{
 };
 
 use weregopher_adapter_openai::{
-    AppServerInitializationPhase, AppServerJsonLimits, AppServerProcessError,
-    AppServerProcessLimits, AppServerProcessOutcome, AppServerProcessSession,
-    AppServerProcessState, AppServerProxyError, AppServerProxyLimits, AppServerQueueLimits,
-    AppServerShutdownMode,
+    AppServerBlockRule, AppServerEventDetail, AppServerEventLimits, AppServerEventStage,
+    AppServerInitializationPhase, AppServerInterceptRuleId, AppServerInterceptionPolicy,
+    AppServerJsonLimits, AppServerProcessControls, AppServerProcessError, AppServerProcessLimits,
+    AppServerProcessOutcome, AppServerProcessSession, AppServerProcessState,
+    AppServerProxyDirection, AppServerProxyError, AppServerProxyLimits, AppServerProxyMessageKind,
+    AppServerQueueLimits, AppServerShutdownMode,
 };
 
 const INITIALIZE: &[u8] = br#" { "id":"init-secret", "method":"initialize", "params":{"clientInfo":{"name":"fixture","version":"1"}}, "unknown":true } "#;
@@ -96,6 +98,26 @@ fn attach_with_request_timeout(
         process_limits(initialization_timeout, runtime_timeout, shutdown_timeout)?,
         now,
     )?)
+}
+
+fn attach_with_controls(
+    mode: &str,
+    controls: AppServerProcessControls,
+) -> Result<AppServerProcessSession, Box<dyn std::error::Error>> {
+    let now = Instant::now();
+    Ok(
+        AppServerProcessSession::attach_unverified_child_with_controls(
+            spawn_fixture(mode)?,
+            proxy_limits(1_024, Duration::from_secs(2))?,
+            process_limits(
+                Duration::from_secs(2),
+                Duration::from_secs(10),
+                Duration::from_millis(200),
+            )?,
+            controls,
+            now,
+        )?,
+    )
 }
 
 fn poll_until(
@@ -200,6 +222,94 @@ fn session_preserves_initialization_and_bidirectional_unknown_frames()
     assert!(report.was_initialized());
     assert!(report.streams_drained());
     assert_eq!(report.abandoned_writer_frames(), 0);
+    Ok(())
+}
+
+#[test]
+fn session_blocks_exact_method_before_admission_and_retains_redacted_event()
+-> Result<(), Box<dyn std::error::Error>> {
+    let rule_id = AppServerInterceptRuleId::new(41)?;
+    let policy = AppServerInterceptionPolicy::new(vec![AppServerBlockRule::new(
+        rule_id,
+        AppServerProxyDirection::ServerToClient,
+        AppServerProxyMessageKind::Request,
+        "approval/request",
+    )?])?;
+    let controls = AppServerProcessControls::new(AppServerEventLimits::new(32)?, policy);
+    let mut session = complete_initialization(attach_with_controls("normal", controls)?)?;
+
+    let deadline = Instant::now()
+        .checked_add(Duration::from_secs(2))
+        .ok_or("test deadline overflowed")?;
+    let blocked = loop {
+        if Instant::now() >= deadline {
+            return Err("blocked fixture request was not observed".into());
+        }
+        match session.poll(Instant::now()) {
+            Err(AppServerProcessError::InterceptionBlocked { rule }) => break rule,
+            Err(error) => return Err(error.into()),
+            Ok(_) => thread::sleep(Duration::from_millis(1)),
+        }
+    };
+    assert_eq!(blocked, rule_id);
+    assert_eq!(session.state(), AppServerProcessState::ShuttingDown);
+    assert_eq!(session.diagnostics().proxy().accepted_server_messages(), 2);
+
+    let events = std::iter::from_fn(|| session.next_event()).collect::<Vec<_>>();
+    let blocked_event = events
+        .iter()
+        .find_map(|event| {
+            let AppServerEventDetail::Message(message) = event.detail() else {
+                return None;
+            };
+            (message.stage() == AppServerEventStage::Blocked).then_some(message)
+        })
+        .ok_or("redacted blocked event was absent")?;
+    assert_eq!(blocked_event.block_rule(), Some(rule_id));
+    assert_eq!(
+        blocked_event.direction(),
+        AppServerProxyDirection::ServerToClient
+    );
+    assert_eq!(blocked_event.kind(), AppServerProxyMessageKind::Request);
+    assert!(blocked_event.correlation().is_none());
+    assert!(blocked_event.method().is_some());
+
+    let debug = format!("{events:?}");
+    assert!(!debug.contains("approval/request"));
+    assert!(!debug.contains("server-secret"));
+    assert!(!debug.contains("fixture"));
+    Ok(())
+}
+
+#[test]
+fn session_event_queue_is_bounded_without_changing_forwarded_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let controls = AppServerProcessControls::new(
+        AppServerEventLimits::new(2)?,
+        AppServerInterceptionPolicy::empty(),
+    );
+    let mut session = complete_initialization(attach_with_controls("normal", controls)?)?;
+    assert_eq!(session.diagnostics().events().queued_events(), 2);
+    assert!(session.diagnostics().events().evicted_events() > 0);
+
+    poll_until(&mut session, Duration::from_secs(2), |session| {
+        session.diagnostics().proxy().queued_to_client_messages() >= 2
+    })?;
+    let notification = session
+        .next_for_client(Instant::now())?
+        .ok_or("fixture notification was absent")?;
+    let server_request = session
+        .next_for_client(Instant::now())?
+        .ok_or("fixture server request was absent")?;
+    assert_eq!(notification.json_bytes(), READY_NOTIFICATION);
+    assert_eq!(server_request.json_bytes(), SERVER_REQUEST);
+    assert_eq!(session.diagnostics().events().queued_events(), 2);
+    assert!(session.diagnostics().events().evicted_events() > 0);
+
+    session.shutdown(AppServerShutdownMode::Immediate, Instant::now())?;
+    poll_until(&mut session, Duration::from_secs(2), |session| {
+        session.exit_report().is_some()
+    })?;
     Ok(())
 }
 

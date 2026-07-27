@@ -81,6 +81,103 @@ fn proxy_preserves_unknown_messages_and_exact_json_bytes() -> Result<(), Box<dyn
 }
 
 #[test]
+fn proxy_prepares_exact_frames_without_admitting_them() -> Result<(), Box<dyn std::error::Error>> {
+    let mut proxy = TransparentAppServerProxy::new(proxy_limits(
+        8,
+        16_384,
+        8,
+        16_384,
+        8,
+        Duration::from_secs(30),
+    )?);
+    let now = Instant::now();
+    let request = br#" { "id":"candidate-secret", "method":"future/candidate", "params":{"token":"not-for-debug"} } "#;
+
+    let candidate = proxy.prepare_client(request)?;
+    assert_eq!(
+        candidate.observation().direction(),
+        AppServerProxyDirection::ClientToServer
+    );
+    assert_eq!(
+        candidate.observation().kind(),
+        AppServerProxyMessageKind::Request
+    );
+    assert_eq!(candidate.observation().method(), Some("future/candidate"));
+    assert_eq!(candidate.json_bytes(), request);
+    assert_eq!(proxy.diagnostics().accepted_client_messages(), 0);
+    assert_eq!(proxy.diagnostics().queued_to_server_messages(), 0);
+
+    let candidate_debug = format!("{candidate:?}");
+    assert!(!candidate_debug.contains("candidate-secret"));
+    assert!(!candidate_debug.contains("future/candidate"));
+    assert!(!candidate_debug.contains("not-for-debug"));
+
+    let observation = proxy.admit(candidate)?;
+    assert_eq!(observation.method(), Some("future/candidate"));
+    assert_eq!(proxy.diagnostics().accepted_client_messages(), 1);
+    let forwarded = proxy
+        .next_for_server(now)?
+        .ok_or("prepared candidate was not admitted")?;
+    assert_eq!(forwarded.json_bytes(), request);
+    Ok(())
+}
+
+#[test]
+fn proxy_rechecks_dynamic_state_when_admitting_a_prepared_frame()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut proxy = TransparentAppServerProxy::new(proxy_limits(
+        1,
+        1_024,
+        1,
+        1_024,
+        4,
+        Duration::from_secs(30),
+    )?);
+
+    let candidate = proxy.prepare_client(br#"{"method":"candidate/second"}"#)?;
+    proxy.ingest_client(br#"{"method":"candidate/first"}"#)?;
+    assert!(matches!(
+        proxy.admit(candidate),
+        Err(AppServerProxyError::QueueMessageLimitExceeded {
+            direction: AppServerProxyDirection::ClientToServer
+        })
+    ));
+    assert_eq!(proxy.diagnostics().accepted_client_messages(), 1);
+    assert_eq!(proxy.diagnostics().queued_to_server_messages(), 1);
+    Ok(())
+}
+
+#[test]
+fn proxy_rejects_candidates_prepared_under_different_limits()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = TransparentAppServerProxy::new(proxy_limits(
+        2,
+        2_048,
+        2,
+        2_048,
+        2,
+        Duration::from_secs(30),
+    )?);
+    let candidate = source.prepare_client(br#"{"method":"candidate/limits"}"#)?;
+    let mut destination = TransparentAppServerProxy::new(proxy_limits(
+        3,
+        2_048,
+        2,
+        2_048,
+        2,
+        Duration::from_secs(30),
+    )?);
+
+    assert!(matches!(
+        destination.admit(candidate),
+        Err(AppServerProxyError::CandidateLimitsMismatch)
+    ));
+    assert_eq!(destination.diagnostics().accepted_client_messages(), 0);
+    assert_eq!(destination.diagnostics().queued_to_server_messages(), 0);
+    Ok(())
+}
+
+#[test]
 fn proxy_correlates_bidirectional_requests_in_independent_id_spaces()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut proxy = TransparentAppServerProxy::new(proxy_limits(

@@ -387,6 +387,11 @@ impl WebView2Fixture {
     ) -> Result<(), WebView2FixtureError> {
         validate_isolated_world_name(world_name)?;
         validate_document_start_script(source)?;
+        // Enabling the Page domain attaches its instrumentation agent before
+        // registration. Otherwise Chromium can return an identifier without
+        // delivering the new-document callback that evaluates the script.
+        let page_enable_response = call_devtools_protocol(self.webview()?, "Page.enable", "{}")?;
+        validate_devtools_response(&page_enable_response)?;
         let parameters = serde_json::to_string(&serde_json::json!({
             "source": source,
             "worldName": world_name,
@@ -398,18 +403,11 @@ impl WebView2Fixture {
             "Page.addScriptToEvaluateOnNewDocument",
             &parameters,
         )?;
-        if response.len() > MAX_DEVTOOLS_RESPONSE_BYTES {
-            return Err(WebView2FixtureError::DevToolsResponseTooLarge {
-                maximum: MAX_DEVTOOLS_RESPONSE_BYTES,
-                actual: response.len(),
-            });
-        }
-        let response: serde_json::Value = serde_json::from_str(&response)?;
-        if response.get("error").is_some()
-            || response
-                .get("identifier")
-                .and_then(serde_json::Value::as_str)
-                .is_none_or(str::is_empty)
+        let response = validate_devtools_response(&response)?;
+        if response
+            .get("identifier")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(str::is_empty)
         {
             return Err(WebView2FixtureError::InvalidDevToolsResponse);
         }
@@ -954,6 +952,20 @@ fn validate_isolated_world_name(world_name: &str) -> Result<(), WebView2FixtureE
         return Err(WebView2FixtureError::InvalidIsolatedWorldName);
     }
     Ok(())
+}
+
+fn validate_devtools_response(response: &str) -> Result<serde_json::Value, WebView2FixtureError> {
+    if response.len() > MAX_DEVTOOLS_RESPONSE_BYTES {
+        return Err(WebView2FixtureError::DevToolsResponseTooLarge {
+            maximum: MAX_DEVTOOLS_RESPONSE_BYTES,
+            actual: response.len(),
+        });
+    }
+    let response: serde_json::Value = serde_json::from_str(response)?;
+    if !response.is_object() || response.get("error").is_some() {
+        return Err(WebView2FixtureError::InvalidDevToolsResponse);
+    }
+    Ok(response)
 }
 
 #[allow(

@@ -2,27 +2,42 @@
   "use strict";
 
   const documentStartedWhileLoading = document.readyState === "loading";
-  const eventPrefix = "__weregopher_g2_";
+  const channel = "__weregopher_g2_v1";
   Object.defineProperty(globalThis, "__weregopherG2IsolatedWorld", {
     value: Object.freeze({ ready: true }),
     writable: false,
     configurable: false,
   });
 
-  window.addEventListener(`${eventPrefix}call`, (event) => {
-    if (typeof event.detail !== "string") return;
-    const request = JSON.parse(event.detail);
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || typeof event.data !== "string") return;
+    let request;
+    try {
+      request = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (request.channel !== channel || request.kind !== "call") return;
     const activeHandle = window.sessionStorage.getItem(
-      `${eventPrefix}active_handle`,
+      "__weregopher_g2_active_handle",
     );
     const response =
       request.handle === activeHandle
-        ? { id: request.id, value: `isolated:${request.value}` }
-        : { id: request.id, error: "stale handle" };
-    window.dispatchEvent(
-      new CustomEvent(`${eventPrefix}result`, {
-        detail: JSON.stringify(response),
-      }),
+        ? {
+            channel,
+            kind: "result",
+            id: request.id,
+            value: `isolated:${request.value}`,
+          }
+        : {
+            channel,
+            kind: "result",
+            id: request.id,
+            error: "stale handle",
+          };
+    window.postMessage(
+      JSON.stringify(response),
+      window.location.origin,
     );
   });
 

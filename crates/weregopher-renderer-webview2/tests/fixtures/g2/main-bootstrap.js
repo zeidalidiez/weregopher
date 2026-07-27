@@ -1,24 +1,36 @@
 (() => {
   "use strict";
 
-  const eventPrefix = "__weregopher_g2_";
-  const priorHandle = window.sessionStorage.getItem(`${eventPrefix}active_handle`);
+  const channel = "__weregopher_g2_v1";
+  const priorHandle = window.sessionStorage.getItem(
+    "__weregopher_g2_active_handle",
+  );
   const priorGeneration = Number(
-    window.sessionStorage.getItem(`${eventPrefix}generation`) || "0",
+    window.sessionStorage.getItem("__weregopher_g2_generation") || "0",
   );
   const generation = priorGeneration + 1;
   const activeHandle = `generation-${generation}`;
-  window.sessionStorage.setItem(`${eventPrefix}generation`, String(generation));
-  window.sessionStorage.setItem(`${eventPrefix}active_handle`, activeHandle);
+  window.sessionStorage.setItem(
+    "__weregopher_g2_generation",
+    String(generation),
+  );
+  window.sessionStorage.setItem("__weregopher_g2_active_handle", activeHandle);
 
   const pending = new Map();
   let nextRequest = 1;
-  window.addEventListener(`${eventPrefix}result`, (event) => {
-    if (typeof event.detail !== "string") return;
-    const response = JSON.parse(event.detail);
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || typeof event.data !== "string") return;
+    let response;
+    try {
+      response = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (response.channel !== channel || response.kind !== "result") return;
     const callbacks = pending.get(response.id);
     if (!callbacks) return;
     pending.delete(response.id);
+    window.clearTimeout(callbacks.timeout);
     if (response.error) callbacks.reject(new Error(response.error));
     else callbacks.resolve(response.value);
   });
@@ -26,11 +38,14 @@
   const invokeHandle = (handle, value) =>
     new Promise((resolve, reject) => {
       const id = nextRequest++;
-      pending.set(id, { resolve, reject });
-      window.dispatchEvent(
-        new CustomEvent(`${eventPrefix}call`, {
-          detail: JSON.stringify({ id, handle, value }),
-        }),
+      const timeout = window.setTimeout(() => {
+        pending.delete(id);
+        reject(new Error("isolated response timeout"));
+      }, 5000);
+      pending.set(id, { resolve, reject, timeout });
+      window.postMessage(
+        JSON.stringify({ channel, kind: "call", id, handle, value }),
+        window.location.origin,
       );
     });
 

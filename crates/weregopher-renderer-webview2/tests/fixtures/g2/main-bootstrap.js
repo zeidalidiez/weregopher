@@ -40,12 +40,21 @@
       const id = nextRequest++;
       const timeout = window.setTimeout(() => {
         pending.delete(id);
-        reject(new Error("isolated response timeout"));
+        const marker = document.documentElement.getAttribute(
+          "data-weregopher-g2-isolated",
+        );
+        reject(
+          new Error(
+            `isolated response timeout; marker=${marker ?? "missing"}`,
+          ),
+        );
       }, 5000);
       pending.set(id, { resolve, reject, timeout });
+      // This synthetic transport carries no authority; the listener also
+      // requires same-window, channel-tagged JSON.
       window.postMessage(
         JSON.stringify({ channel, kind: "call", id, handle, value }),
-        window.location.origin,
+        "*",
       );
     });
 

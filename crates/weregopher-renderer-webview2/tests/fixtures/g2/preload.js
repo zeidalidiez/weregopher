@@ -35,9 +35,11 @@
             id: request.id,
             error: "stale handle",
           };
+    // This synthetic transport carries no authority; the listener also
+    // requires same-window, channel-tagged JSON.
     window.postMessage(
       JSON.stringify(response),
-      window.location.origin,
+      "*",
     );
   });
 

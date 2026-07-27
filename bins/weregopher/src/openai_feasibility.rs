@@ -1,7 +1,11 @@
 //! Explicit, evidence-only `OpenAI` G2 feasibility command.
 
 #[cfg(windows)]
-use std::io::{self, Write as _};
+use std::{
+    fs::File,
+    io::{self, Read as _, Write as _},
+    path::{Path, PathBuf},
+};
 
 #[cfg(any(windows, test))]
 use anyhow::Context as _;
@@ -11,12 +15,26 @@ use serde::Serialize;
 #[cfg(any(windows, test))]
 use sha2::{Digest as _, Sha256};
 #[cfg(windows)]
-use weregopher_domain::G2FeasibilityReport;
+use weregopher_adapter_openai::{
+    OPENAI_APPLICATION_ARCHIVE_PATH, OPENAI_WINDOWS_FAMILY, analyze_openai_package,
+    probe_exact_app_server,
+};
+#[cfg(windows)]
+use weregopher_asar::AsarLimits;
+#[cfg(windows)]
+use weregopher_discovery::discover_windows_package_catalog;
 #[cfg(any(windows, test))]
 use weregopher_domain::{
     AppServerProbeReport, G2GateEvidence, OpenAiPackageInventory, PreloadBridgeProbeReport,
     Sha256Digest,
 };
+#[cfg(windows)]
+use weregopher_domain::{
+    ApplicationFamilyId, Architecture, BuildFingerprint, CandidateInstallationEvidence,
+    CandidateTarget, G2FeasibilityReport, InstallationKind,
+};
+#[cfg(windows)]
+use weregopher_fingerprint::{FingerprintOptions, PackageFileKind, fingerprint_package};
 
 use crate::OpenAiFeasibilityArguments;
 
@@ -44,27 +62,51 @@ fn run_platform(_arguments: &OpenAiFeasibilityArguments) -> Result<()> {
 
 #[cfg(windows)]
 fn run_platform(arguments: &OpenAiFeasibilityArguments) -> Result<()> {
-    use std::{
-        fs::File,
-        io::Read as _,
-        path::{Path, PathBuf},
-    };
-
-    use weregopher_adapter_openai::{
-        OPENAI_APPLICATION_ARCHIVE_PATH, OPENAI_WINDOWS_FAMILY, analyze_openai_package,
-        probe_exact_app_server,
-    };
-    use weregopher_asar::AsarLimits;
-    use weregopher_discovery::discover_windows_package_catalog;
-    use weregopher_domain::{
-        ApplicationFamilyId, Architecture, BuildFingerprint, CandidateInstallationEvidence,
-        CandidateTarget, InstallationKind,
-    };
-    use weregopher_fingerprint::{FingerprintOptions, PackageFileKind, fingerprint_package};
-
     if arguments.probe_app_server && !arguments.allow_unrestricted_same_user_probe {
         bail!("--probe-app-server requires --allow-unrestricted-same-user-probe");
     }
+    let (package_root, inventory) = inventory_installed_package(arguments)?;
+    let package_gate = G2GateEvidence::passed(canonical_digest(&inventory)?);
+    let preload_bridge = arguments
+        .preload_report
+        .as_deref()
+        .map(read_preload_report)
+        .transpose()?;
+    let preload_gate = preload_gate(&inventory, preload_bridge.as_ref())?;
+    let app_server = if arguments.probe_app_server {
+        let executable_path = package_root.join(
+            inventory
+                .app_server()
+                .path()
+                .as_str()
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        );
+        Some(
+            probe_exact_app_server(&executable_path, &inventory)
+                .context("exact bundled app-server probe failed")?,
+        )
+    } else {
+        None
+    };
+    let app_server_gate = app_server_gate(app_server.as_ref())?;
+    let feasibility = G2FeasibilityReport::new(
+        *inventory.source_build_fingerprint_digest(),
+        package_gate,
+        preload_gate,
+        app_server_gate,
+    );
+    write_output(&OpenAiFeasibilityOutput {
+        package_inventory: inventory,
+        preload_bridge,
+        app_server,
+        feasibility,
+    })
+}
+
+#[cfg(windows)]
+fn inventory_installed_package(
+    arguments: &OpenAiFeasibilityArguments,
+) -> Result<(PathBuf, OpenAiPackageInventory)> {
     let candidate = select_candidate(
         discover_windows_package_catalog()
             .context("failed to query the bounded current-user package catalog")?,
@@ -130,92 +172,57 @@ fn run_platform(arguments: &OpenAiFeasibilityArguments) -> Result<()> {
     )?;
     let inventory = analyze_openai_package(&build, &package_tree, &archive)
         .context("selected OpenAI package did not satisfy the G2 package contract")?;
-    let package_gate = G2GateEvidence::passed(canonical_digest(&inventory)?);
+    Ok((package_root, inventory))
+}
 
-    let preload_bridge = arguments
-        .preload_report
-        .as_deref()
-        .map(read_preload_report)
-        .transpose()?;
-    let preload_gate = preload_gate(&inventory, preload_bridge.as_ref())?;
-
-    let app_server = if arguments.probe_app_server {
-        let executable_path = package_root.join(
-            inventory
-                .app_server()
-                .path()
-                .as_str()
-                .replace('/', std::path::MAIN_SEPARATOR_STR),
-        );
-        Some(
-            probe_exact_app_server(&executable_path, &inventory)
-                .context("exact bundled app-server probe failed")?,
-        )
-    } else {
-        None
-    };
-    let app_server_gate = app_server_gate(app_server.as_ref())?;
-    let feasibility = G2FeasibilityReport::new(
-        *inventory.source_build_fingerprint_digest(),
-        package_gate,
-        preload_gate,
-        app_server_gate,
-    );
-    write_output(&OpenAiFeasibilityOutput {
-        package_inventory: inventory,
-        preload_bridge,
-        app_server,
-        feasibility,
-    })?;
-
-    fn select_candidate(
-        candidates: Vec<CandidateInstallationEvidence>,
-        selected_full_name: Option<&str>,
-    ) -> Result<CandidateInstallationEvidence> {
-        if selected_full_name.is_some_and(|value| {
-            value.is_empty() || value.len() > 32_768 || value.chars().any(char::is_control)
-        }) {
-            bail!("--package-full-name is empty, oversized, or contains controls");
-        }
-        let mut candidates = candidates
-            .into_iter()
-            .filter(|candidate| candidate.target == CandidateTarget::Codex)
-            .filter(|candidate| {
-                selected_full_name.is_none_or(|selected| {
-                    candidate
-                        .package_identity
-                        .as_ref()
-                        .is_some_and(|identity| identity.value.package_full_name == selected)
-                })
+#[cfg(windows)]
+fn select_candidate(
+    candidates: Vec<CandidateInstallationEvidence>,
+    selected_full_name: Option<&str>,
+) -> Result<CandidateInstallationEvidence> {
+    if selected_full_name.is_some_and(|value| {
+        value.is_empty() || value.len() > 32_768 || value.chars().any(char::is_control)
+    }) {
+        bail!("--package-full-name is empty, oversized, or contains controls");
+    }
+    let mut candidates = candidates
+        .into_iter()
+        .filter(|candidate| candidate.target == CandidateTarget::Codex)
+        .filter(|candidate| {
+            selected_full_name.is_none_or(|selected| {
+                candidate
+                    .package_identity
+                    .as_ref()
+                    .is_some_and(|identity| identity.value.package_full_name == selected)
             })
-            .collect::<Vec<_>>();
-        match candidates.len() {
-            0 => bail!("no matching registered OpenAI package was found"),
-            1 => Ok(candidates.remove(0)),
-            _ => bail!("multiple registered OpenAI packages matched; supply --package-full-name"),
-        }
+        })
+        .collect::<Vec<_>>();
+    match candidates.len() {
+        0 => bail!("no matching registered OpenAI package was found"),
+        1 => Ok(candidates.remove(0)),
+        _ => bail!("multiple registered OpenAI packages matched; supply --package-full-name"),
     }
+}
 
-    fn read_bounded_file(path: &Path, maximum: u64, label: &'static str) -> Result<Vec<u8>> {
-        let mut bytes = Vec::new();
-        File::open(path)
-            .with_context(|| format!("failed to open {label}"))?
-            .take(maximum.saturating_add(1))
-            .read_to_end(&mut bytes)
-            .with_context(|| format!("failed to read {label}"))?;
-        if u64::try_from(bytes.len()).context("file length is not representable")? > maximum {
-            bail!("{label} exceeds its byte limit");
-        }
-        Ok(bytes)
+#[cfg(windows)]
+fn read_bounded_file(path: &Path, maximum: u64, label: &'static str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    File::open(path)
+        .with_context(|| format!("failed to open {label}"))?
+        .take(maximum.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read {label}"))?;
+    if u64::try_from(bytes.len()).context("file length is not representable")? > maximum {
+        bail!("{label} exceeds its byte limit");
     }
+    Ok(bytes)
+}
 
-    fn read_preload_report(path: &Path) -> Result<PreloadBridgeProbeReport> {
-        let bytes = read_bounded_file(path, MAX_PRELOAD_REPORT_BYTES, "preload probe report")?;
-        serde_json::from_slice(&bytes)
-            .context("preload probe report does not satisfy its canonical contract")
-    }
-
-    Ok(())
+#[cfg(windows)]
+fn read_preload_report(path: &Path) -> Result<PreloadBridgeProbeReport> {
+    let bytes = read_bounded_file(path, MAX_PRELOAD_REPORT_BYTES, "preload probe report")?;
+    serde_json::from_slice(&bytes)
+        .context("preload probe report does not satisfy its canonical contract")
 }
 
 #[cfg(any(windows, test))]

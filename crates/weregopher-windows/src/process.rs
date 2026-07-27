@@ -218,7 +218,7 @@ fn encode_environment_block(
         return Ok(ProcessEnvironment::empty());
     }
     let mut required = 1_usize;
-    for (name, value) in &variables {
+    for (name, value) in variables {
         required = required
             .checked_add(name.len())
             .and_then(|units| units.checked_add(1))
@@ -235,7 +235,7 @@ fn encode_environment_block(
     block
         .try_reserve_exact(required)
         .map_err(|_| io::Error::other("process environment allocation failed"))?;
-    for (name, value) in &variables {
+    for (name, value) in variables {
         block.extend(name.bytes().map(u16::from));
         block.push(u16::from(b'='));
         block.extend_from_slice(value);

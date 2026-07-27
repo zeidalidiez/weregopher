@@ -1,12 +1,19 @@
 [package]
 name = "weregopher-adapter-openai"
-description = "OpenAI-family feasibility and app-server proxy support for Weregopher"
+description = "OpenAI-family feasibility and bounded app-server session support for Weregopher"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+
+[[bin]]
+name = "weregopher-app-server-fixture"
+path = "src/bin/weregopher-app-server-fixture.rs"
+test = false
+bench = false
+doc = false
 
 [dependencies]
 serde.workspace = true

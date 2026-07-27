@@ -8,8 +8,8 @@ named pipes, access tokens, process identity, Job Objects, COM, or WebView2.
 
 | Lane | When | What it proves | What it does not prove |
 | --- | --- | --- | --- |
-| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server initialization plus transparent-proxy behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, installed-package evidence, or proxy process integration |
-| `windows-latest` CI | Every push and pull request | Clean native Windows build; all portable proxy behavior; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, long-lived proxy process integration, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
+| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server initialization, transparent proxy, and repository process-session behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, installed-package evidence, exact-binary launch/identity, Job-owned proxy process trees, or vendor compatibility |
+| `windows-latest` CI | Every push and pull request | Clean native Windows build; all portable proxy and repository process-session behavior; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, authorized connection of the proxy to a Job-owned exact binary, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
 | WSL to native Windows | Optional final developer preflight on a suitably resourced host | The developer's current Windows kernel executes the focused PE test binaries while the source remains in WSL | A second clean machine or supported-client-OS matrix |
 | User-controlled exact OpenAI package | Final G2 candidate phase, after public CI, in a disposable Windows account/VM | Read-only package identity/inventory and, when explicitly enabled, exact package-derived preload plus bundled app-server schema/initialization evidence | Configured-preload entry resolution, vendor renderer or real IPC compatibility, broader application compatibility, security posture, efficiency, or certification |
 | Windows 10 x64 standard user | Milestone/release candidate | Supported Windows 10 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 11 and ARM64 |
@@ -76,7 +76,10 @@ exact-preload source preparation and binding, deterministic schema-bundle hashin
 the bounded app-server initialization state machine. It also covers the transparent
 proxy's exact-byte unknown-message preservation, independent bidirectional request
 spaces, FIFO backpressure, recursive JSON limits, request deadlines/history, late and
-unmatched responses, explicit closure, and debug redaction.
+unmatched responses, explicit closure, and debug redaction. The repository process
+fixture additionally covers real piped stdio ownership, initialization delivery
+continuity, request/session deadlines, crash/exit classification, graceful and forced
+shutdown, bounded post-exit pipe drain, and diagnostic redaction.
 Windows-only test binaries are compiled as empty targets on Linux and provide no
 native Windows evidence there.
 
@@ -107,6 +110,42 @@ standard-I/O or WebSocket transport, enforce long-lived initialization, implemen
 interceptors, infer thread/turn/helper ownership, mediate approvals, or establish
 exact-build compatibility.
 
+## Portable app-server process-session scenario
+
+The OpenAI adapter's `app_server_process_session` tests launch only the
+`weregopher-app-server-fixture` repository binary and require:
+
+- an already-launched child without piped stdin, stdout, and stderr to fail
+  attachment and be terminated;
+- stdin, stdout, stderr discard/accounting, and primary-process reaping to run on
+  separate bounded workers while the owner poll remains nonblocking;
+- the exact `initialize` request and unknown success-response bytes to cross real
+  JSONL stdio unchanged;
+- `initialized` to fail before the matching initialize response leaves the
+  client-facing FIFO, even when stdout already delivered it to the proxy;
+- initialize rejection and every other premature client/server shape to terminate
+  the session explicitly;
+- valid unknown notifications, bidirectional requests, responses, fields, and result
+  variants to remain transparent after readiness;
+- an oversized stdout line to fail before proxy retention;
+- initialization, complete-runtime, and forwarded-request deadlines to terminate the
+  primary process with distinct outcomes;
+- a nonzero exit to classify as a crash while an unrequested zero exit remains
+  distinct;
+- graceful shutdown to drain admitted writes and close stdin, with a hung fixture
+  forced after the configured grace;
+- stdout/stderr handles inherited by a short-lived fixture descendant to hit the
+  bounded post-exit drain and report `streams_drained = false` instead of a clean
+  result; and
+- diagnostics, errors, exit reports, and `Debug` to omit payloads, method names,
+  request identities, and stderr content.
+
+This is real portable process I/O but not an exact OpenAI process test. Attachment
+does not authorize or fingerprint the fixture, and the session owns only the primary
+`std::process::Child`. Hosted Windows execution proves the standard-library mechanism
+on a clean Windows runner; it does not prove Windows Job adaptation, descendant-tree
+termination, disposable vendor state, exact package identity, or compatibility.
+
 ## Native Windows from WSL
 
 Use Windows PowerShell and Windows `cargo.exe`, with a Windows-native target directory
@@ -120,6 +159,7 @@ powershell.exe -NoProfile -NonInteractive -Command '
   $manifest = "\\wsl.localhost\<Distro>\home\<user>\projects\weregopher\Cargo.toml"
   cargo test --manifest-path $manifest -p weregopher-windows --test pipe -- --test-threads=1
   cargo test --manifest-path $manifest -p weregopher-runtime-protocol --test windows_round_trip -- --test-threads=1
+  cargo test --manifest-path $manifest -p weregopher-adapter-openai --test app_server_process_session -- --test-threads=1
   cargo test --manifest-path $manifest -p weregopher-renderer-webview2 --test g1_renderer -- --test-threads=1 --nocapture
 '
 ```
@@ -270,13 +310,15 @@ absolute user paths, or unsanitized process diagnostics.
 | ADR 0041 G2 app-server protocol | Portable bounded JSONL/schema-bundle tests plus atomic Job-owned exact-binary schema/initialize runner | Implemented; hosted process primitives pass, exact user-controlled run pending |
 | ADR 0041 G2 preload mechanism | Hosted-Windows document-start isolated-world/projection/navigation fixtures plus ASAR/member-revalidating exact package-derived runner | Implemented; hosted engine passes with synthetic scope, exact user-controlled run pending |
 | ADR 0002 G2 aggregate feasibility | Fail-closed three-lane aggregate bound to one source build | Incomplete until all exact lanes pass |
-| ADR 0042 transparent app-server proxy core | Exact-byte unknown-message tests; recursive JSON bounds; independent bounded FIFO queues; bidirectional request/deadline/history correlation; payload-free diagnostics | Implemented as a portable in-memory prerequisite; process/session integration pending |
+| ADR 0042 transparent app-server proxy core | Exact-byte unknown-message tests; recursive JSON bounds; independent bounded FIFO queues; bidirectional request/deadline/history correlation; payload-free diagnostics | Implemented as the portable in-memory core |
+| ADR 0043 portable app-server process session | Repository child over bounded real stdio; initialization-delivery continuity; request/session deadlines; crash/exit/drain classification; graceful/forced shutdown; redaction | Implemented as a build-agnostic portable prerequisite; exact authorized Job-owned binary integration pending |
 
 With both G1 synthetic fixtures passing, G1 is complete. G2 now has its bounded
 evidence contracts and exact package, preload, and app-server workflows, but it is not
 complete until the final serial user-controlled Windows matrix produces passing exact
 evidence for one pinned build. Public native CI covers repository-only mechanisms,
 including the exact-preload engine with synthetic scope. The portable proxy core is a
-build-agnostic prerequisite, not evidence that a pinned G3 preview has begun. The
-incomplete WP-D hardening rows remain independently open and must not be inferred from
-either milestone.
+build-agnostic prerequisite, and the repository process session adds no exact-build
+evidence; neither means that a pinned G3 preview has begun. The incomplete WP-D
+hardening rows remain independently open and must not be inferred from either
+milestone.

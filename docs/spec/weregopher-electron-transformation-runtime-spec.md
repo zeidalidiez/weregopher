@@ -8149,11 +8149,97 @@ and unmatched responses, identity-history bounds, multi-message accounting, clos
 and redaction. No canonical serialized contract changed, so this milestone does not
 add or revise a generated schema.
 
-The remaining proxy work is process and session integration: supervised exact-binary
-launch, nonblocking standard-I/O ownership, initialization-phase continuity,
+Section 36.40 composes this core with a portable already-launched process fixture.
+Exact-binary authorization and launch, Windows Job/process-tree adaptation,
 observers/interceptors, thread/turn/item and helper ownership, approval mediation,
-crash/restart state, graceful shutdown, and explicitly redacted persisted traces.
-Those features must remain separately tested and cannot be inferred from this core.
+restart/recovery, and explicitly redacted persisted traces remain separate work and
+cannot be inferred from this core.
+
+## 36.40 Implemented bounded portable app-server process session
+
+[ADR 0043](../adr/0043-bounded-portable-app-server-process-session.md) implements the
+build-agnostic process/session composition around the transparent proxy. The public
+boundary consumes an already-launched `std::process::Child` whose stdin, stdout, and
+stderr are piped. The API is deliberately named `attach_unverified_child`: it does
+not resolve, authorize, fingerprint, launch, Job-own, or sandbox an executable.
+
+Four bounded workers own blocking operations:
+
+- stdin writes one exact proxy frame followed by one line-feed and flushes it;
+- stdout incrementally frames delimiter-free lines and applies the proxy byte ceiling
+  before proxy retention;
+- stderr discards content and keeps only a saturating byte count; and
+- the process owner observes, terminates, waits for, and reaps the primary child.
+
+The serialized caller-facing `poll` path uses nonblocking bounded-channel operations
+and never waits on a live pipe, process, or worker. Stdin and stdout channels each
+retain at most four frames. At the proxy hard line ceiling this bounds either channel
+to 64 MiB of frame data; initial line limits keep the normal channel bound at 4 MiB.
+One poll consumes initially at most 64 and absolutely at most 1,024 events from each
+worker source. Pressure blocks the corresponding worker/OS pipe rather than creating
+an unbounded intermediate queue.
+
+The long-lived initialization state is:
+
+```text
+AwaitingInitialize
+→ InitializeQueued
+→ AwaitingInitializeResponse
+→ InitializeResponseQueued
+→ AwaitingInitialized
+→ InitializedQueued
+→ Ready
+```
+
+Only one client `initialize` request is admitted before readiness. Forward-compatible
+server notifications remain FIFO-transparent. The only response admitted during the
+exchange must match the released initialize request. An error response fails the
+session. A success response must leave the client-facing FIFO before the client may
+send the single `initialized` notification; observing bytes on stdout alone is not
+sufficient continuity. Repeated initialization methods and every other premature
+client/server shape fail closed. Exact result fields remain opaque and are not
+treated as capabilities.
+
+Initialization initially has 30 seconds and cannot exceed five minutes. The complete
+attached session is capped at 24 hours. Forwarded request expiry is terminal:
+digest-history retirement occurs in the proxy, then the process owner requests
+termination rather than inventing a response or continuing with ambiguous state.
+Caller monotonic-clock regression fails before transition.
+
+Graceful shutdown stops new client admission, drains already-admitted client frames
+and writer acknowledgements, closes stdin, and enforces an initial two-second grace
+with a 30-second hard maximum. Immediate shutdown skips drain and requests primary
+termination. Process exit is followed by bounded stdout/stderr drain, initially two
+seconds and at most 30 seconds. A successful primary exit with output handles still
+open at the deadline is a transport failure with `streams_drained = false`, not a
+clean result. Exit reports separately retain unacknowledged writer-frame count and
+payload-free proxy closure accounting.
+
+Terminal classifications distinguish clean and forced caller shutdown, unexpected
+successful exit, crash, initialization timeout, complete-runtime timeout, protocol
+failure, transport failure, and forwarded-request timeout. Diagnostics and errors
+contain only fixed state/counters, worker roles, and `io::ErrorKind`; protocol
+payloads, methods, request identities, stderr text, arguments, environment, and paths
+are not retained.
+
+Portable repository-fixture tests exercise exact unknown-byte flow through real
+stdio, bidirectional traffic, initialization response-delivery continuity,
+initialize rejection, stdout bounds before retention, request/initialization/runtime
+deadlines, crash and unexpected-exit classification, graceful and forced shutdown,
+post-exit inherited-handle drain expiry, missing pipes, limit validation, and
+redaction. They run as normal platform-neutral tests on Ubuntu and Windows and use no
+vendor package or production state.
+
+This layer owns only the primary `Child`. It does not prove descendant-tree
+termination, resource accounting, or sandboxing. A descendant can retain a pipe and
+keep one bounded partial stdout line in a blocked portable reader until that handle
+closes; terminal session state drops queued receiver frames but cannot synchronously
+cancel that read. Connecting the mechanism to the exact bundled app-server still
+requires an authorized identity-bound Windows launch owner, disposable state, Job
+adaptation, a pinned build selected only after exact G2, and separate compatibility
+evidence. Restart/recovery, WebSocket transport,
+observers/interceptors, approval mediation, helper ownership, persisted redacted
+traces, packaged main logic, and Codex workflow parity also remain unimplemented.
 
 
 ---

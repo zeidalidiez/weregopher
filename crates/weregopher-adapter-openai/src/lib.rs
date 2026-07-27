@@ -1,8 +1,9 @@
-//! `OpenAI`-family feasibility evidence and bounded compatibility prerequisites.
+//! `OpenAI`-family feasibility evidence and bounded app-server prerequisites.
 
 #![forbid(unsafe_code)]
 
 mod app_server;
+mod app_server_process;
 mod app_server_proxy;
 #[cfg(windows)]
 mod app_server_windows;
@@ -17,6 +18,11 @@ pub use app_server::{
     AppServerClientInfo, AppServerHandshakeEvidence, AppServerProtocolError,
     AppServerProtocolLimits, AppServerSchemaBundleEvidence, AppServerSchemaError,
     hash_app_server_schema_bundle, probe_app_server_handshake,
+};
+pub use app_server_process::{
+    AppServerInitializationPhase, AppServerProcessDiagnostics, AppServerProcessError,
+    AppServerProcessExitReport, AppServerProcessLimits, AppServerProcessOutcome,
+    AppServerProcessPoll, AppServerProcessSession, AppServerProcessState, AppServerShutdownMode,
 };
 pub use app_server_proxy::{
     AppServerExpiredRequest, AppServerJsonLimits, AppServerMessageObservation,

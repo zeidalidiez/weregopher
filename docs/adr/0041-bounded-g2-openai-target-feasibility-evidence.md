@@ -106,24 +106,59 @@ package gate.
 
 An exact report must bind both the source build-fingerprint digest and one preload
 candidate digest from the package inventory, carry `exact_package` scope, and pass
-every required check. The aggregate command accepts such a canonical report but this
-decision does not fabricate one from the synthetic fixture. The exact package-derived
-preload executor remains the next implementation step.
+every required check. The aggregate command can import such a canonical report or
+produce one directly with the exact package-derived runner.
+
+Before execution, the runner rechecks the captured application ASAR length and digest,
+reparses its complete integrity-checked packed body, and rechecks the selected member's
+length and digest. Static discovery still does not establish the configured Electron
+preload entry, so the initial runner accepts only an inventory with one candidate and
+fails closed when candidate selection is ambiguous. Source must be valid UTF-8, is
+bounded to 16 MiB during analysis, and must fit the WebView2 fixture's 4 MiB complete
+document-start program ceiling.
+
+The exact candidate runs at document start in a named WebView2 isolated world against
+a closed repository-owned page on an immutable private origin. A bounded shim supplies
+the sandboxed-preload subset needed by this lane: `contextBridge`, inert
+`ipcRenderer`, limited `events`, `timers`, and `url` modules, and explicit renderer
+`process` metadata. It copies and freezes bounded primitive, array, and plain-object
+projections, converts functions to generation-scoped handles, rejects dangerous keys,
+cycles, unsupported prototypes and values, and oversized graphs/messages, and proves
+one harness function round trip without invoking vendor-exposed functions. The
+`ipcRenderer` surface deliberately performs no real IPC.
+
+Two sequential navigations must both execute the exact source and project at least one
+API. The closed page verifies document-start execution, distinct globals, prototype
+isolation, recursive freezing, the harness round trip, and rejection of the prior
+navigation's randomized function handle. Browser exit and exclusive ephemeral-profile
+removal must also complete. The backend digest covers only the fixed runner assets;
+the separate preload digest identifies the exact vendor bytes. JavaScript
+compatibility failures that remain observable produce a failed canonical report
+without retaining source, values, error text, or raw messages. A fresh host-generated
+nonce is embedded only in the main-world bootstrap and must accompany the canonical
+page observation, so direct package-origin messages cannot be mistaken for that
+observation.
 
 ### Explicit command and test separation
 
 `weregopher feasibility open-ai` performs bounded read-only discovery, exact package
 selection, fingerprinting, and inventory construction on native Windows. App-server
 execution occurs only with both `--probe-app-server` and
-`--allow-unrestricted-same-user-probe`. Off Windows, the command fails closed.
+`--allow-unrestricted-same-user-probe`. Exact preload execution similarly requires
+both `--probe-preload` and the acknowledgement; direct execution conflicts with an
+imported `--preload-report`. When both exact probes are selected, preload execution
+finishes before the app-server phases begin. Off Windows, the command fails closed.
 
 Portable contract, ASAR, package-analysis, and protocol tests run on Linux and
-Windows. Public `windows-latest` CI covers native process primitives and the synthetic
-isolated-world fixture without acquiring a vendor package. Exact installed-package
-lanes run only at the final user-controlled Windows stage, inside a disposable
-standard-user account or clean VM with no production OpenAI state, as described by
-the testing matrix. The explicit child environment alone is not a registry,
-credential-store, filesystem, or network sandbox.
+Windows. Public `windows-latest` CI covers native process primitives, the original
+synthetic isolated-world fixture, and the package-derived runner engine using
+repository source while retaining `synthetic_fixture` scope. It never acquires a
+vendor package. Exact installed-package lanes run only at the final user-controlled
+Windows stage, inside a disposable standard-user account or clean VM with no
+production OpenAI state, as described by the testing matrix. The app-server's
+explicit child environment alone is not a registry, credential-store, filesystem, or
+network sandbox, and the WebView2 fixture is not treated as independent
+security-posture evidence.
 
 ## Security invariants
 
@@ -140,14 +175,22 @@ credential-store, filesystem, or network sandbox.
    implemented and tested.
 7. Public CI and repository artifacts contain no proprietary package bytes, raw
    traces, secrets, tokens, or absolute user paths.
+8. Exact preload execution uses captured digest-bound bytes, a closed private origin,
+   bounded bridge values/messages, and serial navigations; no vendor renderer asset or
+   real IPC endpoint is loaded.
+9. The Rust observer accepts a canonical page report only from the exact private URL
+   and with the current host-generated observation nonce; unrelated package messages
+   consume the bounded noise budget but cannot become evidence.
 
 ## Nonclaims
 
 This decision does not establish:
 
-- exact vendor preload execution or a passing exact preload/bridge lane;
+- that the packaged main entry selects the sole statically discovered candidate as its
+  configured Electron preload;
 - complete Electron `contextBridge`, `ipcRenderer`, Node preload, subframe, callback,
-  event, promise, error, typed-array, or remote-object fidelity;
+  event, promise, error, typed-array, synchronous-return, or remote-object fidelity;
+- real IPC behavior or correctness of any vendor-exposed function;
 - a transparent app-server proxy or any post-initialization Codex method;
 - packaged main-process or renderer execution through Weregopher;
 - Chat, Work, or Codex workflow compatibility;
@@ -162,15 +205,19 @@ This decision does not establish:
   exact-candidate command instead of an informal manual checklist.
 - Public CI can validate the portable protocol and native mechanism without
   distributing proprietary package data.
-- A user-controlled disposable Windows test account/VM can produce exact package and
-  app-server evidence without exposing production state to the unrestricted process.
-- G2 remains `incomplete` until an exact package-derived preload runner produces a
-  passing report for the same build. A failure in any exact lane makes it `blocked`.
+- A user-controlled disposable Windows test account/VM can produce exact package,
+  preload, and app-server evidence without copying production state into the test
+  account.
+- G2 remains operationally `incomplete` until one final serial disposable-Windows run
+  produces passing exact evidence for all three lanes on the same build. A failure in
+  any exact lane makes it `blocked`.
 - G3 cannot begin on a pinned build merely because static inventory or the synthetic
   fixture passes; the complete G2 aggregate must first be feasible.
 
 ## References
 
+- [Electron: contextBridge](https://www.electronjs.org/docs/latest/api/context-bridge/)
+- [Electron: process sandboxing and preload behavior](https://www.electronjs.org/docs/latest/tutorial/sandbox)
 - [OpenAI Developers: Codex app-server](https://developers.openai.com/codex/app-server)
 - [G2 OpenAI feasibility testing](../testing/openai-g2-feasibility.md)
 - [Runtime and renderer testing matrix](../testing/runtime-protocol-matrix.md)

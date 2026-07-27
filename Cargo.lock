@@ -1133,9 +1133,12 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+ "uuid",
  "weregopher-asar",
  "weregopher-domain",
  "weregopher-fingerprint",
+ "weregopher-renderer",
+ "weregopher-renderer-webview2",
  "weregopher-windows",
 ]
 

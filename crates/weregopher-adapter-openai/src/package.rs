@@ -21,7 +21,8 @@ pub const OPENAI_APP_SERVER_PATH: &str = "app/resources/codex.exe";
 
 const PACKAGE_MANIFEST_PATH: &str = "package.json";
 const MAX_PACKAGE_MANIFEST_BYTES: usize = 1024 * 1024;
-const MAX_STATIC_CANDIDATE_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum bytes accepted for one exact package-derived preload candidate.
+pub const MAX_OPENAI_PRELOAD_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const PRELOAD_SIGNAL: &[u8] = b"contextBridge";
 const EXPOSE_SIGNAL: &[u8] = b"exposeInMainWorld";
 
@@ -233,7 +234,7 @@ fn analyze_application_archive(
             && contains_bytes(bytes, PRELOAD_SIGNAL)
             && contains_bytes(bytes, EXPOSE_SIGNAL)
         {
-            if bytes.len() > MAX_STATIC_CANDIDATE_BYTES {
+            if bytes.len() > MAX_OPENAI_PRELOAD_SOURCE_BYTES {
                 return Err(OpenAiPackageAnalysisError::CandidateSourceTooLarge);
             }
             preload_candidates.push(archive_component(path, bytes)?);

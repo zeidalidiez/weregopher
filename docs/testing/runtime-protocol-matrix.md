@@ -8,10 +8,10 @@ named pipes, access tokens, process identity, Job Objects, COM, or WebView2.
 
 | Lane | When | What it proves | What it does not prove |
 | --- | --- | --- | --- |
-| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package analysis, bounded app-server protocol behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, or installed-package evidence |
-| `windows-latest` CI | Every push and pull request | Clean native Windows build; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
+| Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package and exact-preload preparation, bounded app-server protocol behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, or installed-package evidence |
+| `windows-latest` CI | Every push and pull request | Clean native Windows build; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; package-derived preload runner engine with repository source and synthetic scope; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
 | WSL to native Windows | Optional final developer preflight on a suitably resourced host | The developer's current Windows kernel executes the focused PE test binaries while the source remains in WSL | A second clean machine or supported-client-OS matrix |
-| User-controlled exact OpenAI package | Final G2 candidate phase, after public CI, in a disposable Windows account/VM | Read-only package identity/inventory and, when explicitly enabled, exact bundled app-server schema/initialization evidence | Exact preload fidelity until its package-derived runner exists; broader application compatibility, security posture, efficiency, or certification |
+| User-controlled exact OpenAI package | Final G2 candidate phase, after public CI, in a disposable Windows account/VM | Read-only package identity/inventory and, when explicitly enabled, exact package-derived preload plus bundled app-server schema/initialization evidence | Configured-preload entry resolution, vendor renderer or real IPC compatibility, broader application compatibility, security posture, efficiency, or certification |
 | Windows 10 x64 standard user | Milestone/release candidate | Supported Windows 10 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 11 and ARM64 |
 | Windows 11 x64 standard user | Milestone/release candidate | Supported Windows 11 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 10 and ARM64 |
 | Windows 10/11 second local user | Milestone/release security check | A different user cannot open the current-user-only pipe | Remote-host policy beyond the separate remote-client flag |
@@ -41,9 +41,11 @@ final phase. CI lanes may remain parallel because each lane runs on an isolated
 runner.
 
 Exact installed-package G2 testing is always part of that final Windows phase. The
-inventory hashes the package tree, and the optional exact app-server probe launches
-three sequential Job-owned processes. Do not overlap it with WSL Cargo, another
-Windows Cargo build, or a second package probe.
+inventory hashes the package tree; the optional exact preload probe performs two
+WebView2 navigations and completes browser/profile cleanup; and the optional exact
+app-server probe launches three sequential Job-owned processes. When both probes are
+requested, preload finishes before app-server execution starts. Do not overlap this
+work with WSL Cargo, another Windows Cargo build, or a second package probe.
 
 `CARGO_BUILD_JOBS=1` limits Cargo scheduling; it does not cap the peak memory of one
 compiler, linker, test, or Rustdoc process. On a constrained WSL host, run only the
@@ -69,8 +71,9 @@ closure, stale navigation rejection, backend-derived renderer authority, frame
 ceilings before payload reads, exact versions/kinds/sequences, malformed MessagePack,
 nonce/identity binding, request bounds/deadlines/cancellation, late-result discard,
 and stream credit. It also covers G2 evidence invariants, strict versus read-only ASAR
-semantics, exact OpenAI package-contract analysis over synthetic bytes, deterministic
-schema-bundle hashing, and the bounded app-server initialization state machine.
+semantics, exact OpenAI package-contract analysis over synthetic bytes, fail-closed
+exact-preload source preparation and binding, deterministic schema-bundle hashing, and
+the bounded app-server initialization state machine.
 Windows-only test binaries are compiled as empty targets on Linux and provide no
 native Windows evidence there.
 
@@ -161,7 +164,8 @@ release-candidate evidence.
 
 ## Native synthetic G2 preload scenario
 
-The hosted-Windows `g2_preload` fixture additionally requires:
+The hosted-Windows renderer `g2_preload` fixture and the OpenAI adapter's
+package-derived runner-engine test additionally require:
 
 - the preload bootstrap to be installed at document start in a named WebView2
   isolated world;
@@ -170,26 +174,30 @@ The hosted-Windows `g2_preload` fixture additionally requires:
 - the page-visible projection to be frozen;
 - a function call to round-trip between the projected page API and isolated world;
 - navigation to invalidate the previous projection/handle generation; and
+- a forged package-source observation with the wrong host nonce to be ignored; and
 - browser-process exit and ephemeral-profile cleanup to complete.
 
-The resulting report is explicitly `synthetic_fixture` evidence. It validates the
-current WebView2 mechanism but cannot satisfy the exact OpenAI preload/bridge gate.
-Public CI contains no OpenAI package bytes.
+Both resulting reports are explicitly `synthetic_fixture` evidence. They validate the
+current WebView2 mechanism and the exact runner engine against repository source but
+cannot satisfy the exact OpenAI preload/bridge gate. Public CI contains no OpenAI
+package bytes.
 
 ## Exact installed OpenAI G2 phase
 
-The read-only exact package inventory and optional app-server probe run only on a
-user-controlled native Windows installation after public CI passes, inside a
+The read-only exact package inventory and optional preload/app-server probes run only
+on a user-controlled native Windows installation after public CI passes, inside a
 disposable standard-user account or clean VM with no production OpenAI state. Do not
 drive this phase through WSL on a constrained shared host. The app-server is
 unrestricted same-user code; Job Objects and explicit state/environment are lifecycle
 and accounting controls, not a registry, credential-store, filesystem, or network
-sandbox.
+sandbox. The preload runs in a hidden WebView2 isolated world against a closed
+repository page; this is not independent sandbox or security-posture evidence.
 
 Follow the [OpenAI G2 feasibility runbook](openai-g2-feasibility.md) for commands,
-expected incomplete dispositions, Windows 10/11 sequencing, and evidence handling.
-The exact preload/bridge runner is not implemented yet, so neither a synthetic fixture
-pass nor an app-server pass completes G2.
+expected dispositions, Windows 10/11 serial sequencing, and evidence handling. The
+exact runner executes only one unambiguous digest-bound candidate and deliberately
+does not load the vendor renderer, forward real IPC, or prove that packaged main logic
+selects that candidate.
 
 For the second-local-user check, run the server fixture as a standard user and attempt
 to open the printed non-secret pipe address from a second signed-in local account.
@@ -230,11 +238,12 @@ absolute user paths, or unsanitized process diagnostics.
 | ADR 0002/ADR 0041 G2 canonical evidence | Package, preload/bridge, app-server, gate, and aggregate Rust contracts plus generated schemas | Implemented |
 | ADR 0041 G2 exact package inventory | Maintained x64 MSIX identity and fixed package/ASAR component analysis; explicit native-Windows CLI | Implemented; exact user-controlled run pending |
 | ADR 0041 G2 app-server protocol | Portable bounded JSONL/schema-bundle tests plus atomic Job-owned exact-binary schema/initialize runner | Implemented; hosted primitives pending/required, exact user-controlled run pending |
-| ADR 0041 G2 preload mechanism | Hosted-Windows document-start isolated-world/projection/navigation fixture | Implemented synthetic mechanism; exact package-derived runner not implemented |
+| ADR 0041 G2 preload mechanism | Hosted-Windows document-start isolated-world/projection/navigation fixtures plus ASAR/member-revalidating exact package-derived runner | Implemented; hosted engine evidence and exact user-controlled run pending |
 | ADR 0002 G2 aggregate feasibility | Fail-closed three-lane aggregate bound to one source build | Incomplete until all exact lanes pass |
 
 With both G1 synthetic fixtures passing, G1 is complete. G2 now has its bounded
-evidence contracts, exact package/app-server workflow, and synthetic preload mechanism,
-but it is not complete: the exact package-derived preload runner and final
-user-controlled exact evidence remain. The incomplete WP-D hardening rows remain
-independently open and must not be inferred from either milestone.
+evidence contracts and exact package, preload, and app-server workflows, but it is not
+complete until public native tests pass and the final serial user-controlled Windows
+matrix produces passing exact evidence for one pinned build. The incomplete WP-D
+hardening rows remain independently open and must not be inferred from either
+milestone.

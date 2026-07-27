@@ -17,7 +17,7 @@ use sha2::{Digest as _, Sha256};
 #[cfg(windows)]
 use weregopher_adapter_openai::{
     OPENAI_APPLICATION_ARCHIVE_PATH, OPENAI_WINDOWS_FAMILY, analyze_openai_package,
-    probe_exact_app_server,
+    prepare_exact_preload, probe_exact_app_server, probe_exact_preload,
 };
 #[cfg(windows)]
 use weregopher_asar::AsarLimits;
@@ -62,17 +62,29 @@ fn run_platform(_arguments: &OpenAiFeasibilityArguments) -> Result<()> {
 
 #[cfg(windows)]
 fn run_platform(arguments: &OpenAiFeasibilityArguments) -> Result<()> {
-    if arguments.probe_app_server && !arguments.allow_unrestricted_same_user_probe {
-        bail!("--probe-app-server requires --allow-unrestricted-same-user-probe");
+    if (arguments.probe_preload || arguments.probe_app_server)
+        && !arguments.allow_unrestricted_same_user_probe
+    {
+        bail!("exact package probes require --allow-unrestricted-same-user-probe");
     }
-    let (package_root, inventory) = inventory_installed_package(arguments)?;
+    if arguments.probe_preload && arguments.preload_report.is_some() {
+        bail!("--probe-preload cannot be combined with --preload-report");
+    }
+    let (package_root, inventory, application_archive) = inventory_installed_package(arguments)?;
     let package_gate = G2GateEvidence::passed(canonical_digest(&inventory)?);
-    let preload_bridge = arguments
-        .preload_report
-        .as_deref()
-        .map(read_preload_report)
-        .transpose()?;
+    let preload_bridge = if arguments.probe_preload {
+        let prepared = prepare_exact_preload(&inventory, &application_archive)
+            .context("exact package preload preparation failed")?;
+        Some(probe_exact_preload(&prepared).context("exact package preload probe failed")?)
+    } else {
+        arguments
+            .preload_report
+            .as_deref()
+            .map(read_preload_report)
+            .transpose()?
+    };
     let preload_gate = preload_gate(&inventory, preload_bridge.as_ref())?;
+    drop(application_archive);
     let app_server = if arguments.probe_app_server {
         let executable_path = package_root.join(
             inventory
@@ -106,7 +118,7 @@ fn run_platform(arguments: &OpenAiFeasibilityArguments) -> Result<()> {
 #[cfg(windows)]
 fn inventory_installed_package(
     arguments: &OpenAiFeasibilityArguments,
-) -> Result<(PathBuf, OpenAiPackageInventory)> {
+) -> Result<(PathBuf, OpenAiPackageInventory, Vec<u8>)> {
     let candidate = select_candidate(
         discover_windows_package_catalog()
             .context("failed to query the bounded current-user package catalog")?,
@@ -172,7 +184,7 @@ fn inventory_installed_package(
     )?;
     let inventory = analyze_openai_package(&build, &package_tree, &archive)
         .context("selected OpenAI package did not satisfy the G2 package contract")?;
-    Ok((package_root, inventory))
+    Ok((package_root, inventory, archive))
 }
 
 #[cfg(windows)]

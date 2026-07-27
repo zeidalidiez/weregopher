@@ -8052,23 +8052,38 @@ isolated world, separate globals and prototypes, a frozen page projection, funct
 round trip, and navigation invalidation. Its report is permanently scoped
 `synthetic_fixture` and cannot pass the exact package lane.
 
+The exact package-derived preload runner revalidates the captured ASAR and sole
+candidate length/digests, requires bounded UTF-8 source, and executes those exact bytes
+at document start in the named isolated world against a closed immutable probe page.
+Its bounded shim copies and recursively freezes primitive, array, and plain-object
+projections, maps functions to randomized navigation-scoped handles, rejects
+unsupported values and dangerous keys, and provides inert `ipcRenderer` plus a limited
+sandboxed-preload module surface. Two sequential navigations must pass the declared
+isolation/bridge checks and complete browser/profile cleanup. Rust accepts the page
+observation only from the exact private URL with a fresh host-generated nonce retained
+outside the isolated package source. The backend digest covers fixed probe assets; the
+candidate digest independently identifies the proprietary source, which is never
+retained in canonical output.
+
 `weregopher feasibility open-ai` performs read-only package discovery and inventory on
-native Windows and optionally runs the exact app-server probe after an explicit
-same-user-risk acknowledgement. It accepts a canonical exact-package preload report
-only when its build and component digests match the inventory. The repository does
-not yet produce that report, so G2 remains incomplete until an exact package-derived
-preload runner is implemented and the final user-controlled Windows matrix passes.
-Exact vendor-binary probes run only in a disposable standard-user Windows account or
-clean VM with no production OpenAI state; the explicit child environment is not a
-registry, credential-store, filesystem, or network sandbox. Public CI never acquires
-proprietary package bytes. See the
+native Windows and optionally runs the exact preload and app-server probes after an
+explicit disposable-environment acknowledgement. Preload finishes and cleans up before
+any app-server phase begins. It also accepts a canonical imported exact-package preload
+report only when its scope, build, and component digests match the inventory. G2
+remains operationally incomplete until hosted native tests and the final serial
+user-controlled Windows 10/11 matrix pass for one pinned build. Exact package probes
+run only in a disposable standard-user Windows account or clean VM with no production
+OpenAI state; the app-server's explicit child environment is not a registry,
+credential-store, filesystem, or network sandbox. Public CI uses repository fixtures,
+retains synthetic scope, and never acquires proprietary package bytes. See the
 [G2 testing runbook](../testing/openai-g2-feasibility.md).
 
 This harness does not load packaged main/renderer logic through Weregopher, implement
-the transparent app-server proxy, exercise a Codex workflow, touch production state,
-authorize launch, or establish compatibility, certification, security-posture, or
-efficiency claims. G3 may select a pinned preview build only after all exact G2 lanes
-pass.
+real vendor IPC, prove that packaged main logic selects the sole static preload
+candidate, implement the transparent app-server proxy, exercise a Codex workflow,
+touch production state, authorize launch, or establish application compatibility,
+certification, security-posture, or efficiency claims. G3 may select a pinned preview
+build only after all exact G2 lanes pass.
 
 
 ---

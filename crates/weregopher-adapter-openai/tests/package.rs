@@ -1,10 +1,13 @@
 //! Read-only `OpenAI` package inventory behavior.
 
 use sha2::{Digest as _, Sha256};
-use weregopher_adapter_openai::{OpenAiPackageAnalysisError, analyze_openai_package};
+use weregopher_adapter_openai::{
+    ExactPreloadPreparationError, OpenAiPackageAnalysisError, analyze_openai_package,
+    prepare_exact_preload,
+};
 use weregopher_domain::{
-    ApplicationFamilyId, Architecture, BuildFingerprint, G2ComponentSource, InstallationKind,
-    PackageIdentity, Sha256Digest,
+    ApplicationFamilyId, Architecture, BuildFingerprint, G2ComponentEvidence, G2ComponentSource,
+    G2PackagePath, InstallationKind, OpenAiPackageInventory, PackageIdentity, Sha256Digest,
 };
 use weregopher_fingerprint::{
     PackageFileKind, PackageFileRecord, PackageTreeManifest, build_package_manifest,
@@ -21,18 +24,25 @@ fn digest(bytes: &[u8]) -> Sha256Digest {
 fn package_fixture(
     preload_source: &[u8],
 ) -> Result<(BuildFingerprint, PackageTreeManifest, Vec<u8>), Box<dyn std::error::Error>> {
-    let archive = fixture_archive(&[
+    package_fixture_with_preloads(&[("preload.js", preload_source)])
+}
+
+fn package_fixture_with_preloads(
+    preload_sources: &[(&str, &[u8])],
+) -> Result<(BuildFingerprint, PackageTreeManifest, Vec<u8>), Box<dyn std::error::Error>> {
+    let mut archive_members = vec![
         (
             "package.json",
-            br#"{"name":"openai-desktop","main":"main.js"}"#,
+            br#"{"name":"openai-desktop","main":"main.js"}"#.as_slice(),
         ),
-        ("main.js", b"const ready = true;"),
-        ("preload.js", preload_source),
+        ("main.js", b"const ready = true;".as_slice()),
         (
             "index.html",
-            b"<!doctype html><title>OpenAI fixture</title>",
+            b"<!doctype html><title>OpenAI fixture</title>".as_slice(),
         ),
-    ])?;
+    ];
+    archive_members.extend_from_slice(preload_sources);
+    let archive = fixture_archive(&archive_members)?;
     let files = vec![
         package_file(DESKTOP_PATH, b"desktop", PackageFileKind::Executable),
         package_file(ARCHIVE_PATH, &archive, PackageFileKind::Asar),
@@ -67,6 +77,19 @@ fn package_file(path: &str, bytes: &[u8], kind: PackageFileKind) -> PackageFileR
     }
 }
 
+fn component(
+    source: G2ComponentSource,
+    path: &str,
+    bytes: &[u8],
+) -> Result<G2ComponentEvidence, Box<dyn std::error::Error>> {
+    Ok(G2ComponentEvidence::new(
+        source,
+        G2PackagePath::new(path)?,
+        digest(bytes),
+        u64::try_from(bytes.len())?,
+    )?)
+}
+
 #[test]
 fn package_inventory_binds_exact_package_and_archive_components()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -97,6 +120,125 @@ fn package_inventory_binds_exact_package_and_archive_components()
     );
     assert_eq!(inventory.renderer_candidates().len(), 1);
     assert_eq!(inventory.app_server().path().as_str(), APP_SERVER_PATH);
+    Ok(())
+}
+
+#[test]
+fn exact_preload_preparation_revalidates_and_binds_one_candidate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source =
+        b"const { contextBridge } = require('electron'); contextBridge.exposeInMainWorld('desktop', Object.freeze({ ready: true }));";
+    let (build, tree, archive) = package_fixture(source)?;
+    let inventory = analyze_openai_package(&build, &tree, &archive)?;
+
+    let prepared = prepare_exact_preload(&inventory, &archive)?;
+
+    assert_eq!(prepared.source_byte_length(), source.len());
+    assert!(!format!("{prepared:?}").contains("contextBridge"));
+    assert_eq!(prepared.path().as_str(), "preload.js");
+    assert_eq!(
+        prepared.source_build_fingerprint_digest(),
+        inventory.source_build_fingerprint_digest()
+    );
+    assert_eq!(
+        prepared.preload_digest(),
+        inventory
+            .preload_candidates()
+            .first()
+            .ok_or("preload candidate is missing")?
+            .sha256()
+    );
+    Ok(())
+}
+
+#[test]
+fn exact_preload_preparation_fails_closed_for_ambiguous_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let first =
+        b"const { contextBridge } = require('electron'); contextBridge.exposeInMainWorld('first', {});";
+    let second =
+        b"const { contextBridge } = require('electron'); contextBridge.exposeInMainWorld('second', {});";
+    let (build, tree, archive) =
+        package_fixture_with_preloads(&[("preload-a.js", first), ("preload-b.js", second)])?;
+    let inventory = analyze_openai_package(&build, &tree, &archive)?;
+
+    assert!(matches!(
+        prepare_exact_preload(&inventory, &archive),
+        Err(ExactPreloadPreparationError::AmbiguousPreloadCandidates { observed: 2 })
+    ));
+    Ok(())
+}
+
+#[test]
+fn exact_preload_preparation_rejects_unbound_or_non_utf8_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source =
+        b"const { contextBridge } = require('electron'); contextBridge.exposeInMainWorld('desktop', {});";
+    let (build, tree, archive) = package_fixture(source)?;
+    let inventory = analyze_openai_package(&build, &tree, &archive)?;
+    let shortened_archive = archive
+        .get(..archive.len().saturating_sub(1))
+        .ok_or("fixture archive unexpectedly empty")?;
+    assert!(matches!(
+        prepare_exact_preload(&inventory, shortened_archive),
+        Err(ExactPreloadPreparationError::ApplicationArchiveLengthMismatch)
+    ));
+    let mut changed_archive = archive.clone();
+    let last = changed_archive
+        .last_mut()
+        .ok_or("fixture archive unexpectedly empty")?;
+    *last ^= 0x01;
+    assert!(matches!(
+        prepare_exact_preload(&inventory, &changed_archive),
+        Err(ExactPreloadPreparationError::ApplicationArchiveDigestMismatch)
+    ));
+
+    let non_utf8 = b"const contextBridge = 1; exposeInMainWorld; const invalid = '\xff';";
+    let (build, tree, archive) = package_fixture(non_utf8)?;
+    let inventory = analyze_openai_package(&build, &tree, &archive)?;
+    assert!(matches!(
+        prepare_exact_preload(&inventory, &archive),
+        Err(ExactPreloadPreparationError::PreloadSourceNotUtf8)
+    ));
+    Ok(())
+}
+
+#[test]
+fn exact_preload_preparation_rechecks_bridge_discovery_signals()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = b"globalThis.ready = true;";
+    let archive = fixture_archive(&[("preload.js", source)])?;
+    let inventory = OpenAiPackageInventory::new(
+        digest(b"build"),
+        digest(b"identity"),
+        component(G2ComponentSource::PackageFile, DESKTOP_PATH, b"desktop")?,
+        component(G2ComponentSource::PackageFile, ARCHIVE_PATH, &archive)?,
+        component(
+            G2ComponentSource::ApplicationArchiveMember,
+            "main.js",
+            b"main",
+        )?,
+        [component(
+            G2ComponentSource::ApplicationArchiveMember,
+            "preload.js",
+            source,
+        )?],
+        [component(
+            G2ComponentSource::ApplicationArchiveMember,
+            "index.html",
+            b"renderer",
+        )?],
+        component(
+            G2ComponentSource::PackageFile,
+            APP_SERVER_PATH,
+            b"app-server",
+        )?,
+    )?;
+
+    assert!(matches!(
+        prepare_exact_preload(&inventory, &archive),
+        Err(ExactPreloadPreparationError::MissingBridgeSignals)
+    ));
     Ok(())
 }
 

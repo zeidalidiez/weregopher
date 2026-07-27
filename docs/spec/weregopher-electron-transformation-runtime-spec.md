@@ -8238,8 +8238,103 @@ cancel that read. Connecting the mechanism to the exact bundled app-server still
 requires an authorized identity-bound Windows launch owner, disposable state, Job
 adaptation, a pinned build selected only after exact G2, and separate compatibility
 evidence. Restart/recovery, WebSocket transport,
-observers/interceptors, approval mediation, helper ownership, persisted redacted
-traces, packaged main logic, and Codex workflow parity also remain unimplemented.
+approval mediation, persisted redacted traces, packaged main logic, and Codex workflow
+parity also remain unimplemented. Section 36.41 adds a bounded pull observer, exact
+deny-only policy, and non-authorizing semantic ownership labels; it does not implement
+those remaining exact-version or effect-bearing boundaries.
+
+## 36.41 Implemented bounded redacted controls and ownership labels
+
+[ADR 0044](../adr/0044-bounded-redacted-app-server-controls-and-ownership.md)
+implements a build-agnostic pre-admission, observation, and semantic-label layer over
+Sections 36.11 through 36.14. It does not select a build or interpret unknown
+app-server payload fields.
+
+The transparent proxy supports non-mutating candidate preparation:
+
+```text
+exact delimiter-free JSON bytes
+→ bounded structural validation
+→ AppServerProxyCandidate
+→ dynamic admission revalidation
+→ exact proxy queue
+```
+
+Preparation applies the existing line, recursive JSON, duplicate-key, method,
+request-identity, and message-shape bounds, but changes no queue, request map, history,
+deadline, clock, or diagnostic counter. Admission requires matching structural limits
+and rechecks current queue/correlation state. The candidate retains exact original
+bytes, has payload-redacted `Debug`, and is not authorization.
+
+`AppServerSessionEventJournal` is a serialized pull interface rather than a callback.
+It records accepted, forwarded, exact-rule-blocked, and expired-request events. Each
+event contains only monotonic local sequence, direction, structural message kind,
+byte length, optional domain-separated method fingerprint, optional journal-local
+request token, and optional local rule identity. Payloads, parsed values, raw methods,
+and wire request identities are absent. Request tokens include opaque in-process
+journal identity, so equal sequence numbers from distinct sessions are not
+interchangeable.
+
+The journal initially retains 2,048 events and has a hard maximum of 65,536. At
+capacity it evicts the oldest redacted event and advances an explicit loss counter;
+it never blocks or drops a protocol frame. An audit consumer that requires completeness
+must require zero evictions. This queue is not a durable or canonical persisted trace.
+
+Interception is intentionally narrower than the full Section 36.12 design:
+
+```rust
+enum AppServerInterceptionDecision {
+    Forward,
+    Block(AppServerInterceptRuleId),
+}
+```
+
+At most 256 rules and 64 KiB aggregate method text select an exact direction,
+request-or-notification kind, and method. Unknown methods forward unchanged.
+Responses cannot be selected. There is no payload validation, transformation,
+replacement response, approval grant, or privileged effect. The process session
+evaluates initialization order and the deny-only policy against a prepared candidate
+before admission. A block is terminal, is recorded in redacted form, and neither
+forwards bytes nor invents a peer response.
+
+The portable ownership registry accepts only explicit
+`CodexExecutionIdentity` evidence:
+
+```text
+app
+└── thread
+    └── turn
+        └── item
+```
+
+Each present identity is nonempty, control-free, and at most 256 bytes. Turn requires
+thread; item requires turn. A schema-aware adapter can bind one journal-local request
+token to this identity. Helper, local MCP, command, worktree, browser-session, and
+remote-MCP labels may inherit the binding or use separately derived identity.
+The registry pins the first token's opaque journal identity and rejects tokens from
+another session journal even when their numeric sequence matches.
+
+Both request bindings and resource labels initially allow 4,096 entries and cannot
+exceed 65,536. Completion returns labels within the exact item, turn descendants, or
+thread descendants; session close returns all remaining labels. These values are
+ordered cleanup candidates only. The registry owns no process handle, PID,
+filesystem capability, browser capability, or network connection and performs no
+termination or mutation.
+
+Portable regressions cover preparation atomicity, dynamic admission revalidation,
+exact-byte preservation, redacted lifecycle correlation, explicit journal eviction,
+block-before-admission through real standard I/O, identity hierarchy, bounded
+resource registration, duplicate/rebinding rejection, scope release, and debug
+redaction. Existing proxy and process-session suites remain unchanged in behavior.
+No canonical serialized contract changed.
+
+Exact generated-schema decoding is now the next semantic dependency. Until the final
+G2 matrix passes and selects a pinned build/schema, generic code must not infer
+thread/turn/item ownership, helper causality, approval request kinds, allowed
+decisions, cancellation, or automatic resolution from unknown payloads. Exact
+authorized Windows Job-owned launch, persisted redacted traces, approval mediation,
+cleanup effects, packaged-client integration, and workflow parity remain separate
+milestones.
 
 
 ---

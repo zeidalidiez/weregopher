@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 mod app_server;
+mod app_server_controls;
+mod app_server_ownership;
 mod app_server_process;
 mod app_server_proxy;
 #[cfg(windows)]
@@ -19,16 +21,30 @@ pub use app_server::{
     AppServerProtocolLimits, AppServerSchemaBundleEvidence, AppServerSchemaError,
     hash_app_server_schema_bundle, probe_app_server_handshake,
 };
+pub use app_server_controls::{
+    AppServerBlockRule, AppServerControlError, AppServerCorrelationToken, AppServerEventDetail,
+    AppServerEventDiagnostics, AppServerEventLimits, AppServerEventStage, AppServerInterceptRuleId,
+    AppServerInterceptionDecision, AppServerInterceptionPolicy, AppServerMethodFingerprint,
+    AppServerRedactedMessage, AppServerRequestExpiredEvent, AppServerSessionEvent,
+    AppServerSessionEventJournal,
+};
+pub use app_server_ownership::{
+    AppServerOwnedResource, AppServerOwnedResourceId, AppServerOwnedResourceKind,
+    AppServerOwnershipDiagnostics, AppServerOwnershipError, AppServerOwnershipLimits,
+    AppServerOwnershipRegistry, AppServerOwnershipRelease, CodexExecutionIdentity,
+};
 pub use app_server_process::{
-    AppServerInitializationPhase, AppServerProcessDiagnostics, AppServerProcessError,
-    AppServerProcessExitReport, AppServerProcessLimits, AppServerProcessOutcome,
-    AppServerProcessPoll, AppServerProcessSession, AppServerProcessState, AppServerShutdownMode,
+    AppServerInitializationPhase, AppServerProcessControls, AppServerProcessDiagnostics,
+    AppServerProcessError, AppServerProcessExitReport, AppServerProcessLimits,
+    AppServerProcessOutcome, AppServerProcessPoll, AppServerProcessSession, AppServerProcessState,
+    AppServerShutdownMode,
 };
 pub use app_server_proxy::{
     AppServerExpiredRequest, AppServerJsonLimits, AppServerMessageObservation,
-    AppServerProxyCloseReport, AppServerProxyDiagnostics, AppServerProxyDirection,
-    AppServerProxyError, AppServerProxyFrame, AppServerProxyLimits, AppServerProxyMessageKind,
-    AppServerProxyState, AppServerQueueLimits, AppServerRequestId, TransparentAppServerProxy,
+    AppServerProxyCandidate, AppServerProxyCloseReport, AppServerProxyDiagnostics,
+    AppServerProxyDirection, AppServerProxyError, AppServerProxyFrame, AppServerProxyLimits,
+    AppServerProxyMessageKind, AppServerProxyState, AppServerQueueLimits, AppServerRequestId,
+    TransparentAppServerProxy,
 };
 #[cfg(windows)]
 pub use app_server_windows::{ExactAppServerProbeError, probe_exact_app_server};

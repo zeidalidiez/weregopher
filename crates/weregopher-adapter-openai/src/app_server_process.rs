@@ -16,9 +16,12 @@ use std::{
 use thiserror::Error;
 
 use crate::{
+    AppServerControlError, AppServerEventDiagnostics, AppServerEventLimits,
+    AppServerInterceptRuleId, AppServerInterceptionDecision, AppServerInterceptionPolicy,
     AppServerMessageObservation, AppServerProxyCloseReport, AppServerProxyDiagnostics,
     AppServerProxyError, AppServerProxyFrame, AppServerProxyLimits, AppServerProxyMessageKind,
-    AppServerRequestId, TransparentAppServerProxy,
+    AppServerRequestId, AppServerSessionEvent, AppServerSessionEventJournal,
+    TransparentAppServerProxy,
 };
 
 const ABSOLUTE_MAX_IO_QUEUE_MESSAGES: usize = 4;
@@ -130,6 +133,45 @@ impl AppServerProcessLimits {
     }
 }
 
+/// Pull-observation and authority-reducing policy configuration for one session.
+pub struct AppServerProcessControls {
+    event_limits: AppServerEventLimits,
+    interception: AppServerInterceptionPolicy,
+}
+
+impl fmt::Debug for AppServerProcessControls {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AppServerProcessControls")
+            .field("event_limits", &self.event_limits)
+            .field("interception", &self.interception)
+            .finish()
+    }
+}
+
+impl AppServerProcessControls {
+    /// Constructs controls from independently validated event and policy inputs.
+    #[must_use]
+    pub const fn new(
+        event_limits: AppServerEventLimits,
+        interception: AppServerInterceptionPolicy,
+    ) -> Self {
+        Self {
+            event_limits,
+            interception,
+        }
+    }
+
+    /// Returns conservative pull-observation with transparent pass-through.
+    #[must_use]
+    pub fn initial() -> Self {
+        Self {
+            event_limits: AppServerEventLimits::initial(),
+            interception: AppServerInterceptionPolicy::empty(),
+        }
+    }
+}
+
 /// Visible initialization phase of one attached app-server session.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AppServerInitializationPhase {
@@ -190,6 +232,10 @@ pub enum AppServerProcessOutcome {
     TransportFailure,
     /// A forwarded request exceeded its response deadline.
     RequestTimeout,
+    /// An exact authority-reducing rule denied a candidate frame.
+    InterceptionBlocked,
+    /// The redacted observer detected inconsistent or exhausted local state.
+    ObservationFailure,
 }
 
 /// Terminal process and proxy accounting without payloads or identities.
@@ -260,6 +306,7 @@ impl AppServerProcessExitReport {
 pub struct AppServerProcessDiagnostics {
     state: AppServerProcessState,
     proxy: AppServerProxyDiagnostics,
+    events: AppServerEventDiagnostics,
     dispatched_client_frames: u64,
     written_client_frames: u64,
     written_client_bytes: u64,
@@ -279,6 +326,12 @@ impl AppServerProcessDiagnostics {
     #[must_use]
     pub const fn proxy(self) -> AppServerProxyDiagnostics {
         self.proxy
+    }
+
+    /// Returns bounded redacted event-journal accounting.
+    #[must_use]
+    pub const fn events(self) -> AppServerEventDiagnostics {
+        self.events
     }
 
     /// Returns frames released to the bounded stdin worker.
@@ -417,6 +470,15 @@ pub enum AppServerProcessError {
     /// A payload-free diagnostic counter overflowed.
     #[error("app-server process-session diagnostic counter overflowed")]
     DiagnosticCounterOverflow,
+    /// One exact authority-reducing rule denied a candidate before admission.
+    #[error("app-server candidate was blocked by interception rule {rule:?}")]
+    InterceptionBlocked {
+        /// Stable local identity of the matching rule.
+        rule: AppServerInterceptRuleId,
+    },
+    /// The bounded redacted observer rejected a lifecycle transition.
+    #[error(transparent)]
+    Control(#[from] AppServerControlError),
     /// The transparent framing/correlation core rejected a transition.
     #[error(transparent)]
     Proxy(#[from] AppServerProxyError),
@@ -489,6 +551,8 @@ enum ProcessEvent {
 pub struct AppServerProcessSession {
     limits: AppServerProcessLimits,
     proxy: TransparentAppServerProxy,
+    interception: AppServerInterceptionPolicy,
+    events: AppServerSessionEventJournal,
     initialization: InitializationState,
     lifecycle: LifecycleState,
     initialization_deadline: Instant,
@@ -543,19 +607,40 @@ impl AppServerProcessSession {
     ///
     /// Returns an explicit stdio, deadline, or worker-construction failure.
     pub fn attach_unverified_child(
-        mut child: Child,
+        child: Child,
         proxy_limits: AppServerProxyLimits,
         limits: AppServerProcessLimits,
         now: Instant,
     ) -> Result<Self, AppServerProcessError> {
-        let Some(initialization_deadline) = now.checked_add(limits.initialization_timeout) else {
-            terminate_child(&mut child);
-            return Err(AppServerProcessError::DeadlineOverflow);
-        };
-        let Some(runtime_deadline) = now.checked_add(limits.runtime_timeout) else {
-            terminate_child(&mut child);
-            return Err(AppServerProcessError::DeadlineOverflow);
-        };
+        Self::attach_unverified_child_with_controls(
+            child,
+            proxy_limits,
+            limits,
+            AppServerProcessControls::initial(),
+            now,
+        )
+    }
+
+    /// Attaches an already-launched child with explicit bounded session controls.
+    ///
+    /// Exact block rules can only deny a structurally valid request or
+    /// notification before proxy admission. The pull journal never invokes
+    /// caller code and never retains payloads, raw methods, or wire identities.
+    /// All launch, executable, Job, sandbox, and privileged-effect boundaries
+    /// remain outside this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns an explicit stdio, deadline, or worker-construction failure.
+    pub fn attach_unverified_child_with_controls(
+        mut child: Child,
+        proxy_limits: AppServerProxyLimits,
+        limits: AppServerProcessLimits,
+        controls: AppServerProcessControls,
+        now: Instant,
+    ) -> Result<Self, AppServerProcessError> {
+        let (initialization_deadline, runtime_deadline) =
+            process_deadlines(&mut child, limits, now)?;
         let (stdin, stdout, stderr) = take_piped_stdio(&mut child)?;
 
         let (process_tx, process_command_rx) = sync_channel(1);
@@ -618,10 +703,13 @@ impl AppServerProcessSession {
             }
         };
         drop(shared_child);
+        let (proxy, interception, events) = create_control_state(proxy_limits, controls);
 
         Ok(Self {
             limits,
-            proxy: TransparentAppServerProxy::new(proxy_limits),
+            proxy,
+            interception,
+            events,
             initialization: InitializationState::AwaitingInitialize,
             lifecycle: LifecycleState::Running,
             initialization_deadline,
@@ -657,9 +745,10 @@ impl AppServerProcessSession {
     /// Validates and queues one exact client JSON line.
     ///
     /// Before readiness, only one `initialize` request followed by one
-    /// `initialized` notification is accepted. An ordering violation is
-    /// terminal because the validated frame was already admitted atomically to
-    /// the underlying proxy.
+    /// `initialized` notification is accepted. Initialization and exact block
+    /// policy checks run against a non-mutating prepared candidate before
+    /// admission. An ordering or policy violation is terminal but the rejected
+    /// bytes never enter the proxy queue.
     ///
     /// # Errors
     ///
@@ -671,25 +760,29 @@ impl AppServerProcessSession {
         if !matches!(self.lifecycle, LifecycleState::Running) {
             return Err(AppServerProcessError::NotRunning);
         }
-        let observation = self.proxy.ingest_client(json_line)?;
+        let candidate = self.proxy.prepare_client(json_line)?;
+        let candidate_observation = candidate.observation();
         let next = match &self.initialization {
             InitializationState::AwaitingInitialize
-                if observation.kind() == AppServerProxyMessageKind::Request
-                    && observation.method() == Some("initialize") =>
+                if candidate_observation.kind() == AppServerProxyMessageKind::Request
+                    && candidate_observation.method() == Some("initialize") =>
             {
-                observation
+                candidate_observation
                     .request_id()
                     .cloned()
                     .map(InitializationState::InitializeQueued)
             }
             InitializationState::AwaitingInitialized
-                if observation.kind() == AppServerProxyMessageKind::Notification
-                    && observation.method() == Some("initialized") =>
+                if candidate_observation.kind() == AppServerProxyMessageKind::Notification
+                    && candidate_observation.method() == Some("initialized") =>
             {
                 Some(InitializationState::InitializedQueued)
             }
             InitializationState::Ready
-                if !matches!(observation.method(), Some("initialize" | "initialized")) =>
+                if !matches!(
+                    candidate_observation.method(),
+                    Some("initialize" | "initialized")
+                ) =>
             {
                 Some(InitializationState::Ready)
             }
@@ -705,6 +798,21 @@ impl AppServerProcessSession {
             self.begin_termination(AppServerProcessOutcome::ProtocolFailure);
             return Err(AppServerProcessError::InitializationSequenceViolation);
         };
+        if let AppServerInterceptionDecision::Block(rule) =
+            self.interception.evaluate(candidate_observation)
+        {
+            if let Err(error) = self.events.record_blocked(candidate_observation, rule) {
+                self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+                return Err(error.into());
+            }
+            self.begin_termination(AppServerProcessOutcome::InterceptionBlocked);
+            return Err(AppServerProcessError::InterceptionBlocked { rule });
+        }
+        let observation = self.proxy.admit(candidate)?;
+        if let Err(error) = self.events.record_accepted(&observation) {
+            self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+            return Err(error.into());
+        }
         self.initialization = next;
         Ok(observation)
     }
@@ -738,6 +846,12 @@ impl AppServerProcessSession {
             Vec::new()
         };
         progress.expired_requests = expired.len();
+        for request in &expired {
+            if let Err(error) = self.events.record_expired(request) {
+                self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+                return Err(error.into());
+            }
+        }
         if !expired.is_empty() {
             self.begin_termination(AppServerProcessOutcome::RequestTimeout);
         }
@@ -766,6 +880,10 @@ impl AppServerProcessSession {
         }
         let frame = self.proxy.next_for_client(now)?;
         if let Some(frame) = frame.as_ref() {
+            if let Err(error) = self.events.record_forwarded(frame.observation()) {
+                self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+                return Err(error.into());
+            }
             self.observe_client_delivery(frame)?;
         }
         self.last_observed_time = now;
@@ -850,6 +968,7 @@ impl AppServerProcessSession {
         AppServerProcessDiagnostics {
             state: self.state(),
             proxy: self.proxy.diagnostics(),
+            events: self.events.diagnostics(),
             dispatched_client_frames: self.dispatched_client_frames,
             written_client_frames: self.written_client_frames,
             written_client_bytes: self.written_client_bytes,
@@ -857,6 +976,15 @@ impl AppServerProcessSession {
             stdout_bytes: self.stdout_bytes.load(Ordering::Relaxed),
             stderr_bytes: self.stderr_bytes.load(Ordering::Relaxed),
         }
+    }
+
+    /// Returns and removes the oldest retained redacted protocol event.
+    ///
+    /// Event pressure never blocks the transport. When the bounded journal is
+    /// full it evicts the oldest event and advances the explicit eviction
+    /// counter returned by [`Self::diagnostics`].
+    pub fn next_event(&mut self) -> Option<AppServerSessionEvent> {
+        self.events.next_event()
     }
 
     /// Returns terminal accounting after process reaping and proxy closure.
@@ -946,17 +1074,45 @@ impl AppServerProcessSession {
         for _ in 0..self.limits.poll_events {
             match self.reader_rx.try_recv() {
                 Ok(ReaderEvent::Line(line)) => {
-                    let observation = match self.proxy.ingest_server(&line) {
+                    let candidate = match self.proxy.prepare_server(&line) {
+                        Ok(candidate) => candidate,
+                        Err(error) => {
+                            self.begin_termination(AppServerProcessOutcome::ProtocolFailure);
+                            return Err(error.into());
+                        }
+                    };
+                    let next_initialization =
+                        match self.server_initialization_after(candidate.observation()) {
+                            Ok(next) => next,
+                            Err(error) => {
+                                self.begin_termination(AppServerProcessOutcome::ProtocolFailure);
+                                return Err(error);
+                            }
+                        };
+                    if let AppServerInterceptionDecision::Block(rule) =
+                        self.interception.evaluate(candidate.observation())
+                    {
+                        if let Err(error) =
+                            self.events.record_blocked(candidate.observation(), rule)
+                        {
+                            self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+                            return Err(error.into());
+                        }
+                        self.begin_termination(AppServerProcessOutcome::InterceptionBlocked);
+                        return Err(AppServerProcessError::InterceptionBlocked { rule });
+                    }
+                    let observation = match self.proxy.admit(candidate) {
                         Ok(observation) => observation,
                         Err(error) => {
                             self.begin_termination(AppServerProcessOutcome::ProtocolFailure);
                             return Err(error.into());
                         }
                     };
-                    if let Err(error) = self.observe_server_initialization(&observation) {
-                        self.begin_termination(AppServerProcessOutcome::ProtocolFailure);
-                        return Err(error);
+                    if let Err(error) = self.events.record_accepted(&observation) {
+                        self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+                        return Err(error.into());
                     }
+                    self.initialization = next_initialization;
                     progress.server_messages = progress
                         .server_messages
                         .checked_add(1)
@@ -1006,17 +1162,17 @@ impl AppServerProcessSession {
         Ok(())
     }
 
-    fn observe_server_initialization(
-        &mut self,
+    fn server_initialization_after(
+        &self,
         observation: &AppServerMessageObservation,
-    ) -> Result<(), AppServerProcessError> {
+    ) -> Result<InitializationState, AppServerProcessError> {
         if matches!(self.initialization, InitializationState::Ready)
             || matches!(self.lifecycle, LifecycleState::Terminating)
         {
-            return Ok(());
+            return Ok(self.initialization.clone());
         }
         if observation.kind() == AppServerProxyMessageKind::Notification {
-            return Ok(());
+            return Ok(self.initialization.clone());
         }
         let InitializationState::AwaitingInitializeResponse(expected_id) = &self.initialization
         else {
@@ -1026,11 +1182,9 @@ impl AppServerProcessSession {
             return Err(AppServerProcessError::UnexpectedServerInitializationMessage);
         }
         match observation.kind() {
-            AppServerProxyMessageKind::SuccessResponse => {
-                self.initialization =
-                    InitializationState::InitializeResponseQueued(expected_id.clone());
-                Ok(())
-            }
+            AppServerProxyMessageKind::SuccessResponse => Ok(
+                InitializationState::InitializeResponseQueued(expected_id.clone()),
+            ),
             AppServerProxyMessageKind::ErrorResponse => {
                 Err(AppServerProcessError::InitializeRejected)
             }
@@ -1105,6 +1259,10 @@ impl AppServerProcessSession {
             let Some(frame) = self.proxy.next_for_server(now)? else {
                 break;
             };
+            if let Err(error) = self.events.record_forwarded(frame.observation()) {
+                self.begin_termination(AppServerProcessOutcome::ObservationFailure);
+                return Err(error.into());
+            }
             self.observe_dispatched_frame(&frame)?;
             let Some(writer) = self.writer_tx.as_ref() else {
                 self.begin_termination(AppServerProcessOutcome::TransportFailure);
@@ -1270,6 +1428,7 @@ impl AppServerProcessSession {
         }
         let initialized = matches!(self.initialization, InitializationState::Ready);
         let close = self.proxy.close();
+        self.events.clear_correlations();
         self.initialization = InitializationState::AwaitingInitialize;
         let (_reader_sender, empty_reader) = sync_channel(1);
         self.reader_rx = empty_reader;
@@ -1319,9 +1478,41 @@ impl AppServerProcessSession {
     }
 }
 
+fn process_deadlines(
+    child: &mut Child,
+    limits: AppServerProcessLimits,
+    now: Instant,
+) -> Result<(Instant, Instant), AppServerProcessError> {
+    let Some(initialization) = now.checked_add(limits.initialization_timeout) else {
+        terminate_child(child);
+        return Err(AppServerProcessError::DeadlineOverflow);
+    };
+    let Some(runtime) = now.checked_add(limits.runtime_timeout) else {
+        terminate_child(child);
+        return Err(AppServerProcessError::DeadlineOverflow);
+    };
+    Ok((initialization, runtime))
+}
+
+fn create_control_state(
+    proxy_limits: AppServerProxyLimits,
+    controls: AppServerProcessControls,
+) -> (
+    TransparentAppServerProxy,
+    AppServerInterceptionPolicy,
+    AppServerSessionEventJournal,
+) {
+    (
+        TransparentAppServerProxy::new(proxy_limits),
+        controls.interception,
+        AppServerSessionEventJournal::new(controls.event_limits),
+    )
+}
+
 impl Drop for AppServerProcessSession {
     fn drop(&mut self) {
         self.proxy.close();
+        self.events.clear_correlations();
         self.writer_tx.take();
         if let Some(process) = self.process_tx.take() {
             request_process_termination(&process);

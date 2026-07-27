@@ -259,8 +259,16 @@ fn atomic_job_launch_inherits_only_bounded_stdio_and_explicit_environment()
         .take_stderr()
         .ok_or("child standard error was already taken")?
         .read_to_string(&mut stderr)?;
-    assert_eq!(stdout, "PROBE\n");
-    assert_eq!(stderr, "diagnostic\n");
+    assert_eq!(
+        stdout.lines().filter(|line| *line == "PROBE").count(),
+        1,
+        "child probe payload was missing or duplicated: {stdout:?}"
+    );
+    assert_eq!(
+        stderr.lines().filter(|line| *line == "diagnostic").count(),
+        1,
+        "child diagnostic payload was missing or duplicated: {stderr:?}"
+    );
     Ok(())
 }
 

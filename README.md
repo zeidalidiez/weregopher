@@ -47,7 +47,7 @@ never makes an application compatible by itself.
 | --- | --- |
 | Domain and protocol contracts | Implemented in Rust with deterministic JSON Schemas, including bounded execution-target, generated resolution-evidence, disposable certification-scenario, and successful scenario-report documents |
 | Synthetic G1 runtime and renderer slice | Portable closed contracts, immutable private-origin assets, renderer lifecycle/authority, bounded native-binary MessagePack framing, authenticated handshake negotiation, request cancellation/deadlines, ordered events, and credit-controlled inline streams are implemented. Native Windows fixtures exercise the current-user named-pipe worker and a hidden WebView2 package → bridge → worker → DOM round trip with browser-exit and ephemeral-profile cleanup. This completes synthetic G1, not WP-D or a production renderer: atomic nonce-handle launch, non-call session/app binding, sync/deadlock handling, shared buffers, fuzzing/stress, preload/`contextBridge`, vendor compatibility, security posture, and efficiency evidence remain pending |
-| OpenAI G2 target feasibility | Canonical package, preload/bridge, app-server, and aggregate evidence contracts; read-only analysis for the maintained exact Windows x64 MSIX identity; bounded exact-binary schema/initialization probing; and a hosted-Windows synthetic isolated-world fixture are implemented. `weregopher feasibility open-ai` can produce exact package inventory and, with explicit acknowledgement, exact app-server evidence in a user-controlled disposable Windows test account/VM. G2 remains incomplete until an exact package-derived preload runner produces a passing report for the same build; synthetic evidence cannot satisfy that lane, and no application compatibility, certification, security-posture, or efficiency claim follows |
+| OpenAI G2 target feasibility | Canonical package, preload/bridge, app-server, and aggregate evidence contracts; read-only analysis for the maintained exact Windows x64 MSIX identity; a digest-revalidating exact package-derived preload runner; bounded exact-binary schema/initialization probing; and hosted-Windows synthetic isolated-world coverage are implemented. `weregopher feasibility open-ai` can produce all three exact lanes, serially and with explicit acknowledgement, in a user-controlled disposable Windows test account/VM. G2 remains operationally incomplete until hosted native CI and the final Windows 10/11 exact matrix pass for one pinned build; configured-preload resolution, vendor renderer/IPC compatibility, certification, security posture, and efficiency remain separate claims |
 | Package manifest construction | Deterministic construction from pre-observed file records, with read-only public accessors, closed transport objects, a 256-component path ceiling, a 65,536-record ceiling, and a 16 MiB aggregate normalized-path budget |
 | Portable package fingerprint scan | Complete two-pass file/link scanning validates canonical path syntax and fixed record/path ceilings before hashing or retention, rejects non-root empty directories that format v1 cannot encode, and emits manifests only through the canonical builder; this is stable observational evidence, not an immutable snapshot or retained build lease |
 | Windows file observation | Bounded direct-file hashing with retained handle identity checks |
@@ -138,9 +138,9 @@ focused-only path for constrained development machines and moves their full matr
 to isolated CI.
 
 The separate [OpenAI G2 feasibility runbook](docs/testing/openai-g2-feasibility.md)
-stages exact installed-package inventory and app-server checks after hosted CI,
-keeps them serial on user-controlled Windows, and records why the exact preload lane
-is still required before G2 can pass.
+stages exact installed-package inventory, preload, and app-server checks after hosted
+CI, keeps them serial on user-controlled Windows, and defines the final Windows 10/11
+tester matrix and evidence boundary required before G2 can pass.
 
 ## Discord local certification control plane
 

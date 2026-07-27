@@ -41,13 +41,13 @@ pub enum ExactPreloadProbeError {
     /// The immutable synthetic probe origin could not be constructed.
     #[error("failed to construct the exact preload probe origin: {0}")]
     Origin(#[from] PackageOriginError),
-    /// The native WebView2 fixture failed or did not clean up.
+    /// The native `WebView2` fixture failed or did not clean up.
     #[error("exact preload WebView2 probe failed: {0}")]
     Renderer(#[from] WebView2FixtureError),
     /// Host-observed JSON did not satisfy the closed probe shape.
     #[error("exact preload probe returned an invalid observation")]
     InvalidObservation,
-    /// Too many unrelated WebView messages arrived before canonical evidence.
+    /// Too many unrelated `WebView` messages arrived before canonical evidence.
     #[error("exact preload probe exceeded its observed-message limit")]
     TooManyObservedMessages,
     /// The page reported evidence for another navigation generation.
@@ -67,7 +67,7 @@ enum ProbeObservation {
     },
 }
 
-/// Executes one revalidated package-derived preload in the bounded WebView2 bridge probe.
+/// Executes one revalidated package-derived preload in the bounded `WebView2` bridge probe.
 ///
 /// The exact source runs in a named isolated world against a closed synthetic
 /// page and an inert, bounded Electron preload shim. The probe does not run the
@@ -79,7 +79,7 @@ enum ProbeObservation {
 /// # Errors
 ///
 /// Returns [`ExactPreloadProbeError`] for program bounds, immutable-origin,
-/// WebView2, observation, cleanup, or report-contract failures. JavaScript
+/// `WebView2`, observation, cleanup, or report-contract failures. JavaScript
 /// compatibility failures that remain observable produce a canonical report
 /// with failed checks instead of exposing source errors.
 pub fn probe_exact_preload(

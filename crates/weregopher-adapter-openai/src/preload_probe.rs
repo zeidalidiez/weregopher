@@ -18,7 +18,9 @@ const PRELOAD_PROBE_ISOLATED_PREFIX: &str = include_str!("preload_probe/isolated
 const PRELOAD_PROBE_ISOLATED_SUFFIX: &str = include_str!("preload_probe/isolated-suffix.js");
 const PRELOAD_FILENAME_TOKEN: &str = "__WEREGOPHER_PRELOAD_FILENAME__";
 const PRELOAD_DIRECTORY_TOKEN: &str = "__WEREGOPHER_PRELOAD_DIRECTORY__";
+#[cfg(test)]
 const PRELOAD_SOURCE_START: &str = "/*__WEREGOPHER_EXACT_PRELOAD_SOURCE_START__*/\n";
+#[cfg(test)]
 const PRELOAD_SOURCE_END: &str = "\n/*__WEREGOPHER_EXACT_PRELOAD_SOURCE_END__*/";
 
 /// Matches the renderer fixture's hard document-start registration ceiling.

@@ -161,8 +161,9 @@ Treat any of these as a blocked finding rather than weakening the probe:
 
 The shim provides limited `contextBridge`, inert `ipcRenderer`, `events`, `timers`,
 `url`, and renderer `process` behavior only. Its IPC methods do not contact a main
-process, and the probe never invokes a vendor-exposed function. These restrictions are
-deliberate G2 diagnostics, not silent compatibility claims.
+process, raw `ipcRenderer` projection is rejected, and the probe never invokes a
+vendor-exposed function. These restrictions are deliberate G2 diagnostics, not silent
+compatibility claims.
 
 ## Imported exact preload report boundary
 

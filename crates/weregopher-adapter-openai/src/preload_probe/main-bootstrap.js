@@ -4,6 +4,8 @@
 
   const channel = "__weregopher_g2_exact_preload_v1";
   const observationNonce = __WEREGOPHER_OBSERVATION_NONCE__;
+  const postHost =
+    window.chrome.webview.postMessage.bind(window.chrome.webview);
   const maxDepth = 16;
   const maxNodes = 4096;
   const maxMessageBytes = 1024 * 1024;
@@ -181,7 +183,11 @@
   };
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || typeof event.data !== "string") return;
+    if (
+      event.source !== window ||
+      typeof event.data !== "string" ||
+      event.data.length > maxMessageBytes
+    ) return;
     let message;
     try {
       message = JSON.parse(event.data);
@@ -286,7 +292,7 @@
   };
 
   const submit = (checks) => {
-    window.chrome.webview.postMessage({
+    postHost({
       kind: "g2_exact_preload_observation",
       observation_nonce: observationNonce,
       generation,

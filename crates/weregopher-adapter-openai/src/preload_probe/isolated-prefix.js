@@ -83,6 +83,9 @@
     if (typeof value === "function") {
       return { kind: "function", handle: registerFunction(value) };
     }
+    if (value === ipcRenderer) {
+      throw new TypeError("raw ipcRenderer projection is unsupported");
+    }
     if (typeof value !== "object" || seen.has(value)) {
       throw new TypeError("unsupported bridge value");
     }
@@ -340,7 +343,11 @@
   }));
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || typeof event.data !== "string") return;
+    if (
+      event.source !== window ||
+      typeof event.data !== "string" ||
+      event.data.length > maxMessageBytes
+    ) return;
     let message;
     try {
       message = JSON.parse(event.data);

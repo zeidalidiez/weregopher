@@ -7,25 +7,27 @@ use schemars::{JsonSchema, schema_for};
 use serde_json::{Value, json};
 use weregopher_adapter_discord::DiscordSmokeCertificationReport;
 use weregopher_domain::{
-    AdapterExecutionAuthority, AdapterTransformAuthority, BuildFingerprint, CallContext,
-    CandidateInstallationEvidence, CandidateProfile, CertificationClass, CertificationEvidence,
-    CertificationProfile, CertificationRunnerComponentDescriptor, CertificationRunnerIdentity,
-    CompatibilityAnalysis, DisposableCertificationScenario, DisposableCertificationScenarioReport,
-    EffectiveSecurityPosture, ExecutionResolutionEvidence, ExecutionTargetContract, FrameHeader,
-    GeneratedExecutionOverlay, GeneratedTransformOverlay, HeartbeatPolicy,
-    LocalCertificationLedgerRecord, LocalCertificationRunAttestation, ProtocolFeatures,
-    ProtocolLimits, ProtocolReject, ProtocolVersion, ProtocolVersionRange, PublicationStatus,
-    RendererBridgeInvocation, RendererBridgeReply, RendererEnvelope, RuntimeBackendIdentity,
-    RuntimeCall, RuntimeCallError, RuntimeCallResult, RuntimeCancel, RuntimeEvent, RuntimeHello,
-    RuntimeShutdown, RuntimeStreamData, RuntimeStreamOpen, RuntimeStreamWindow, RuntimeWelcome,
-    TrustMode, WireValue,
+    AdapterExecutionAuthority, AdapterTransformAuthority, AppServerProbeReport, BuildFingerprint,
+    CallContext, CandidateInstallationEvidence, CandidateProfile, CertificationClass,
+    CertificationEvidence, CertificationProfile, CertificationRunnerComponentDescriptor,
+    CertificationRunnerIdentity, CompatibilityAnalysis, DisposableCertificationScenario,
+    DisposableCertificationScenarioReport, EffectiveSecurityPosture, ExecutionResolutionEvidence,
+    ExecutionTargetContract, FrameHeader, G2FeasibilityReport, GeneratedExecutionOverlay,
+    GeneratedTransformOverlay, HeartbeatPolicy, LocalCertificationLedgerRecord,
+    LocalCertificationRunAttestation, OpenAiPackageInventory, PreloadBridgeProbeReport,
+    ProtocolFeatures, ProtocolLimits, ProtocolReject, ProtocolVersion, ProtocolVersionRange,
+    PublicationStatus, RendererBridgeInvocation, RendererBridgeReply, RendererEnvelope,
+    RuntimeBackendIdentity, RuntimeCall, RuntimeCallError, RuntimeCallResult, RuntimeCancel,
+    RuntimeEvent, RuntimeHello, RuntimeShutdown, RuntimeStreamData, RuntimeStreamOpen,
+    RuntimeStreamWindow, RuntimeWelcome, TrustMode, WireValue,
 };
 use weregopher_fingerprint::PackageTreeManifest;
 
 /// Canonical generated schema filenames in deterministic order.
-pub const SCHEMA_FILENAMES: [&str; 48] = [
+pub const SCHEMA_FILENAMES: [&str; 52] = [
     "adapter-execution-authority.schema.json",
     "adapter-transform-authority.schema.json",
+    "app-server-probe-report.schema.json",
     "build-fingerprint.schema.json",
     "call-context.schema.json",
     "candidate-installation-evidence.schema.json",
@@ -43,12 +45,15 @@ pub const SCHEMA_FILENAMES: [&str; 48] = [
     "execution-resolution-evidence.schema.json",
     "execution-target-contract.schema.json",
     "frame-header.schema.json",
+    "g2-feasibility-report.schema.json",
     "generated-execution-overlay.schema.json",
     "generated-transform-overlay.schema.json",
     "heartbeat-policy.schema.json",
     "local-certification-ledger-record.schema.json",
     "local-certification-run-attestation.schema.json",
+    "openai-package-inventory.schema.json",
     "package-tree-manifest.schema.json",
+    "preload-bridge-probe-report.schema.json",
     "protocol-features.schema.json",
     "protocol-limits.schema.json",
     "protocol-reject.schema.json",
@@ -146,52 +151,56 @@ fn schema_documents() -> Result<Vec<(&'static str, Vec<u8>)>> {
     Ok(vec![
         schema_document::<AdapterExecutionAuthority>(SCHEMA_FILENAMES[0])?,
         schema_document::<AdapterTransformAuthority>(SCHEMA_FILENAMES[1])?,
-        schema_document::<BuildFingerprint>(SCHEMA_FILENAMES[2])?,
-        schema_document::<CallContext>(SCHEMA_FILENAMES[3])?,
-        schema_document::<CandidateInstallationEvidence>(SCHEMA_FILENAMES[4])?,
-        schema_document::<CandidateProfile>(SCHEMA_FILENAMES[5])?,
-        schema_document::<CertificationClass>(SCHEMA_FILENAMES[6])?,
-        schema_document::<CertificationEvidence>(SCHEMA_FILENAMES[7])?,
-        schema_document::<CertificationProfile>(SCHEMA_FILENAMES[8])?,
-        schema_document::<CertificationRunnerComponentDescriptor>(SCHEMA_FILENAMES[9])?,
-        schema_document::<CertificationRunnerIdentity>(SCHEMA_FILENAMES[10])?,
-        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[11])?,
-        schema_document::<DisposableCertificationScenarioReport>(SCHEMA_FILENAMES[12])?,
-        schema_document::<DisposableCertificationScenario>(SCHEMA_FILENAMES[13])?,
-        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[14])?,
-        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[15])?,
-        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[16])?,
-        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[17])?,
-        schema_document::<FrameHeader>(SCHEMA_FILENAMES[18])?,
-        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[19])?,
-        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[20])?,
-        schema_document::<HeartbeatPolicy>(SCHEMA_FILENAMES[21])?,
-        schema_document::<LocalCertificationLedgerRecord>(SCHEMA_FILENAMES[22])?,
-        schema_document::<LocalCertificationRunAttestation>(SCHEMA_FILENAMES[23])?,
-        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[24])?,
-        schema_document::<ProtocolFeatures>(SCHEMA_FILENAMES[25])?,
-        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[26])?,
-        schema_document::<ProtocolReject>(SCHEMA_FILENAMES[27])?,
-        schema_document::<ProtocolVersion>(SCHEMA_FILENAMES[28])?,
-        schema_document::<ProtocolVersionRange>(SCHEMA_FILENAMES[29])?,
-        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[30])?,
-        schema_document::<RendererBridgeInvocation>(SCHEMA_FILENAMES[31])?,
-        schema_document::<RendererBridgeReply>(SCHEMA_FILENAMES[32])?,
-        schema_document::<RendererEnvelope>(SCHEMA_FILENAMES[33])?,
-        schema_document::<RuntimeBackendIdentity>(SCHEMA_FILENAMES[34])?,
-        schema_document::<RuntimeCall>(SCHEMA_FILENAMES[35])?,
-        schema_document::<RuntimeCallError>(SCHEMA_FILENAMES[36])?,
-        schema_document::<RuntimeCallResult>(SCHEMA_FILENAMES[37])?,
-        schema_document::<RuntimeCancel>(SCHEMA_FILENAMES[38])?,
-        schema_document::<RuntimeEvent>(SCHEMA_FILENAMES[39])?,
-        schema_document::<RuntimeHello>(SCHEMA_FILENAMES[40])?,
-        schema_document::<RuntimeShutdown>(SCHEMA_FILENAMES[41])?,
-        schema_document::<RuntimeStreamData>(SCHEMA_FILENAMES[42])?,
-        schema_document::<RuntimeStreamOpen>(SCHEMA_FILENAMES[43])?,
-        schema_document::<RuntimeStreamWindow>(SCHEMA_FILENAMES[44])?,
-        schema_document::<RuntimeWelcome>(SCHEMA_FILENAMES[45])?,
-        schema_document::<TrustMode>(SCHEMA_FILENAMES[46])?,
-        schema_document::<WireValue>(SCHEMA_FILENAMES[47])?,
+        schema_document::<AppServerProbeReport>(SCHEMA_FILENAMES[2])?,
+        schema_document::<BuildFingerprint>(SCHEMA_FILENAMES[3])?,
+        schema_document::<CallContext>(SCHEMA_FILENAMES[4])?,
+        schema_document::<CandidateInstallationEvidence>(SCHEMA_FILENAMES[5])?,
+        schema_document::<CandidateProfile>(SCHEMA_FILENAMES[6])?,
+        schema_document::<CertificationClass>(SCHEMA_FILENAMES[7])?,
+        schema_document::<CertificationEvidence>(SCHEMA_FILENAMES[8])?,
+        schema_document::<CertificationProfile>(SCHEMA_FILENAMES[9])?,
+        schema_document::<CertificationRunnerComponentDescriptor>(SCHEMA_FILENAMES[10])?,
+        schema_document::<CertificationRunnerIdentity>(SCHEMA_FILENAMES[11])?,
+        schema_document::<CompatibilityAnalysis>(SCHEMA_FILENAMES[12])?,
+        schema_document::<DisposableCertificationScenarioReport>(SCHEMA_FILENAMES[13])?,
+        schema_document::<DisposableCertificationScenario>(SCHEMA_FILENAMES[14])?,
+        schema_document::<DiscordSmokeCertificationReport>(SCHEMA_FILENAMES[15])?,
+        schema_document::<EffectiveSecurityPosture>(SCHEMA_FILENAMES[16])?,
+        schema_document::<ExecutionResolutionEvidence>(SCHEMA_FILENAMES[17])?,
+        schema_document::<ExecutionTargetContract>(SCHEMA_FILENAMES[18])?,
+        schema_document::<FrameHeader>(SCHEMA_FILENAMES[19])?,
+        schema_document::<G2FeasibilityReport>(SCHEMA_FILENAMES[20])?,
+        schema_document::<GeneratedExecutionOverlay>(SCHEMA_FILENAMES[21])?,
+        schema_document::<GeneratedTransformOverlay>(SCHEMA_FILENAMES[22])?,
+        schema_document::<HeartbeatPolicy>(SCHEMA_FILENAMES[23])?,
+        schema_document::<LocalCertificationLedgerRecord>(SCHEMA_FILENAMES[24])?,
+        schema_document::<LocalCertificationRunAttestation>(SCHEMA_FILENAMES[25])?,
+        schema_document::<OpenAiPackageInventory>(SCHEMA_FILENAMES[26])?,
+        schema_document::<PackageTreeManifest>(SCHEMA_FILENAMES[27])?,
+        schema_document::<PreloadBridgeProbeReport>(SCHEMA_FILENAMES[28])?,
+        schema_document::<ProtocolFeatures>(SCHEMA_FILENAMES[29])?,
+        schema_document::<ProtocolLimits>(SCHEMA_FILENAMES[30])?,
+        schema_document::<ProtocolReject>(SCHEMA_FILENAMES[31])?,
+        schema_document::<ProtocolVersion>(SCHEMA_FILENAMES[32])?,
+        schema_document::<ProtocolVersionRange>(SCHEMA_FILENAMES[33])?,
+        schema_document::<PublicationStatus>(SCHEMA_FILENAMES[34])?,
+        schema_document::<RendererBridgeInvocation>(SCHEMA_FILENAMES[35])?,
+        schema_document::<RendererBridgeReply>(SCHEMA_FILENAMES[36])?,
+        schema_document::<RendererEnvelope>(SCHEMA_FILENAMES[37])?,
+        schema_document::<RuntimeBackendIdentity>(SCHEMA_FILENAMES[38])?,
+        schema_document::<RuntimeCall>(SCHEMA_FILENAMES[39])?,
+        schema_document::<RuntimeCallError>(SCHEMA_FILENAMES[40])?,
+        schema_document::<RuntimeCallResult>(SCHEMA_FILENAMES[41])?,
+        schema_document::<RuntimeCancel>(SCHEMA_FILENAMES[42])?,
+        schema_document::<RuntimeEvent>(SCHEMA_FILENAMES[43])?,
+        schema_document::<RuntimeHello>(SCHEMA_FILENAMES[44])?,
+        schema_document::<RuntimeShutdown>(SCHEMA_FILENAMES[45])?,
+        schema_document::<RuntimeStreamData>(SCHEMA_FILENAMES[46])?,
+        schema_document::<RuntimeStreamOpen>(SCHEMA_FILENAMES[47])?,
+        schema_document::<RuntimeStreamWindow>(SCHEMA_FILENAMES[48])?,
+        schema_document::<RuntimeWelcome>(SCHEMA_FILENAMES[49])?,
+        schema_document::<TrustMode>(SCHEMA_FILENAMES[50])?,
+        schema_document::<WireValue>(SCHEMA_FILENAMES[51])?,
     ])
 }
 
@@ -272,6 +281,12 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
     if filename == "renderer-bridge-reply.schema.json" {
         require_exactly_one_renderer_bridge_reply_outcome(document)?;
     }
+    if filename == "g2-feasibility-report.schema.json" {
+        require_g2_gate_evidence_status_binding(document)?;
+    }
+    if filename == "openai-package-inventory.schema.json" {
+        annotate_openai_package_inventory(document)?;
+    }
     if matches!(
         filename,
         "renderer-bridge-invocation.schema.json" | "renderer-envelope.schema.json"
@@ -285,6 +300,69 @@ fn normalize_schema_meta(document: &mut Value, filename: &str) -> Result<()> {
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn require_g2_gate_evidence_status_binding(document: &mut Value) -> Result<()> {
+    let gate = document
+        .pointer_mut("/$defs/G2GateEvidence")
+        .and_then(Value::as_object_mut)
+        .context("G2 gate evidence schema definition is missing")?;
+    gate.insert(
+        "oneOf".to_owned(),
+        json!([
+            {
+                "properties": {
+                    "status": {"const": "not_run"},
+                    "evidence_digest": {"type": "null"}
+                },
+                "required": ["status"]
+            },
+            {
+                "properties": {
+                    "status": {"enum": ["failed", "passed"]},
+                    "evidence_digest": {"$ref": "#/$defs/Sha256Digest"}
+                },
+                "required": ["status", "evidence_digest"]
+            }
+        ]),
+    );
+    Ok(())
+}
+
+fn annotate_openai_package_inventory(document: &mut Value) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .context("OpenAI package inventory schema root is not an object")?;
+    root.insert(
+        "x-weregopher-uniqueComponentLocation".to_owned(),
+        json!(["source", "path"]),
+    );
+    let definitions = root
+        .get_mut("$defs")
+        .and_then(Value::as_object_mut)
+        .context("OpenAI package inventory schema definitions are missing")?;
+    let package_path = definitions
+        .get_mut("G2PackagePath")
+        .and_then(Value::as_object_mut)
+        .context("G2 package path schema definition is missing")?;
+    package_path.insert(
+        "pattern".to_owned(),
+        json!(r"^(?!/)(?!.*(?:^|/)(?:\.|\.\.)(?:/|$))(?!.*//)(?!.*\\)(?!.*\/$)[^\u0000-\u001f]+$"),
+    );
+    package_path.insert(
+        "x-weregopher-maxComponents".to_owned(),
+        json!(weregopher_domain::MAX_G2_PACKAGE_PATH_COMPONENTS),
+    );
+    let byte_length = definitions
+        .get_mut("G2ComponentEvidence")
+        .and_then(Value::as_object_mut)
+        .and_then(|component| component.get_mut("properties"))
+        .and_then(Value::as_object_mut)
+        .and_then(|properties| properties.get_mut("byte_length"))
+        .and_then(Value::as_object_mut)
+        .context("G2 component byte-length schema is missing")?;
+    byte_length.insert("minimum".to_owned(), json!(1));
     Ok(())
 }
 

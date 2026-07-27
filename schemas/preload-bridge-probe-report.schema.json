@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "G2FormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "G2ProbeScope": {
+      "description": "Scope of the package bytes exercised by one G2 runtime probe.",
+      "oneOf": [
+        {
+          "const": "synthetic_fixture",
+          "description": "Public synthetic fixture proving only the Weregopher mechanism.",
+          "type": "string"
+        },
+        {
+          "const": "exact_package",
+          "description": "Exact content-addressed installed-package component.",
+          "type": "string"
+        }
+      ]
+    },
+    "PreloadBridgeChecks": {
+      "additionalProperties": false,
+      "description": "Required preload/`contextBridge` fidelity checks.",
+      "properties": {
+        "document_start": {
+          "description": "Preload bootstrap ran before packaged page scripts.",
+          "type": "boolean"
+        },
+        "frozen_projection": {
+          "description": "Values projected into the page were immutable.",
+          "type": "boolean"
+        },
+        "function_round_trip": {
+          "description": "A projected function completed a host round trip.",
+          "type": "boolean"
+        },
+        "isolated_globals": {
+          "description": "Preload and page global objects were distinct.",
+          "type": "boolean"
+        },
+        "navigation_invalidation": {
+          "description": "Navigation invalidated the prior world and its handles.",
+          "type": "boolean"
+        },
+        "prototype_isolation": {
+          "description": "Page prototype mutation did not affect the preload world.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "document_start",
+        "isolated_globals",
+        "prototype_isolation",
+        "frozen_projection",
+        "function_round_trip",
+        "navigation_invalidation"
+      ],
+      "type": "object"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Content-addressed preload and renderer-isolation probe evidence.",
+  "properties": {
+    "backend_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "checks": {
+      "$ref": "#/$defs/PreloadBridgeChecks"
+    },
+    "format_version": {
+      "$ref": "#/$defs/G2FormatVersion"
+    },
+    "preload_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "renderer_backend_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "scope": {
+      "$ref": "#/$defs/G2ProbeScope"
+    },
+    "source_build_fingerprint_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    }
+  },
+  "required": [
+    "format_version",
+    "source_build_fingerprint_digest",
+    "preload_digest",
+    "renderer_backend_digest",
+    "backend_version",
+    "scope",
+    "checks"
+  ],
+  "title": "PreloadBridgeProbeReport",
+  "type": "object"
+}

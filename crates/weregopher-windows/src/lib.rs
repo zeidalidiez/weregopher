@@ -26,7 +26,10 @@ pub use pipe::{
     CurrentUserNamedPipeServer, NamedPipeAddress, NamedPipeClient, VerifiedNamedPipe,
     connect_named_pipe,
 };
-pub use process::{LockedExecutable, OwnedJobProcess, PreparedProcessLaunch, ProcessLaunchLimits};
+pub use process::{
+    LockedExecutable, OwnedJobProcess, OwnedJobStdioProcess, PreparedProcessLaunch,
+    ProcessEnvironment, ProcessLaunchLimits,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct FileIdentity {

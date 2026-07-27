@@ -1,6 +1,7 @@
 //! Locked executable paths and atomically Job-owned suspended process launch.
 
 use std::{
+    collections::BTreeMap,
     ffi::{OsStr, OsString},
     fmt,
     fs::{File, OpenOptions},
@@ -9,7 +10,7 @@ use std::{
     os::windows::{
         ffi::OsStrExt as _,
         fs::{MetadataExt as _, OpenOptionsExt as _},
-        io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle},
+        io::{AsRawHandle as _, FromRawHandle as _, IntoRawHandle as _, OwnedHandle},
     },
     path::{Component, Path, PathBuf, Prefix},
     ptr,
@@ -18,23 +19,35 @@ use std::{
 };
 
 use windows_sys::Win32::{
-    Foundation::{HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
+    Foundation::{
+        HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    },
+    Security::SECURITY_ATTRIBUTES,
     Storage::FileSystem::{
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
         FILE_FLAG_SEQUENTIAL_SCAN, FILE_SHARE_READ, FILE_SHARE_WRITE,
     },
-    System::Threading::{
-        CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
-        DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess,
-        InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-        PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION, ResumeThread, STARTUPINFOEXW,
-        TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+    System::{
+        Pipes::CreatePipe,
+        Threading::{
+            CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
+            DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess,
+            InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION,
+            ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess,
+            UpdateProcThreadAttribute, WaitForSingleObject,
+        },
     },
 };
 
 use crate::{FileIdentity, FileIdentityLease, KillOnCloseJob};
 
 const WINDOWS_COMMAND_LINE_MAX_UNITS: usize = 32_767;
+const WINDOWS_ENVIRONMENT_MAX_UNITS: usize = 32_767;
+const MAX_ENVIRONMENT_VARIABLES: usize = 64;
+const MAX_ENVIRONMENT_NAME_BYTES: usize = 128;
+const MAX_ENVIRONMENT_VALUE_UNITS: usize = 4_096;
+const MAX_ANONYMOUS_PIPE_BUFFER_BYTES: u32 = 4 * 1024 * 1024;
 static NEXT_LOCK_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
 
 fn allocate_lock_instance_id() -> io::Result<u64> {
@@ -105,6 +118,141 @@ impl ProcessLaunchLimits {
     }
 }
 
+/// Explicit, bounded Unicode environment for one child process.
+///
+/// Names are restricted to canonical uppercase ASCII identifiers so
+/// case-insensitive Windows duplicates cannot be smuggled into the environment.
+/// Values may contain Unicode but not NUL or control characters. Debug output
+/// reports only counts and sizes so environment values cannot leak through
+/// diagnostics.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProcessEnvironment {
+    block: Vec<u16>,
+    variable_count: usize,
+}
+
+impl ProcessEnvironment {
+    /// Constructs a sorted Windows Unicode environment block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for duplicate/noncanonical names,
+    /// control-bearing or oversized values, excessive variable count, or an
+    /// environment that exceeds the Windows block ceiling.
+    pub fn new<I, K, V>(variables: I) -> io::Result<Self>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<OsString>,
+        V: Into<OsString>,
+    {
+        let mut canonical = BTreeMap::new();
+        for (name, value) in variables {
+            if canonical.len() == MAX_ENVIRONMENT_VARIABLES {
+                return Err(invalid_input(
+                    "process environment exceeds its variable-count limit",
+                ));
+            }
+            let name = name.into();
+            let name = name
+                .to_str()
+                .ok_or_else(|| invalid_input("process environment name must be Unicode"))?;
+            if name.is_empty()
+                || name.len() > MAX_ENVIRONMENT_NAME_BYTES
+                || !name.bytes().enumerate().all(|(index, byte)| {
+                    byte.is_ascii_uppercase()
+                        || byte == b'_'
+                        || (index != 0 && byte.is_ascii_digit())
+                })
+            {
+                return Err(invalid_input(
+                    "process environment name is not canonical uppercase ASCII",
+                ));
+            }
+            let value = value.into();
+            let value_units = encode_units(value.as_os_str(), MAX_ENVIRONMENT_VALUE_UNITS)?;
+            if value_units
+                .iter()
+                .any(|unit| *unit < u16::from(b' ') || *unit == 0x7f)
+            {
+                return Err(invalid_input(
+                    "process environment value contains a control character",
+                ));
+            }
+            if canonical.insert(name.to_owned(), value_units).is_some() {
+                return Err(invalid_input(
+                    "process environment contains a duplicate variable",
+                ));
+            }
+        }
+        encode_environment_block(&canonical)
+    }
+
+    /// Returns an explicit empty Windows environment block.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            block: vec![0, 0],
+            variable_count: 0,
+        }
+    }
+
+    fn block(&self) -> &[u16] {
+        &self.block
+    }
+}
+
+impl fmt::Debug for ProcessEnvironment {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProcessEnvironment")
+            .field("variable_count", &self.variable_count)
+            .field("encoded_units", &self.block.len())
+            .finish_non_exhaustive()
+    }
+}
+
+fn encode_environment_block(
+    variables: &BTreeMap<String, Vec<u16>>,
+) -> io::Result<ProcessEnvironment> {
+    if variables.is_empty() {
+        return Ok(ProcessEnvironment::empty());
+    }
+    let mut required = 1_usize;
+    for (name, value) in variables {
+        required = required
+            .checked_add(name.len())
+            .and_then(|units| units.checked_add(1))
+            .and_then(|units| units.checked_add(value.len()))
+            .and_then(|units| units.checked_add(1))
+            .ok_or_else(|| invalid_input("process environment length overflowed"))?;
+    }
+    if required > WINDOWS_ENVIRONMENT_MAX_UNITS {
+        return Err(invalid_input(
+            "process environment exceeds the Windows block limit",
+        ));
+    }
+    let mut block = Vec::new();
+    block
+        .try_reserve_exact(required)
+        .map_err(|_| io::Error::other("process environment allocation failed"))?;
+    for (name, value) in variables {
+        block.extend(name.bytes().map(u16::from));
+        block.push(u16::from(b'='));
+        block.extend_from_slice(value);
+        block.push(0);
+    }
+    block.push(0);
+    if block.len() != required {
+        return Err(io::Error::other(
+            "process environment sizing and emission disagreed",
+        ));
+    }
+    Ok(ProcessEnvironment {
+        block,
+        variable_count: variables.len(),
+    })
+}
+
 /// Opaque, exact Windows launch encoding prepared against one retained executable identity.
 ///
 /// Construction validates UTF-16 encoding, C-runtime quoting expansion, aggregate command-line
@@ -120,6 +268,7 @@ pub struct PreparedProcessLaunch {
     application: Vec<u16>,
     current_directory: Vec<u16>,
     command_line: Vec<u16>,
+    environment: Vec<u16>,
 }
 
 impl fmt::Debug for PreparedProcessLaunch {
@@ -129,6 +278,7 @@ impl fmt::Debug for PreparedProcessLaunch {
             .field("application_units", &self.application.len())
             .field("current_directory_units", &self.current_directory.len())
             .field("command_line_units", &self.command_line.len())
+            .field("environment_units", &self.environment.len())
             .finish_non_exhaustive()
     }
 }
@@ -213,6 +363,21 @@ impl LockedExecutable {
         arguments: &[OsString],
         limits: ProcessLaunchLimits,
     ) -> io::Result<PreparedProcessLaunch> {
+        self.prepare_launch_with_environment(arguments, limits, &ProcessEnvironment::empty())
+    }
+
+    /// Prepares a launch with one already validated explicit environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns the path, argument, quoting, and allocation failures documented
+    /// by [`Self::prepare_launch`].
+    pub fn prepare_launch_with_environment(
+        &self,
+        arguments: &[OsString],
+        limits: ProcessLaunchLimits,
+        environment: &ProcessEnvironment,
+    ) -> io::Result<PreparedProcessLaunch> {
         let application = encode_nul_terminated(self.path().as_os_str(), limits.argument_units)?;
         let current_directory_path = self
             .path()
@@ -228,6 +393,7 @@ impl LockedExecutable {
             application,
             current_directory,
             command_line,
+            environment: environment.block().to_vec(),
         })
     }
 
@@ -309,6 +475,81 @@ impl fmt::Debug for OwnedJobProcess {
     }
 }
 
+/// Atomically Job-owned process with exclusive parent ends for standard I/O.
+///
+/// The child inherits exactly its standard-input read handle and
+/// standard-output/error write handles through an explicit Windows handle list.
+/// Taking a stream transfers that parent endpoint to the caller. Dropping the
+/// process owner still terminates the complete Job-owned process tree.
+pub struct OwnedJobStdioProcess {
+    process: OwnedJobProcess,
+    stdin: Option<File>,
+    stdout: Option<File>,
+    stderr: Option<File>,
+}
+
+impl OwnedJobStdioProcess {
+    /// Returns the Windows process identifier captured at creation.
+    #[must_use]
+    pub const fn id(&self) -> u32 {
+        self.process.id()
+    }
+
+    /// Reports whether Windows associates the process with its owned job.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error when membership cannot be queried.
+    pub fn is_in_job(&self) -> io::Result<bool> {
+        self.process.is_in_job()
+    }
+
+    /// Terminates the complete owned process tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error when Windows cannot terminate the job.
+    pub fn terminate(&self, exit_code: u32) -> io::Result<()> {
+        self.process.terminate(exit_code)
+    }
+
+    /// Waits for at most `timeout` and returns an available exit code.
+    ///
+    /// # Errors
+    ///
+    /// Returns the bounded wait errors documented by [`OwnedJobProcess::wait_for`].
+    pub fn wait_for(&self, timeout: Duration) -> io::Result<Option<u32>> {
+        self.process.wait_for(timeout)
+    }
+
+    /// Takes the exclusive parent writer connected to child standard input.
+    pub fn take_stdin(&mut self) -> Option<File> {
+        self.stdin.take()
+    }
+
+    /// Takes the exclusive parent reader connected to child standard output.
+    pub fn take_stdout(&mut self) -> Option<File> {
+        self.stdout.take()
+    }
+
+    /// Takes the exclusive parent reader connected to child standard error.
+    pub fn take_stderr(&mut self) -> Option<File> {
+        self.stderr.take()
+    }
+}
+
+impl fmt::Debug for OwnedJobStdioProcess {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OwnedJobStdioProcess")
+            .field("process_id", &self.process.id())
+            .field("stdin_available", &self.stdin.is_some())
+            .field("stdout_available", &self.stdout.is_some())
+            .field("stderr_available", &self.stderr.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl KillOnCloseJob {
     /// Atomically associates a new suspended process with this job, then resumes its primary thread.
     ///
@@ -364,6 +605,33 @@ impl KillOnCloseJob {
         }
         launch_owned_process(self, executable, prepared)
     }
+
+    /// Atomically launches a Job-owned process with bounded explicit
+    /// environment and exactly inherited standard-I/O pipes.
+    ///
+    /// The process is created suspended with both the Job List and Handle List
+    /// attributes. No child instruction executes before Job membership is
+    /// verified, and unrelated inheritable handles are excluded. The supplied
+    /// environment is explicit rather than inherited from the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for pipe-buffer bounds or the launch
+    /// preparation errors documented by [`Self::launch`], and otherwise
+    /// preserves Windows pipe, attribute-list, process, membership, or resume
+    /// errors.
+    pub fn launch_with_piped_stdio(
+        self,
+        executable: LockedExecutable,
+        arguments: &[OsString],
+        limits: ProcessLaunchLimits,
+        environment: &ProcessEnvironment,
+        pipe_buffer_bytes: u32,
+    ) -> io::Result<OwnedJobStdioProcess> {
+        let prepared =
+            executable.prepare_launch_with_environment(arguments, limits, environment)?;
+        launch_owned_stdio_process(self, executable, prepared, pipe_buffer_bytes)
+    }
 }
 
 fn launch_owned_process(
@@ -376,9 +644,20 @@ fn launch_owned_process(
         &prepared.application,
         &mut prepared.command_line,
         &prepared.current_directory,
+        &prepared.environment,
         &attributes,
+        None,
     )?;
+    complete_owned_process(job, executable, process, thread, process_id)
+}
 
+fn complete_owned_process(
+    job: KillOnCloseJob,
+    executable: LockedExecutable,
+    process: OwnedHandle,
+    thread: OwnedHandle,
+    process_id: u32,
+) -> io::Result<OwnedJobProcess> {
     let membership = job.contains_process(&process);
     if !matches!(membership, Ok(true)) {
         abort_created_process(&job, &process);
@@ -403,6 +682,168 @@ fn launch_owned_process(
         process_id,
         _executable: executable,
     })
+}
+
+fn launch_owned_stdio_process(
+    job: KillOnCloseJob,
+    executable: LockedExecutable,
+    mut prepared: PreparedProcessLaunch,
+    pipe_buffer_bytes: u32,
+) -> io::Result<OwnedJobStdioProcess> {
+    let pipes = InheritedStdio::create(pipe_buffer_bytes)?;
+    let inherited_handles = pipes.child_handles();
+    let attributes = AttributeList::with_job_and_handles(job.handle(), &inherited_handles)?;
+    let (process, thread, process_id) = create_suspended_process(
+        &prepared.application,
+        &mut prepared.command_line,
+        &prepared.current_directory,
+        &prepared.environment,
+        &attributes,
+        Some(&pipes),
+    )?;
+    drop(attributes);
+    let (stdin, stdout, stderr) = pipes.into_parent_files();
+    let process = complete_owned_process(job, executable, process, thread, process_id)?;
+    Ok(OwnedJobStdioProcess {
+        process,
+        stdin: Some(stdin),
+        stdout: Some(stdout),
+        stderr: Some(stderr),
+    })
+}
+
+struct InheritedStdio {
+    child_stdin: OwnedHandle,
+    parent_stdin: OwnedHandle,
+    parent_stdout: OwnedHandle,
+    child_stdout: OwnedHandle,
+    parent_stderr: OwnedHandle,
+    child_stderr: OwnedHandle,
+}
+
+impl InheritedStdio {
+    fn create(buffer_bytes: u32) -> io::Result<Self> {
+        if buffer_bytes == 0 || buffer_bytes > MAX_ANONYMOUS_PIPE_BUFFER_BYTES {
+            return Err(invalid_input(
+                "anonymous pipe buffer must be between 1 byte and 4 MiB",
+            ));
+        }
+        let (child_stdin, parent_stdin) = create_inherited_pipe(buffer_bytes, true)?;
+        let (parent_stdout, child_stdout) = create_inherited_pipe(buffer_bytes, false)?;
+        let (parent_stderr, child_stderr) = create_inherited_pipe(buffer_bytes, false)?;
+        Ok(Self {
+            child_stdin,
+            parent_stdin,
+            parent_stdout,
+            child_stdout,
+            parent_stderr,
+            child_stderr,
+        })
+    }
+
+    fn child_handles(&self) -> [HANDLE; 3] {
+        [
+            self.child_stdin.as_raw_handle(),
+            self.child_stdout.as_raw_handle(),
+            self.child_stderr.as_raw_handle(),
+        ]
+    }
+
+    fn into_parent_files(self) -> (File, File, File) {
+        let Self {
+            child_stdin,
+            parent_stdin,
+            parent_stdout,
+            child_stdout,
+            parent_stderr,
+            child_stderr,
+        } = self;
+        drop(child_stdin);
+        drop(child_stdout);
+        drop(child_stderr);
+        (
+            owned_handle_into_file(parent_stdin),
+            owned_handle_into_file(parent_stdout),
+            owned_handle_into_file(parent_stderr),
+        )
+    }
+}
+
+#[allow(
+    unsafe_code,
+    reason = "transfers one uniquely owned Windows handle into one File owner"
+)]
+fn owned_handle_into_file(handle: OwnedHandle) -> File {
+    // SAFETY: `handle` is uniquely owned and `into_raw_handle` transfers it
+    // without closing. `File` adopts the exact handle and closes it once.
+    unsafe { File::from_raw_handle(handle.into_raw_handle()) }
+}
+
+#[allow(
+    unsafe_code,
+    reason = "isolates CreatePipe and inheritance-flag configuration over checked owned handles"
+)]
+fn create_inherited_pipe(
+    buffer_bytes: u32,
+    child_reads: bool,
+) -> io::Result<(OwnedHandle, OwnedHandle)> {
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())
+            .map_err(|_| io::Error::other("pipe security structure size is invalid"))?,
+        lpSecurityDescriptor: ptr::null_mut(),
+        bInheritHandle: 1,
+    };
+    let mut read_handle = ptr::null_mut();
+    let mut write_handle = ptr::null_mut();
+    // SAFETY: both output locations and the initialized security attributes are
+    // valid for the call. A failed call is handled before adopting handles.
+    let created = unsafe {
+        CreatePipe(
+            ptr::from_mut(&mut read_handle),
+            ptr::from_mut(&mut write_handle),
+            ptr::from_ref(&attributes),
+            buffer_bytes,
+        )
+    };
+    if created == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if read_handle.is_null() || write_handle.is_null() {
+        close_pipe_handles(read_handle, write_handle);
+        return Err(io::Error::other("CreatePipe returned incomplete handles"));
+    }
+    // SAFETY: successful CreatePipe transferred two distinct owned handles.
+    let read_handle = unsafe { OwnedHandle::from_raw_handle(read_handle) };
+    // SAFETY: same transfer as above for the distinct write handle.
+    let write_handle = unsafe { OwnedHandle::from_raw_handle(write_handle) };
+    let parent_handle = if child_reads {
+        &write_handle
+    } else {
+        &read_handle
+    };
+    // SAFETY: the selected parent endpoint is live. Clearing its inheritance
+    // flag prevents it from being included in child inheritance.
+    let updated =
+        unsafe { SetHandleInformation(parent_handle.as_raw_handle(), HANDLE_FLAG_INHERIT, 0) };
+    if updated == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((read_handle, write_handle))
+}
+
+#[allow(
+    unsafe_code,
+    reason = "adopts only non-null anomalous CreatePipe outputs for at-most-once cleanup"
+)]
+fn close_pipe_handles(read_handle: HANDLE, write_handle: HANDLE) {
+    if !read_handle.is_null() {
+        // SAFETY: this failure path owns the non-null CreatePipe output.
+        drop(unsafe { OwnedHandle::from_raw_handle(read_handle) });
+    }
+    if !write_handle.is_null() {
+        // SAFETY: this failure path owns the distinct non-null output.
+        drop(unsafe { OwnedHandle::from_raw_handle(write_handle) });
+    }
 }
 
 fn validate_absolute_path(path: &Path, max_components: usize) -> io::Result<usize> {
@@ -656,11 +1097,16 @@ struct AttributeList {
     pointer: LPPROC_THREAD_ATTRIBUTE_LIST,
     _buffer: Vec<usize>,
     _job_handle: Box<HANDLE>,
+    _inherited_handles: Option<Box<[HANDLE]>>,
 }
 
 impl AttributeList {
     fn with_job(job: &OwnedHandle) -> io::Result<Self> {
-        create_job_attribute_list(job)
+        create_process_attribute_list(job, &[])
+    }
+
+    fn with_job_and_handles(job: &OwnedHandle, handles: &[HANDLE]) -> io::Result<Self> {
+        create_process_attribute_list(job, handles)
     }
 
     const fn pointer(&self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
@@ -681,15 +1127,20 @@ impl Drop for AttributeList {
 
 #[allow(
     unsafe_code,
-    reason = "isolated PROC_THREAD_ATTRIBUTE_JOB_LIST initialization over aligned retained storage"
+    reason = "isolated Job List and optional Handle List initialization over retained aligned storage"
 )]
-fn create_job_attribute_list(job: &OwnedHandle) -> io::Result<AttributeList> {
+fn create_process_attribute_list(
+    job: &OwnedHandle,
+    inherited_handles: &[HANDLE],
+) -> io::Result<AttributeList> {
+    let attribute_count = if inherited_handles.is_empty() { 1 } else { 2 };
     let mut required_bytes = 0usize;
-    // SAFETY: a null first probe with one requested attribute is the documented size query.
+    // SAFETY: a null first probe with the exact requested attribute count is the
+    // documented size query.
     unsafe {
         InitializeProcThreadAttributeList(
             ptr::null_mut(),
-            1,
+            attribute_count,
             0,
             ptr::from_mut(&mut required_bytes),
         );
@@ -712,7 +1163,12 @@ fn create_job_attribute_list(job: &OwnedHandle) -> io::Result<AttributeList> {
 
     // SAFETY: the aligned retained buffer has at least the exact byte count returned by the probe.
     let initialized = unsafe {
-        InitializeProcThreadAttributeList(pointer, 1, 0, ptr::from_mut(&mut required_bytes))
+        InitializeProcThreadAttributeList(
+            pointer,
+            attribute_count,
+            0,
+            ptr::from_mut(&mut required_bytes),
+        )
     };
     if initialized == 0 {
         return Err(io::Error::last_os_error());
@@ -740,10 +1196,42 @@ fn create_job_attribute_list(job: &OwnedHandle) -> io::Result<AttributeList> {
         return Err(error);
     }
 
+    let inherited_handles = if inherited_handles.is_empty() {
+        None
+    } else {
+        let retained = inherited_handles.to_vec().into_boxed_slice();
+        let byte_length = retained
+            .len()
+            .checked_mul(size_of::<HANDLE>())
+            .ok_or_else(|| io::Error::other("inherited handle-list size overflowed"))?;
+        // SAFETY: the initialized list and retained nonempty HANDLE array remain
+        // live and immovable until after CreateProcessW returns.
+        let updated = unsafe {
+            UpdateProcThreadAttribute(
+                pointer,
+                0,
+                usize::try_from(PROC_THREAD_ATTRIBUTE_HANDLE_LIST)
+                    .map_err(|_| io::Error::other("Handle List attribute identifier is invalid"))?,
+                retained.as_ptr().cast_mut().cast(),
+                byte_length,
+                ptr::null_mut(),
+                ptr::null(),
+            )
+        };
+        if updated == 0 {
+            let error = io::Error::last_os_error();
+            // SAFETY: initialization succeeded and must be paired with deletion.
+            unsafe { DeleteProcThreadAttributeList(pointer) };
+            return Err(error);
+        }
+        Some(retained)
+    };
+
     Ok(AttributeList {
         pointer,
         _buffer: buffer,
         _job_handle: job_handle,
+        _inherited_handles: inherited_handles,
     })
 }
 
@@ -755,14 +1243,21 @@ fn create_suspended_process(
     application: &[u16],
     command_line: &mut [u16],
     current_directory: &[u16],
+    environment: &[u16],
     attributes: &AttributeList,
+    stdio: Option<&InheritedStdio>,
 ) -> io::Result<(OwnedHandle, OwnedHandle, u32)> {
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>())
         .map_err(|_| io::Error::other("extended startup structure size is invalid"))?;
     startup.lpAttributeList = attributes.pointer();
+    if let Some(stdio) = stdio {
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = stdio.child_stdin.as_raw_handle();
+        startup.StartupInfo.hStdOutput = stdio.child_stdout.as_raw_handle();
+        startup.StartupInfo.hStdError = stdio.child_stderr.as_raw_handle();
+    }
     let mut information = PROCESS_INFORMATION::default();
-    let environment = [0u16, 0u16];
     let flags = CREATE_SUSPENDED
         | CREATE_UNICODE_ENVIRONMENT
         | CREATE_NO_WINDOW
@@ -770,14 +1265,15 @@ fn create_suspended_process(
 
     // SAFETY: all pointers refer to live, correctly terminated/initialized buffers for the complete
     // call. The command line is mutable as required. Security attributes are null, handle
-    // inheritance is disabled, and PROCESS_INFORMATION is read only after a successful return.
+    // inheritance is either disabled or constrained by the explicit Handle List,
+    // and PROCESS_INFORMATION is read only after a successful return.
     let created = unsafe {
         CreateProcessW(
             application.as_ptr(),
             command_line.as_mut_ptr(),
             ptr::null(),
             ptr::null(),
-            0,
+            i32::from(stdio.is_some()),
             flags,
             environment.as_ptr().cast(),
             current_directory.as_ptr(),

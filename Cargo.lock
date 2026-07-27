@@ -1102,7 +1102,9 @@ dependencies = [
  "uuid",
  "walkdir",
  "weregopher-adapter-discord",
+ "weregopher-adapter-openai",
  "weregopher-asar",
+ "weregopher-discovery",
  "weregopher-domain",
  "weregopher-fingerprint",
  "weregopher-transform",
@@ -1120,6 +1122,21 @@ dependencies = [
  "sha2",
  "thiserror",
  "weregopher-domain",
+]
+
+[[package]]
+name = "weregopher-adapter-openai"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "weregopher-asar",
+ "weregopher-domain",
+ "weregopher-fingerprint",
+ "weregopher-windows",
 ]
 
 [[package]]
@@ -1191,6 +1208,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "uuid",

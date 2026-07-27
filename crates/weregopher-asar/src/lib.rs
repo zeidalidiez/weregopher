@@ -185,6 +185,69 @@ impl AsarArchive {
     }
 }
 
+/// Integrity-checked read-only view of packed files in a complete Electron ASAR.
+///
+/// Unlike [`AsarArchive`], this discovery-oriented type accepts unpacked files,
+/// links, and empty directories because it never rewrites the archive. Only
+/// packed members whose bytes and integrity records are contained in the ASAR
+/// are exposed. Unpacked members remain external package evidence and cannot be
+/// read through this API.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AsarReadOnlyIndex<'a> {
+    archive: &'a [u8],
+    data_start: usize,
+    packed_files: BTreeMap<String, IndexedFile>,
+    unpacked_file_count: usize,
+    limits: AsarLimits,
+}
+
+impl<'a> AsarReadOnlyIndex<'a> {
+    /// Parses the archive header and validates the complete packed body.
+    ///
+    /// Every member path is canonical and bounded. Packed offsets must be
+    /// contiguous, all packed bytes must be covered exactly once, and every
+    /// packed integrity record must match. Unpacked files and links are
+    /// validated as metadata but are not followed or exposed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed [`AsarError`] when framing, paths, limits, packed
+    /// layout, link metadata, or packed integrity validation fails.
+    pub fn parse(bytes: &'a [u8], limits: AsarLimits) -> Result<Self, AsarError> {
+        if bytes.len() > limits.max_archive_bytes {
+            return Err(AsarError::ArchiveTooLarge);
+        }
+        let header = parse_header(bytes, limits)?;
+        let mut state = ReadOnlyCollectionState::new(bytes, header.data_start, limits);
+        collect_read_only_entries(&header.root, "", 0, &mut state)?;
+        state.finish()
+    }
+
+    /// Returns one validated packed member by canonical archive-relative path.
+    #[must_use]
+    pub fn packed_file(&self, path: &str) -> Option<&[u8]> {
+        canonical_archive_path(path, self.limits)
+            .ok()
+            .and_then(|canonical| self.packed_files.get(&canonical))
+            .and_then(|file| {
+                let start = self.data_start.checked_add(file.offset)?;
+                let end = start.checked_add(file.size)?;
+                self.archive.get(start..end)
+            })
+    }
+
+    /// Returns validated packed member paths in bytewise lexical order.
+    pub fn packed_file_paths(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.packed_files.keys().map(String::as_str)
+    }
+
+    /// Returns the number of declared unpacked regular files.
+    #[must_use]
+    pub const fn unpacked_file_count(&self) -> usize {
+        self.unpacked_file_count
+    }
+}
+
 /// Fail-closed ASAR parsing and rewriting errors.
 #[derive(Debug, Error)]
 pub enum AsarError {
@@ -306,6 +369,124 @@ struct CollectionState<'a> {
     total_file_bytes: usize,
 }
 
+struct ReadOnlyCollectionState<'a> {
+    archive: &'a [u8],
+    data_start: usize,
+    limits: AsarLimits,
+    packed_files: BTreeMap<String, PendingFile>,
+    case_keys: BTreeSet<String>,
+    entries: usize,
+    path_bytes: usize,
+    total_file_bytes: usize,
+    unpacked_file_count: usize,
+}
+
+impl<'a> ReadOnlyCollectionState<'a> {
+    fn new(archive: &'a [u8], data_start: usize, limits: AsarLimits) -> Self {
+        Self {
+            archive,
+            data_start,
+            limits,
+            packed_files: BTreeMap::new(),
+            case_keys: BTreeSet::new(),
+            entries: 0,
+            path_bytes: 0,
+            total_file_bytes: 0,
+            unpacked_file_count: 0,
+        }
+    }
+
+    fn register_entry(&mut self, path: &str) -> Result<(), AsarError> {
+        self.entries = self
+            .entries
+            .checked_add(1)
+            .ok_or(AsarError::TooManyEntries)?;
+        if self.entries > self.limits.max_entries {
+            return Err(AsarError::TooManyEntries);
+        }
+        self.path_bytes = self
+            .path_bytes
+            .checked_add(path.len())
+            .ok_or(AsarError::PathBudgetExceeded)?;
+        let aggregate_path_limit = self
+            .limits
+            .max_entries
+            .checked_mul(self.limits.max_path_bytes)
+            .ok_or(AsarError::PathBudgetExceeded)?;
+        if self.path_bytes > aggregate_path_limit {
+            return Err(AsarError::PathBudgetExceeded);
+        }
+        if !self.case_keys.insert(path.to_ascii_lowercase()) {
+            return Err(AsarError::InvalidMemberName);
+        }
+        Ok(())
+    }
+
+    fn register_file_size(&mut self, size: u64) -> Result<usize, AsarError> {
+        let size = usize::try_from(size).map_err(|_| AsarError::FileTooLarge)?;
+        if size > self.limits.max_file_bytes {
+            return Err(AsarError::FileTooLarge);
+        }
+        self.total_file_bytes = self
+            .total_file_bytes
+            .checked_add(size)
+            .ok_or(AsarError::AggregateTooLarge)?;
+        if self.total_file_bytes > self.limits.max_total_file_bytes {
+            return Err(AsarError::AggregateTooLarge);
+        }
+        Ok(size)
+    }
+
+    fn finish(self) -> Result<AsarReadOnlyIndex<'a>, AsarError> {
+        let body = self
+            .archive
+            .get(self.data_start..)
+            .ok_or(AsarError::InvalidLayout)?;
+        let mut by_offset: Vec<(&String, &PendingFile)> = self.packed_files.iter().collect();
+        by_offset.sort_by(|(left_path, left), (right_path, right)| {
+            left.offset
+                .cmp(&right.offset)
+                .then_with(|| left_path.cmp(right_path))
+        });
+        let mut cursor = 0_usize;
+        for (_, file) in &by_offset {
+            if file.offset != cursor {
+                return Err(AsarError::InvalidLayout);
+            }
+            cursor = cursor
+                .checked_add(file.size)
+                .ok_or(AsarError::InvalidLayout)?;
+        }
+        if cursor != body.len() {
+            return Err(AsarError::InvalidLayout);
+        }
+
+        let mut packed_files = BTreeMap::new();
+        for (path, file) in &self.packed_files {
+            let end = file
+                .offset
+                .checked_add(file.size)
+                .ok_or(AsarError::InvalidLayout)?;
+            let bytes = body.get(file.offset..end).ok_or(AsarError::InvalidLayout)?;
+            verify_integrity(bytes, &file.integrity)?;
+            packed_files.insert(
+                path.clone(),
+                IndexedFile {
+                    offset: file.offset,
+                    size: file.size,
+                },
+            );
+        }
+        Ok(AsarReadOnlyIndex {
+            archive: self.archive,
+            data_start: self.data_start,
+            packed_files,
+            unpacked_file_count: self.unpacked_file_count,
+            limits: self.limits,
+        })
+    }
+}
+
 impl<'a> CollectionState<'a> {
     fn new(archive: &'a [u8], data_start: usize, limits: AsarLimits) -> Self {
         Self {
@@ -402,6 +583,12 @@ struct PendingFile {
     integrity: InputIntegrity,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct IndexedFile {
+    offset: usize,
+    size: usize,
+}
+
 fn collect_entries(
     directory: &InputDirectory,
     parent: &str,
@@ -466,6 +653,67 @@ fn collect_entries(
                     return Err(AsarError::InvalidMemberName);
                 }
                 return Err(AsarError::UnsupportedEntry);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_read_only_entries(
+    directory: &InputDirectory,
+    parent: &str,
+    depth: usize,
+    state: &mut ReadOnlyCollectionState<'_>,
+) -> Result<(), AsarError> {
+    if depth > state.limits.max_depth {
+        return Err(AsarError::TooDeep);
+    }
+    for (name, entry) in &directory.files {
+        validate_member_name(name)?;
+        let path = if parent.is_empty() {
+            name.clone()
+        } else {
+            format!("{parent}/{name}")
+        };
+        if path.len() > state.limits.max_path_bytes {
+            return Err(AsarError::InvalidMemberName);
+        }
+        state.register_entry(&path)?;
+        match entry {
+            InputEntry::Directory(child) => {
+                collect_read_only_entries(child, &path, depth + 1, state)?;
+            }
+            InputEntry::File(file) => {
+                let size = state.register_file_size(file.size)?;
+                if file.unpacked {
+                    if file.offset.is_some() {
+                        return Err(AsarError::InvalidLayout);
+                    }
+                    state.unpacked_file_count = state
+                        .unpacked_file_count
+                        .checked_add(1)
+                        .ok_or(AsarError::TooManyEntries)?;
+                    continue;
+                }
+                let offset = file
+                    .offset
+                    .as_deref()
+                    .ok_or(AsarError::InvalidLayout)?
+                    .parse::<usize>()
+                    .map_err(|_| AsarError::InvalidLayout)?;
+                let integrity = file.integrity.clone().ok_or(AsarError::IntegrityMismatch)?;
+                state.packed_files.insert(
+                    path,
+                    PendingFile {
+                        offset,
+                        size,
+                        executable: file.executable,
+                        integrity,
+                    },
+                );
+            }
+            InputEntry::Link(link) => {
+                canonical_archive_path(&link.link, state.limits)?;
             }
         }
     }

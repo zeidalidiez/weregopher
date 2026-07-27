@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "G2FormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "G2GateEvidence": {
+      "additionalProperties": false,
+      "description": "Status and exact immutable artifact identity for one G2 evidence lane.",
+      "oneOf": [
+        {
+          "properties": {
+            "evidence_digest": {
+              "type": "null"
+            },
+            "status": {
+              "const": "not_run"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        {
+          "properties": {
+            "evidence_digest": {
+              "$ref": "#/$defs/Sha256Digest"
+            },
+            "status": {
+              "enum": [
+                "failed",
+                "passed"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "evidence_digest"
+          ]
+        }
+      ],
+      "properties": {
+        "evidence_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sha256Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/G2GateStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "G2GateStatus": {
+      "description": "Status of one required G2 evidence lane.",
+      "oneOf": [
+        {
+          "const": "not_run",
+          "description": "The lane has not run against the exact target.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "The lane ran and failed its declared checks.",
+          "type": "string"
+        },
+        {
+          "const": "passed",
+          "description": "The lane ran and passed its declared checks.",
+          "type": "string"
+        }
+      ]
+    },
+    "G2Target": {
+      "description": "Fixed target represented by the initial G2 feasibility contract.",
+      "oneOf": [
+        {
+          "const": "open_ai_windows_x64",
+          "description": "Installed OpenAI-family desktop package on Windows x64.",
+          "type": "string"
+        }
+      ]
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Aggregate evidence-only result for the G2 `OpenAI` target-feasibility gate.",
+  "properties": {
+    "app_server": {
+      "$ref": "#/$defs/G2GateEvidence"
+    },
+    "format_version": {
+      "$ref": "#/$defs/G2FormatVersion"
+    },
+    "package": {
+      "$ref": "#/$defs/G2GateEvidence"
+    },
+    "preload_bridge": {
+      "$ref": "#/$defs/G2GateEvidence"
+    },
+    "source_build_fingerprint_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "target": {
+      "$ref": "#/$defs/G2Target"
+    }
+  },
+  "required": [
+    "format_version",
+    "target",
+    "source_build_fingerprint_digest",
+    "package",
+    "preload_bridge",
+    "app_server"
+  ],
+  "title": "G2FeasibilityReport",
+  "type": "object"
+}

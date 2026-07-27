@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "AppServerProbeChecks": {
+      "additionalProperties": false,
+      "description": "Required exact app-server protocol checks.",
+      "properties": {
+        "clean_shutdown": {
+          "description": "The supervised process tree exited cleanly.",
+          "type": "boolean"
+        },
+        "initialize_succeeded": {
+          "description": "The single `initialize` request succeeded.",
+          "type": "boolean"
+        },
+        "initialized_sent": {
+          "description": "The client sent the required `initialized` notification.",
+          "type": "boolean"
+        },
+        "preinitialize_rejected": {
+          "description": "A request before initialization was rejected.",
+          "type": "boolean"
+        },
+        "stdio_jsonl": {
+          "description": "The process exchanged bounded newline-delimited JSON over standard I/O.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "stdio_jsonl",
+        "preinitialize_rejected",
+        "initialize_succeeded",
+        "initialized_sent",
+        "clean_shutdown"
+      ],
+      "type": "object"
+    },
+    "G2FormatVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "G2ProbeScope": {
+      "description": "Scope of the package bytes exercised by one G2 runtime probe.",
+      "oneOf": [
+        {
+          "const": "synthetic_fixture",
+          "description": "Public synthetic fixture proving only the Weregopher mechanism.",
+          "type": "string"
+        },
+        {
+          "const": "exact_package",
+          "description": "Exact content-addressed installed-package component.",
+          "type": "string"
+        }
+      ]
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest serialized as lowercase `sha256:<hex>` text.",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Content-addressed exact-version app-server schema and handshake evidence.",
+  "properties": {
+    "checks": {
+      "$ref": "#/$defs/AppServerProbeChecks"
+    },
+    "executable_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "format_version": {
+      "$ref": "#/$defs/G2FormatVersion"
+    },
+    "initialize_response_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "schema_bundle_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    },
+    "scope": {
+      "$ref": "#/$defs/G2ProbeScope"
+    },
+    "source_build_fingerprint_digest": {
+      "$ref": "#/$defs/Sha256Digest"
+    }
+  },
+  "required": [
+    "format_version",
+    "source_build_fingerprint_digest",
+    "executable_digest",
+    "schema_bundle_digest",
+    "initialize_response_digest",
+    "scope",
+    "checks"
+  ],
+  "title": "AppServerProbeReport",
+  "type": "object"
+}

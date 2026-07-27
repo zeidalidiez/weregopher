@@ -18,6 +18,7 @@ fn schema_generation_is_complete_deterministic_and_checkable()
     let expected = [
         "adapter-execution-authority.schema.json",
         "adapter-transform-authority.schema.json",
+        "app-server-probe-report.schema.json",
         "build-fingerprint.schema.json",
         "call-context.schema.json",
         "candidate-installation-evidence.schema.json",
@@ -35,12 +36,15 @@ fn schema_generation_is_complete_deterministic_and_checkable()
         "execution-resolution-evidence.schema.json",
         "execution-target-contract.schema.json",
         "frame-header.schema.json",
+        "g2-feasibility-report.schema.json",
         "generated-execution-overlay.schema.json",
         "generated-transform-overlay.schema.json",
         "heartbeat-policy.schema.json",
         "local-certification-ledger-record.schema.json",
         "local-certification-run-attestation.schema.json",
+        "openai-package-inventory.schema.json",
         "package-tree-manifest.schema.json",
+        "preload-bridge-probe-report.schema.json",
         "protocol-features.schema.json",
         "protocol-limits.schema.json",
         "protocol-reject.schema.json",
@@ -78,6 +82,82 @@ fn schema_generation_is_complete_deterministic_and_checkable()
             serde_json::json!("https://json-schema.org/draft/2020-12/schema")
         );
     }
+    Ok(())
+}
+
+#[test]
+fn g2_feasibility_schemas_are_closed_versioned_and_bounded()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = tempdir()?;
+    generate_schemas(output.path())?;
+
+    for filename in [
+        "app-server-probe-report.schema.json",
+        "g2-feasibility-report.schema.json",
+        "openai-package-inventory.schema.json",
+        "preload-bridge-probe-report.schema.json",
+    ] {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.path().join(filename))?)?;
+        assert_eq!(
+            document["additionalProperties"], false,
+            "schema {filename} must be closed"
+        );
+        assert_eq!(
+            document["$defs"]["G2FormatVersion"]["enum"],
+            serde_json::json!(["1"])
+        );
+    }
+
+    let inventory: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("openai-package-inventory.schema.json"),
+    )?)?;
+    assert_eq!(inventory["properties"]["preload_candidates"]["minItems"], 1);
+    assert_eq!(
+        inventory["properties"]["preload_candidates"]["maxItems"],
+        32
+    );
+    assert_eq!(
+        inventory["properties"]["renderer_candidates"]["maxItems"],
+        128
+    );
+    assert_eq!(
+        inventory["$defs"]["G2PackagePath"]["maxLength"],
+        weregopher_domain::MAX_G2_PACKAGE_PATH_BYTES
+    );
+    assert_eq!(
+        inventory["$defs"]["G2PackagePath"]["x-weregopher-maxComponents"],
+        weregopher_domain::MAX_G2_PACKAGE_PATH_COMPONENTS
+    );
+    assert_eq!(
+        inventory["$defs"]["G2ComponentEvidence"]["properties"]["byte_length"]["minimum"],
+        1
+    );
+    assert_eq!(
+        inventory["x-weregopher-uniqueComponentLocation"],
+        serde_json::json!(["source", "path"])
+    );
+
+    let preload: serde_json::Value = serde_json::from_slice(&fs::read(
+        output
+            .path()
+            .join("preload-bridge-probe-report.schema.json"),
+    )?)?;
+    assert_eq!(preload["properties"]["backend_version"]["minLength"], 1);
+    assert_eq!(
+        preload["properties"]["backend_version"]["maxLength"],
+        weregopher_domain::MAX_G2_BACKEND_VERSION_BYTES
+    );
+
+    let aggregate: serde_json::Value = serde_json::from_slice(&fs::read(
+        output.path().join("g2-feasibility-report.schema.json"),
+    )?)?;
+    assert_eq!(
+        aggregate["$defs"]["G2GateEvidence"]["oneOf"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
     Ok(())
 }
 

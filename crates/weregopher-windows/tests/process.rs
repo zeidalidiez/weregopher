@@ -3,13 +3,19 @@
 #![cfg(windows)]
 
 use std::{
-    ffi::OsString, fs, io, os::windows::ffi::OsStrExt as _, path::Path, process::Command,
+    ffi::OsString,
+    fs,
+    io::{self, Read as _, Write as _},
+    os::windows::ffi::OsStrExt as _,
+    path::Path,
+    process::Command,
     time::Duration,
 };
 
 use tempfile::tempdir;
 use weregopher_windows::{
-    FileIdentityLease, JobLimits, KillOnCloseJob, LockedExecutable, ProcessLaunchLimits,
+    FileIdentityLease, JobLimits, KillOnCloseJob, LockedExecutable, ProcessEnvironment,
+    ProcessLaunchLimits,
 };
 
 const PROCESS_MEMORY_LIMIT: u64 = 512 * 1024 * 1024;
@@ -217,6 +223,75 @@ fn resumed_process_runs_with_an_explicit_empty_environment()
 }
 
 #[test]
+fn atomic_job_launch_inherits_only_bounded_stdio_and_explicit_environment()
+-> Result<(), Box<dyn std::error::Error>> {
+    let executable = LockedExecutable::open(&std::env::current_exe()?, 64)?;
+    let environment = ProcessEnvironment::new([("WEREGOPHER_G2_FIXTURE", "isolated")])?;
+    let job = KillOnCloseJob::create(JobLimits::new(1, PROCESS_MEMORY_LIMIT, JOB_MEMORY_LIMIT)?)?;
+    let mut process = job.launch_with_piped_stdio(
+        executable,
+        &[
+            OsString::from("--ignored"),
+            OsString::from("--exact"),
+            OsString::from("piped_stdio_child_helper"),
+            OsString::from("--test-threads=1"),
+        ],
+        ProcessLaunchLimits::new(4, 128, 1024)?,
+        &environment,
+        64 * 1024,
+    )?;
+
+    let mut child_stdin = process
+        .take_stdin()
+        .ok_or("child standard input was already taken")?;
+    child_stdin.write_all(b"probe\n")?;
+    child_stdin.flush()?;
+    drop(child_stdin);
+
+    assert_eq!(process.wait_for(Duration::from_secs(5))?, Some(0));
+    let mut stdout = String::new();
+    process
+        .take_stdout()
+        .ok_or("child standard output was already taken")?
+        .read_to_string(&mut stdout)?;
+    let mut stderr = String::new();
+    process
+        .take_stderr()
+        .ok_or("child standard error was already taken")?
+        .read_to_string(&mut stderr)?;
+    assert_eq!(
+        stdout.matches("PROBE\n").count(),
+        1,
+        "child probe payload was missing or duplicated: {stdout:?}"
+    );
+    assert_eq!(
+        stderr.matches("diagnostic\n").count(),
+        1,
+        "child diagnostic payload was missing or duplicated: {stderr:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn explicit_process_environment_rejects_ambiguous_or_unbounded_entries() {
+    for result in [
+        ProcessEnvironment::new([("", "value")]),
+        ProcessEnvironment::new([("NAME=OTHER", "value")]),
+        ProcessEnvironment::new([("name", "value")]),
+        ProcessEnvironment::new([("NAME", "line\nbreak")]),
+    ] {
+        assert!(matches!(
+            result,
+            Err(ref error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
+    }
+    assert!(matches!(
+        ProcessEnvironment::new([("NAME", "one"), ("name", "two")]),
+        Err(ref error) if error.kind() == io::ErrorKind::InvalidInput
+    ));
+}
+
+#[test]
 #[ignore = "spawned by the suspended-launch integration tests"]
 fn owned_launch_child_helper() {
     std::thread::sleep(Duration::from_mins(1));
@@ -228,6 +303,30 @@ fn empty_environment_child_helper() {
     if std::env::vars_os().next().is_some() {
         std::process::exit(74);
     }
+}
+
+#[test]
+#[ignore = "spawned by the suspended-launch integration tests"]
+fn piped_stdio_child_helper() -> Result<(), Box<dyn std::error::Error>> {
+    let variables = std::env::vars_os().collect::<Vec<_>>();
+    if variables
+        != [(
+            OsString::from("WEREGOPHER_G2_FIXTURE"),
+            OsString::from("isolated"),
+        )]
+    {
+        std::process::exit(75);
+    }
+    let mut line = String::new();
+    std::io::stdin().read_to_string(&mut line)?;
+    if line != "probe\n" {
+        std::process::exit(76);
+    }
+    std::io::stdout().write_all(b"PROBE\n")?;
+    std::io::stdout().flush()?;
+    std::io::stderr().write_all(b"diagnostic\n")?;
+    std::io::stderr().flush()?;
+    Ok(())
 }
 
 fn create_junction(link: &Path, target: &Path) -> Result<(), Box<dyn std::error::Error>> {

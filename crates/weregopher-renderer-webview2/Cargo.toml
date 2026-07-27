@@ -20,6 +20,7 @@ weregopher-renderer = { version = "0.1.0", path = "../weregopher-renderer" }
 
 [target.'cfg(windows)'.dev-dependencies]
 serde.workspace = true
+sha2.workspace = true
 uuid.workspace = true
 weregopher-runtime-protocol = { version = "0.1.0", path = "../weregopher-runtime-protocol" }
 weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }

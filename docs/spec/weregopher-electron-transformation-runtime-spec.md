@@ -4498,7 +4498,9 @@ security-posture, efficiency, or production-shell claim. Production nonce-handle
 launch, connection-bound validation for non-call handle-bearing messages, the
 synchronous lane and deadlock fixture, authenticated shared buffers, broader
 forged-client cases, large-data stress, protocol fuzzing, and G2 preload/
-`contextBridge` fidelity remain open.
+`contextBridge` fidelity against an exact installed package remain open. The
+synthetic isolated-world mechanism described by ADR 0041 does not close that exact
+package requirement.
 
 
 ---
@@ -8016,6 +8018,54 @@ New native module/security/state boundary
 ```
 
 This is how the design remains viable when the package updates multiple times per day.
+
+## 36.38 Implemented G2 target-feasibility harness
+
+[ADR 0041](../adr/0041-bounded-g2-openai-target-feasibility-evidence.md)
+implements the evidence-producing portion of G2 without treating discovery or a
+synthetic renderer as application compatibility. Canonical bounded Rust contracts and
+generated schemas represent an exact package inventory, preload/bridge report,
+app-server report, per-lane status, and aggregate `incomplete`, `blocked`, or
+`feasible` disposition. The aggregate is feasible only when package, exact preload,
+and exact app-server lanes pass for one source build.
+
+The initial family analyzer accepts only the maintained registered Windows x64 MSIX
+identity. It binds the package tree, application ASAR, desktop entry, ASAR-declared
+main entry, bounded static preload and renderer candidates, and exact bundled
+app-server. A read-only ASAR index validates packed offsets, sizes, integrity, path
+closure, and limits while tolerating unpacked members for discovery; the stricter
+rewrite model remains unchanged. Static preload signals identify candidates, not the
+entry that actually executes.
+
+The portable app-server probe implements bounded JSONL framing, requires an ordinary
+request to fail before initialization, sends one `initialize` followed by
+`initialized`, and tolerates unknown notifications and additive response fields. The
+native runner revalidates the exact executable identity, sequentially generates
+TypeScript and JSON Schema outputs into disposable state, hashes the bounded output,
+and runs the initialization exchange through atomically Job-owned standard-I/O
+handles. It retains canonical digests rather than raw schemas or protocol traces.
+The vendor process is unrestricted same-user code; the Job, explicit environment,
+timeouts, and resource ceilings are not a sandbox.
+
+The hosted-Windows WebView2 fixture validates document-start injection into a named
+isolated world, separate globals and prototypes, a frozen page projection, function
+round trip, and navigation invalidation. Its report is permanently scoped
+`synthetic_fixture` and cannot pass the exact package lane.
+
+`weregopher feasibility open-ai` performs read-only package discovery and inventory on
+native Windows and optionally runs the exact app-server probe after an explicit
+same-user-risk acknowledgement. It accepts a canonical exact-package preload report
+only when its build and component digests match the inventory. The repository does
+not yet produce that report, so G2 remains incomplete until an exact package-derived
+preload runner is implemented and the final user-controlled Windows matrix passes.
+Public CI never acquires proprietary package bytes. See the
+[G2 testing runbook](../testing/openai-g2-feasibility.md).
+
+This harness does not load packaged main/renderer logic through Weregopher, implement
+the transparent app-server proxy, exercise a Codex workflow, touch production state,
+authorize launch, or establish compatibility, certification, security-posture, or
+efficiency claims. G3 may select a pinned preview build only after all exact G2 lanes
+pass.
 
 
 ---

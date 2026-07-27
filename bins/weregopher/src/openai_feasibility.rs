@@ -11,10 +11,11 @@ use serde::Serialize;
 #[cfg(any(windows, test))]
 use sha2::{Digest as _, Sha256};
 #[cfg(windows)]
-use weregopher_domain::{AppServerProbeReport, G2FeasibilityReport};
+use weregopher_domain::G2FeasibilityReport;
 #[cfg(any(windows, test))]
 use weregopher_domain::{
-    G2GateEvidence, OpenAiPackageInventory, PreloadBridgeProbeReport, Sha256Digest,
+    AppServerProbeReport, G2GateEvidence, OpenAiPackageInventory, PreloadBridgeProbeReport,
+    Sha256Digest,
 };
 
 use crate::OpenAiFeasibilityArguments;
@@ -44,7 +45,7 @@ fn run_platform(_arguments: &OpenAiFeasibilityArguments) -> Result<()> {
 #[cfg(windows)]
 fn run_platform(arguments: &OpenAiFeasibilityArguments) -> Result<()> {
     use std::{
-        fs::{self, File},
+        fs::File,
         io::Read as _,
         path::{Path, PathBuf},
     };
@@ -153,15 +154,7 @@ fn run_platform(arguments: &OpenAiFeasibilityArguments) -> Result<()> {
     } else {
         None
     };
-    let app_server_gate = app_server
-        .as_ref()
-        .map_or_else(G2GateEvidence::not_run, |report| {
-            if report.checks_pass() && report.is_exact_package_evidence() {
-                canonical_digest(report).map(G2GateEvidence::passed)
-            } else {
-                canonical_digest(report).map(G2GateEvidence::failed)
-            }
-        })?;
+    let app_server_gate = app_server_gate(app_server.as_ref())?;
     let feasibility = G2FeasibilityReport::new(
         *inventory.source_build_fingerprint_digest(),
         package_gate,
@@ -251,6 +244,21 @@ fn preload_gate(
 }
 
 #[cfg(any(windows, test))]
+fn app_server_gate(report: Option<&AppServerProbeReport>) -> Result<G2GateEvidence> {
+    let Some(report) = report else {
+        return Ok(G2GateEvidence::not_run());
+    };
+    let digest = canonical_digest(report)?;
+    Ok(
+        if report.checks_pass() && report.is_exact_package_evidence() {
+            G2GateEvidence::passed(digest)
+        } else {
+            G2GateEvidence::failed(digest)
+        },
+    )
+}
+
+#[cfg(any(windows, test))]
 fn canonical_digest<T: Serialize>(value: &T) -> Result<Sha256Digest> {
     let bytes = serde_json::to_vec(value).context("failed to serialize canonical G2 evidence")?;
     Ok(Sha256Digest::from_bytes(Sha256::digest(bytes).into()))
@@ -268,8 +276,8 @@ fn write_output(output: &OpenAiFeasibilityOutput) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use weregopher_domain::{
-        G2ComponentEvidence, G2ComponentSource, G2ContractError, G2PackagePath, G2ProbeScope,
-        PreloadBridgeChecks,
+        AppServerProbeChecks, G2ComponentEvidence, G2ComponentSource, G2ContractError,
+        G2PackagePath, G2ProbeScope, PreloadBridgeChecks,
     };
 
     use super::*;
@@ -334,6 +342,10 @@ mod tests {
         )
     }
 
+    fn app_server(scope: G2ProbeScope, checks: AppServerProbeChecks) -> AppServerProbeReport {
+        AppServerProbeReport::new(digest(1), digest(8), digest(9), digest(10), scope, checks)
+    }
+
     #[test]
     fn preload_gate_requires_exact_package_and_component_binding()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -351,6 +363,32 @@ mod tests {
         assert!(preload_gate(&inventory, Some(&synthetic)).is_err());
         let wrong_component = preload(G2ProbeScope::ExactPackage, digest(1), digest(99))?;
         assert!(preload_gate(&inventory, Some(&wrong_component)).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn app_server_gate_requires_exact_passing_evidence() -> Result<()> {
+        assert_eq!(
+            app_server_gate(None)?.status(),
+            weregopher_domain::G2GateStatus::NotRun
+        );
+        let checks = AppServerProbeChecks {
+            stdio_jsonl: true,
+            preinitialize_rejected: true,
+            initialize_succeeded: true,
+            initialized_sent: true,
+            clean_shutdown: true,
+        };
+        let exact = app_server(G2ProbeScope::ExactPackage, checks);
+        assert_eq!(
+            app_server_gate(Some(&exact))?.status(),
+            weregopher_domain::G2GateStatus::Passed
+        );
+        let synthetic = app_server(G2ProbeScope::SyntheticFixture, checks);
+        assert_eq!(
+            app_server_gate(Some(&synthetic))?.status(),
+            weregopher_domain::G2GateStatus::Failed
+        );
         Ok(())
     }
 }

@@ -19,6 +19,9 @@ weregopher-fingerprint = { version = "0.1.0", path = "../weregopher-fingerprint"
 
 [target.'cfg(windows)'.dependencies]
 tempfile.workspace = true
+uuid.workspace = true
+weregopher-renderer = { version = "0.1.0", path = "../weregopher-renderer" }
+weregopher-renderer-webview2 = { version = "0.1.0", path = "../weregopher-renderer-webview2" }
 weregopher-windows = { version = "0.1.0", path = "../weregopher-windows" }
 
 [dev-dependencies]

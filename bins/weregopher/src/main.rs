@@ -71,13 +71,20 @@ struct OpenAiFeasibilityArguments {
     #[arg(long)]
     package_full_name: Option<String>,
     /// Existing exact-package preload probe report to bind into the aggregate gate.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "probe_preload")]
     preload_report: Option<PathBuf>,
+    /// Execute the sole exact package-derived preload in the bounded `WebView2` probe.
+    #[arg(
+        long,
+        requires = "allow_unrestricted_same_user_probe",
+        conflicts_with = "preload_report"
+    )]
+    probe_preload: bool,
     /// Execute schema generation and initialize the exact bundled app-server.
     #[arg(long, requires = "allow_unrestricted_same_user_probe")]
     probe_app_server: bool,
-    /// Acknowledge unrestricted same-user execution in a disposable test account/VM.
-    #[arg(long, requires = "probe_app_server")]
+    /// Acknowledge exact package-code execution in a disposable test account/VM.
+    #[arg(long)]
     allow_unrestricted_same_user_probe: bool,
     /// Maximum package-tree entries accepted during read-only fingerprinting.
     #[arg(long, default_value_t = DEFAULT_MAX_ENTRIES)]

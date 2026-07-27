@@ -76,7 +76,7 @@ struct OpenAiFeasibilityArguments {
     /// Execute schema generation and initialize the exact bundled app-server.
     #[arg(long, requires = "allow_unrestricted_same_user_probe")]
     probe_app_server: bool,
-    /// Acknowledge that the exact vendor binary is an unrestricted same-user process.
+    /// Acknowledge unrestricted same-user execution in a disposable test account/VM.
     #[arg(long, requires = "probe_app_server")]
     allow_unrestricted_same_user_probe: bool,
     /// Maximum package-tree entries accepted during read-only fingerprinting.

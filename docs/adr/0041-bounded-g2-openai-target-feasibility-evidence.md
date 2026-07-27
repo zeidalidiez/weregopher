@@ -120,8 +120,10 @@ execution occurs only with both `--probe-app-server` and
 Portable contract, ASAR, package-analysis, and protocol tests run on Linux and
 Windows. Public `windows-latest` CI covers native process primitives and the synthetic
 isolated-world fixture without acquiring a vendor package. Exact installed-package
-lanes run only at the final user-controlled Windows stage described by the testing
-matrix.
+lanes run only at the final user-controlled Windows stage, inside a disposable
+standard-user account or clean VM with no production OpenAI state, as described by
+the testing matrix. The explicit child environment alone is not a registry,
+credential-store, filesystem, or network sandbox.
 
 ## Security invariants
 
@@ -131,7 +133,8 @@ matrix.
 3. Synthetic evidence cannot be promoted to exact-package evidence.
 4. Unknown transport fields are not authority, and unexpected protocol states,
    paths, entries, output sizes, process outcomes, or report bindings fail closed.
-5. Candidate verification uses disposable state and does not touch production state.
+5. Candidate verification runs only in a disposable Windows account/VM and uses
+   disposable child state, so no production state is present to read or modify.
 6. Bun, vendor helpers, the bundled app-server, WebView2, and any future ABI island
    remain unrestricted same-user processes unless an independent OS sandbox is
    implemented and tested.
@@ -159,8 +162,8 @@ This decision does not establish:
   exact-candidate command instead of an informal manual checklist.
 - Public CI can validate the portable protocol and native mechanism without
   distributing proprietary package data.
-- A user-controlled final Windows run can produce exact package and app-server
-  evidence while leaving production state untouched.
+- A user-controlled disposable Windows test account/VM can produce exact package and
+  app-server evidence without exposing production state to the unrestricted process.
 - G2 remains `incomplete` until an exact package-derived preload runner produces a
   passing report for the same build. A failure in any exact lane makes it `blocked`.
 - G3 cannot begin on a pinned build merely because static inventory or the synthetic

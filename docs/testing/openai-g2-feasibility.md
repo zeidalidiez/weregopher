@@ -25,15 +25,22 @@ can be:
 | Exact preload/bridge | User-controlled Windows 10/11 x64; exact package-derived preload | Runner not implemented yet | Required before G2 can become `feasible` |
 
 Public CI must never fetch an installed OpenAI package or upload proprietary package
-bytes. The last three lanes are final, serial tests on a licensed installation under
-the tester's control.
+bytes. The last three lanes are final, serial tests on a licensed installation in a
+disposable standard-user Windows account or clean VM under the tester's control.
 
 ## Before an exact Windows run
 
-Use a native Windows clone and a standard-user PowerShell session. Stop WSL builds and
-other memory-heavy work first. Confirm:
+Use a native Windows clone in a disposable standard-user account or clean VM. Install
+or register the candidate package for that test account, and do not copy production
+OpenAI state into it. An explicit child environment redirects conventional state
+paths but cannot stop unrestricted same-user code from consulting registry,
+credential-store, filesystem, or network resources. Never run the exact probe from a
+day-to-day production account.
+
+Stop WSL builds and other memory-heavy work first. Confirm:
 
 - the branch commit passed Ubuntu and `windows-latest` CI;
+- the current account/VM is disposable and contains no production OpenAI state;
 - the installed package is the maintained Windows x64 MSIX family;
 - no application update is in progress;
 - sufficient temporary disk space and memory are available; and
@@ -41,8 +48,9 @@ other memory-heavy work first. Confirm:
 
 The inventory command reads and hashes the installed package tree. The optional
 app-server lane then launches three exact-binary phases sequentially. Each phase has
-bounded process count, memory, output, and time, but the Job Object is not a sandbox.
-Do not run these commands in parallel or from WSL on a constrained shared host.
+bounded process count, memory, output, and time, but neither the Job Object nor the
+explicit environment is a sandbox. Do not run these commands in parallel or from WSL
+on a constrained shared host.
 
 ## Exact static inventory
 
@@ -126,8 +134,8 @@ serially on:
 
 | Platform | Account | Required evidence |
 | --- | --- | --- |
-| Windows 10 x64 | Standard user | Static inventory, exact app-server, exact preload, cleanup |
-| Windows 11 x64 | Standard user | Static inventory, exact app-server, exact preload, cleanup |
+| Windows 10 x64 | Disposable standard user/VM | Static inventory, exact app-server, exact preload, cleanup |
+| Windows 11 x64 | Disposable standard user/VM | Static inventory, exact app-server, exact preload, cleanup |
 
 Use the same package fingerprint where the vendor catalog permits it. If Windows 10
 and Windows 11 receive different package builds, report them as separate exact

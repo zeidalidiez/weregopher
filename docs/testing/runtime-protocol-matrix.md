@@ -11,7 +11,7 @@ named pipes, access tokens, process identity, Job Objects, COM, or WebView2.
 | Ubuntu CI | Every push and pull request | Domain contracts, immutable-origin/path closure, renderer lifecycle/authority, MessagePack preflight/framing, handshake/session state, G2 evidence contracts, read-only ASAR/package analysis, bounded app-server protocol behavior, schemas, and platform-neutral regressions | Any Windows API, WebView2 behavior, or installed-package evidence |
 | `windows-latest` CI | Every push and pull request | Clean native Windows build; DACL-backed pipe; PID, SID, Job, explicit-environment, and inherited-standard-I/O checks; hidden WebView2 G1 round trip; synthetic G2 isolated-world/projection behavior; browser-exit and ephemeral-profile cleanup | An installed OpenAI package, exact vendor preload/app-server behavior, Windows 10/11 client-specific behavior, interactive desktop/UI behavior, or cross-user policy |
 | WSL to native Windows | Optional final developer preflight on a suitably resourced host | The developer's current Windows kernel executes the focused PE test binaries while the source remains in WSL | A second clean machine or supported-client-OS matrix |
-| User-controlled exact OpenAI package | Final G2 candidate phase, after public CI | Read-only package identity/inventory and, when explicitly enabled, exact bundled app-server schema/initialization evidence | Exact preload fidelity until its package-derived runner exists; broader application compatibility, security posture, efficiency, or certification |
+| User-controlled exact OpenAI package | Final G2 candidate phase, after public CI, in a disposable Windows account/VM | Read-only package identity/inventory and, when explicitly enabled, exact bundled app-server schema/initialization evidence | Exact preload fidelity until its package-derived runner exists; broader application compatibility, security posture, efficiency, or certification |
 | Windows 10 x64 standard user | Milestone/release candidate | Supported Windows 10 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 11 and ARM64 |
 | Windows 11 x64 standard user | Milestone/release candidate | Supported Windows 11 client behavior, installed Evergreen WebView2 behavior, and cleanup without elevation | Windows 10 and ARM64 |
 | Windows 10/11 second local user | Milestone/release security check | A different user cannot open the current-user-only pipe | Remote-host policy beyond the separate remote-client flag |
@@ -179,10 +179,12 @@ Public CI contains no OpenAI package bytes.
 ## Exact installed OpenAI G2 phase
 
 The read-only exact package inventory and optional app-server probe run only on a
-user-controlled native Windows installation after public CI passes. Do not drive this
-phase through WSL on a constrained shared host. The app-server is unrestricted
-same-user code; Job Objects and explicit state/environment are lifecycle and
-accounting controls, not a sandbox.
+user-controlled native Windows installation after public CI passes, inside a
+disposable standard-user account or clean VM with no production OpenAI state. Do not
+drive this phase through WSL on a constrained shared host. The app-server is
+unrestricted same-user code; Job Objects and explicit state/environment are lifecycle
+and accounting controls, not a registry, credential-store, filesystem, or network
+sandbox.
 
 Follow the [OpenAI G2 feasibility runbook](openai-g2-feasibility.md) for commands,
 expected incomplete dispositions, Windows 10/11 sequencing, and evidence handling.

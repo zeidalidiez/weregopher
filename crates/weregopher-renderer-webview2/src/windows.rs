@@ -372,14 +372,14 @@ impl WebView2Fixture {
     /// Installs a bounded script into a named Chromium isolated world for each
     /// new document.
     ///
-    /// Registration uses the host-side DevTools protocol and a fixed
+    /// Registration uses the host-side `DevTools` protocol and a fixed
     /// `Page.addScriptToEvaluateOnNewDocument` request. The raw protocol
     /// channel and response are not exposed to page content.
     ///
     /// # Errors
     ///
     /// Returns a closed validation error for an invalid world/script or an
-    /// underlying `WebView2`/DevTools callback failure.
+    /// underlying `WebView2`/`DevTools` callback failure.
     pub fn install_isolated_world_document_start_script(
         &self,
         world_name: &str,
@@ -406,10 +406,10 @@ impl WebView2Fixture {
         }
         let response: serde_json::Value = serde_json::from_str(&response)?;
         if response.get("error").is_some()
-            || !response
+            || response
                 .get("identifier")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|identifier| !identifier.is_empty())
+                .is_none_or(str::is_empty)
         {
             return Err(WebView2FixtureError::InvalidDevToolsResponse);
         }
@@ -1147,7 +1147,7 @@ pub enum WebView2FixtureError {
     /// A requested isolated-world name was empty or noncanonical.
     #[error("renderer isolated-world name is invalid")]
     InvalidIsolatedWorldName,
-    /// A host-side DevTools response exceeded its byte ceiling.
+    /// A host-side `DevTools` response exceeded its byte ceiling.
     #[error("renderer DevTools response exceeds {maximum} bytes: {actual}")]
     DevToolsResponseTooLarge {
         /// Allowed maximum bytes.
@@ -1155,7 +1155,7 @@ pub enum WebView2FixtureError {
         /// Observed bytes.
         actual: usize,
     },
-    /// The fixed DevTools registration returned no valid script identifier.
+    /// The fixed `DevTools` registration returned no valid script identifier.
     #[error("renderer DevTools script registration response is invalid")]
     InvalidDevToolsResponse,
     /// Navigation completed with a `WebView2` failure result.

@@ -8058,7 +8058,10 @@ same-user-risk acknowledgement. It accepts a canonical exact-package preload rep
 only when its build and component digests match the inventory. The repository does
 not yet produce that report, so G2 remains incomplete until an exact package-derived
 preload runner is implemented and the final user-controlled Windows matrix passes.
-Public CI never acquires proprietary package bytes. See the
+Exact vendor-binary probes run only in a disposable standard-user Windows account or
+clean VM with no production OpenAI state; the explicit child environment is not a
+registry, credential-store, filesystem, or network sandbox. Public CI never acquires
+proprietary package bytes. See the
 [G2 testing runbook](../testing/openai-g2-feasibility.md).
 
 This harness does not load packaged main/renderer logic through Weregopher, implement

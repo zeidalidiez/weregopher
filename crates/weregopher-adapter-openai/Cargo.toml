@@ -1,6 +1,6 @@
 [package]
 name = "weregopher-adapter-openai"
-description = "OpenAI-family target feasibility analysis for Weregopher"
+description = "OpenAI-family feasibility and app-server proxy support for Weregopher"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
